@@ -1,2 +1,13 @@
+# Rust
 /target/
-Cargo.lock
+
+# Node / 前端
+/node_modules/
+/dist/
+
+# 工具产物
+/.playwright-mcp/
+*.log
+
+# 系统
+.DS_Store

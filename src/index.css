@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+/* ============================================================
+   香农播放器 · 设计 Token（依据「设计 Token 文档 v1.0」）
+   语义色一律走 CSS 变量；浅色为默认，深色整套替换。
+   ============================================================ */
+:root {
+  --bg:   #FBF7F0;
+  --sb:   #F6F0E6;
+  --srf:  #FFFEFA;
+  --tx:   #372C20;
+  --tx2:  #9A8B76;
+  --ac:   #CE7A3B;
+  --bd:   #ECE3D4;
+  --hv:   #F1E9DC;
+  --pb:   #FFFEFA;
+  --pbin: rgba(255, 255, 255, 0.7);
+  --danger: #B0483A;
+  --scrim: rgba(255, 253, 247, 0.9);
+}
+
+[data-theme="dark"] {
+  --bg:   #231D16;
+  --sb:   #1D1811;
+  --srf:  #2E261D;
+  --tx:   #F2EBE0;
+  --tx2:  #A69479;
+  --ac:   #E59A5C;
+  --bd:   #3C3327;
+  --hv:   #352C21;
+  --pb:   #2B231A;
+  --pbin: rgba(255, 255, 255, 0.08);
+  --danger: #E07B6A;
+  --scrim: rgba(28, 22, 14, 0.85);
+}
+
+/* 把语义 Token 映射成 Tailwind 工具类（inline 保证随主题实时切换）。
+   使用示例：bg-bg / text-tx / text-tx2 / bg-hv / border-bd / text-ac ... */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-sb: var(--sb);
+  --color-srf: var(--srf);
+  --color-tx: var(--tx);
+  --color-tx2: var(--tx2);
+  --color-ac: var(--ac);
+  --color-bd: var(--bd);
+  --color-hv: var(--hv);
+  --color-pb: var(--pb);
+  --color-pbin: var(--pbin);
+  --color-danger: var(--danger);
+
+  --font-serif: "Lora", "Noto Serif SC", serif;
+  --font-ui: -apple-system, "SF Pro", "PingFang SC", "Microsoft YaHei", sans-serif;
+
+  /* 全局回弹曲线（spring 代用） */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ---------- 基础 ---------- */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--tx);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+/* 隐藏原生滚动条（自绘滚动条另行实现） */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* ============================================================
+   复合材质 / 阴影：手写为组件类，保持 JSX 干净
+   ============================================================ */
+@layer components {
+  /* 所有封面统一材质：发丝边 + 底部暗角 + 顶部微光 */
+  .cover-material {
+    box-shadow:
+      inset 0 0 0 1px rgba(38, 22, 8, 0.16),
+      inset 0 -22px 38px rgba(38, 22, 8, 0.14),
+      inset 0 14px 28px rgba(255, 250, 240, 0.06);
+    transition: box-shadow 0.3s ease;
+  }
+  .cover-material:hover {
+    box-shadow:
+      inset 0 0 0 1px rgba(38, 22, 8, 0.16),
+      inset 0 -22px 38px rgba(38, 22, 8, 0.14),
+      inset 0 14px 28px rgba(255, 250, 240, 0.06),
+      0 16px 32px rgba(60, 40, 20, 0.22);
+  }
+  /* 悬浮播放条：内侧高光描边 + 外投影 */
+  .playbar-shadow {
+    box-shadow: inset 0 0 0 1px var(--pbin), 0 14px 36px rgba(60, 40, 20, 0.16);
+  }
+  /* 浮层菜单投影 */
+  .menu-shadow {
+    box-shadow: 0 18px 44px rgba(60, 40, 20, 0.2);
+  }
+}
+
+/* ============================================================
+   浮层弹出动效（scale 0.82→1 + translateY -6→0，回弹曲线）
+   Radix 菜单通过 data-state 触发
+   ============================================================ */
+@keyframes menuPop {
+  from { opacity: 0; transform: scale(0.82) translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-menu-pop[data-state="open"] {
+  animation: menuPop 0.26s var(--ease-spring);
+}
+
+/* 播放中均衡器：3 根柱 scaleY 0.35↔1 循环，相位差 0.25s */
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.35); }
+  50%      { transform: scaleY(1); }
+}
