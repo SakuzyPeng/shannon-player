@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
+import { EqBars } from "@/components/common/EqBars";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -13,27 +14,10 @@ import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Id, Track } from "@/types/player";
 
-/** 当前播放行的跳动均衡器：3 根 3px 柱，相位差 0.25s，暂停时定格。 */
-function EqBars({ playing }: { playing: boolean }) {
-  return (
-    <div className="flex h-[15px] items-end gap-[2.5px] pl-[3px]">
-      {[0, 0.25, 0.5].map((delay) => (
-        <div
-          key={delay}
-          className="h-full w-[3px] origin-bottom rounded-[1.5px] bg-ac"
-          style={{
-            animation: `eq 0.9s ease-in-out ${delay}s infinite`,
-            animationPlayState: playing ? "running" : "paused",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const { t } = useT();
   const closeAlbum = useUiStore((s) => s.closeAlbum);
+  const openArtist = useUiStore((s) => s.openArtist);
   const { scrollerRef, innerRef, thumbRef, onWheel, onScroll } = useElasticScroll();
 
   const playing = usePlayerStore((s) => s.playing);
@@ -139,7 +123,12 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                 )}
               </div>
               <div className="text-sm text-tx2">
-                <span className="cursor-pointer font-semibold text-ac">{album.artist}</span>
+                <span
+                  onClick={() => openArtist(album.artist)}
+                  className="cursor-pointer font-semibold text-ac"
+                >
+                  {album.artist}
+                </span>
                 {" · "}
                 {album.year} · {album.genre} · {t("unit.tracks", { n: album.trackCount })} ·{" "}
                 {t("unit.minutes", { n: Math.floor(totalSec / 60) })}

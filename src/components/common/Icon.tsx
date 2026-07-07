@@ -23,6 +23,7 @@ export type IconName =
   | "heart"
   | "volume"
   | "chevronLeft"
+  | "chevronRight"
   | "more";
 
 /** 描边类图标：单个 d（含多段子路径）。 */
@@ -48,6 +49,7 @@ const STROKE: Partial<Record<IconName, string>> = {
   addPlaylist: "M12 4v5 M9 6.5 12 4l3 2.5 M8 13a4 4 0 1 0 8 0 4 4 0 0 0-8 0z M4 20h16",
   check: "M5 12l5 5 9-10",
   chevronLeft: "M15 6l-6 6 6 6",
+  chevronRight: "M9 6l6 6-6 6",
 };
 
 interface IconProps {

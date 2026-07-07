@@ -32,6 +32,15 @@ export interface Messages {
   "album.uncollect": string;
   "album.collected": string;
 
+  "artist.kicker": string;
+  "artist.meta": string; // {albums} {songs} {plays}
+  "artist.playAll": string;
+  "artist.follow": string;
+  "artist.unfollow": string;
+  "artist.topSongs": string;
+  "artist.showAllSongs": string; // {n}
+  "artist.showAllAlbums": string; // {n}
+
   "theme.light": string;
   "theme.dark": string;
   "theme.system": string;
@@ -99,6 +108,15 @@ const zhHans: Messages = {
   "album.uncollect": "取消收藏专辑",
   "album.collected": "已收藏",
 
+  "artist.kicker": "歌手",
+  "artist.meta": "{albums} 张专辑 · {songs} 首歌曲 · 收听 {plays} 次",
+  "artist.playAll": "播放全部",
+  "artist.follow": "收藏歌手",
+  "artist.unfollow": "取消收藏歌手",
+  "artist.topSongs": "热门歌曲",
+  "artist.showAllSongs": "显示全部 {n} 首",
+  "artist.showAllAlbums": "显示全部 {n} 张",
+
   "theme.light": "浅色",
   "theme.dark": "深色",
   "theme.system": "系统",
@@ -163,6 +181,15 @@ const zhHant: Messages = {
   "album.collect": "收藏專輯",
   "album.uncollect": "取消收藏專輯",
   "album.collected": "已收藏",
+
+  "artist.kicker": "歌手",
+  "artist.meta": "{albums} 張專輯 · {songs} 首歌曲 · 聆聽 {plays} 次",
+  "artist.playAll": "播放全部",
+  "artist.follow": "收藏歌手",
+  "artist.unfollow": "取消收藏歌手",
+  "artist.topSongs": "熱門歌曲",
+  "artist.showAllSongs": "顯示全部 {n} 首",
+  "artist.showAllAlbums": "顯示全部 {n} 張",
 
   "theme.light": "淺色",
   "theme.dark": "深色",
@@ -229,6 +256,15 @@ const en: Messages = {
   "album.uncollect": "Unfavorite album",
   "album.collected": "Favorited",
 
+  "artist.kicker": "Artist",
+  "artist.meta": "{albums} albums · {songs} songs · {plays} plays",
+  "artist.playAll": "Play All",
+  "artist.follow": "Favorite artist",
+  "artist.unfollow": "Unfavorite artist",
+  "artist.topSongs": "Top Songs",
+  "artist.showAllSongs": "Show all {n}",
+  "artist.showAllAlbums": "Show all {n}",
+
   "theme.light": "Light",
   "theme.dark": "Dark",
   "theme.system": "System",
@@ -293,6 +329,15 @@ const ja: Messages = {
   "album.collect": "アルバムをお気に入りに追加",
   "album.uncollect": "アルバムをお気に入りから削除",
   "album.collected": "お気に入り済み",
+
+  "artist.kicker": "アーティスト",
+  "artist.meta": "{albums} 枚のアルバム · {songs} 曲 · 再生 {plays} 回",
+  "artist.playAll": "すべて再生",
+  "artist.follow": "アーティストをお気に入りに追加",
+  "artist.unfollow": "アーティストをお気に入りから削除",
+  "artist.topSongs": "人気曲",
+  "artist.showAllSongs": "全 {n} 曲を表示",
+  "artist.showAllAlbums": "全 {n} 枚を表示",
 
   "theme.light": "ライト",
   "theme.dark": "ダーク",
