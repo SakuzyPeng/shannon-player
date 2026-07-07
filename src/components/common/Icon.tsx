@@ -21,7 +21,9 @@ export type IconName =
   | "play"
   | "pause"
   | "heart"
-  | "volume";
+  | "volume"
+  | "chevronLeft"
+  | "more";
 
 /** 描边类图标：单个 d（含多段子路径）。 */
 const STROKE: Partial<Record<IconName, string>> = {
@@ -45,6 +47,7 @@ const STROKE: Partial<Record<IconName, string>> = {
   queue: "M4 6h16 M4 12h16 M4 18h10",
   addPlaylist: "M12 4v5 M9 6.5 12 4l3 2.5 M8 13a4 4 0 1 0 8 0 4 4 0 0 0-8 0z M4 20h16",
   check: "M5 12l5 5 9-10",
+  chevronLeft: "M15 6l-6 6 6 6",
 };
 
 interface IconProps {
@@ -120,6 +123,14 @@ export function Icon({ name, size = 20, strokeWidth = 1.7, className, style }: I
       return (
         <svg {...common} fill="currentColor">
           <path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z" />
+        </svg>
+      );
+    case "more":
+      return (
+        <svg {...common} fill="currentColor">
+          <circle cx="5" cy="12" r="1.7" />
+          <circle cx="12" cy="12" r="1.7" />
+          <circle cx="19" cy="12" r="1.7" />
         </svg>
       );
     case "volume":

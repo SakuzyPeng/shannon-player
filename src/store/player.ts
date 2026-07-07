@@ -7,7 +7,7 @@ import type {
   RepeatMode,
   Track,
 } from "@/types/player";
-import { DEMO_TRACK } from "@/data/library";
+import { DEMO_TRACK, SEED_FAVORITE_ALBUMS, SEED_FAVORITE_TRACKS } from "@/data/library";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
@@ -30,6 +30,10 @@ interface PlayerState {
   /** ---- 进度（秒） ---- */
   progress: PlaybackProgress;
 
+  /** ---- 收藏（用户数据，后期由后端持久化） ---- */
+  favorites: Record<Id, boolean>;
+  favoriteAlbums: Record<Id, boolean>;
+
   /** ---- 音频设备 ---- */
   devices: AudioDevice[];
   activeDeviceId: Id | null;
@@ -37,13 +41,16 @@ interface PlayerState {
   /** ---- 动作 ---- */
   current: () => Track | null;
   play: (track?: Track) => void;
+  /** 用整张专辑/歌单替换队列并从 startIndex 开始播放。 */
+  playQueue: (tracks: Track[], startIndex?: number) => void;
   pause: () => void;
   togglePlay: () => void;
   next: () => void;
   prev: () => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
-  toggleFavoriteCurrent: () => void;
+  toggleFavorite: (id: Id) => void;
+  toggleFavoriteAlbum: (id: Id) => void;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
@@ -57,6 +64,11 @@ interface PlayerState {
 }
 
 const REPEAT_CYCLE: RepeatMode[] = ["off", "all", "one"];
+
+/** 切到新曲目时的全新进度（位置归零、时长取新曲）。 */
+function freshProgress(track: Track): PlaybackProgress {
+  return { positionSec: 0, durationSec: track.durationSec, bufferedSec: track.durationSec };
+}
 
 /** 初始队列：仅放入演示曲目，进度停在 43%（对齐设计稿）。 */
 const initialQueue: QueueItem[] = [
@@ -79,6 +91,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     bufferedSec: DEMO_TRACK.durationSec,
   },
 
+  favorites: { ...SEED_FAVORITE_TRACKS },
+  favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
+
   devices: [
     { id: "dev-default", label: "系统默认输出", isDefault: true },
     { id: "dev-speakers", label: "MacBook Pro 扬声器", isDefault: false },
@@ -96,9 +111,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((s) => {
       if (!track) return { playing: true };
       const idx = s.queue.findIndex((q) => q.track.id === track.id);
-      if (idx >= 0) return { currentIndex: idx, playing: true };
+      if (idx >= 0) return { currentIndex: idx, playing: true, progress: freshProgress(track) };
       const item: QueueItem = { uid: nextUid(), track, source: "user" };
-      return { queue: [...s.queue, item], currentIndex: s.queue.length, playing: true };
+      return {
+        queue: [...s.queue, item],
+        currentIndex: s.queue.length,
+        playing: true,
+        progress: freshProgress(track),
+      };
+    }),
+
+  playQueue: (tracks, startIndex = 0) =>
+    set(() => {
+      if (tracks.length === 0) return {};
+      const queue: QueueItem[] = tracks.map((track) => ({ uid: nextUid(), track, source: "user" }));
+      const idx = Math.max(0, Math.min(startIndex, queue.length - 1));
+      return { queue, currentIndex: idx, playing: true, progress: freshProgress(queue[idx].track) };
     }),
 
   pause: () => set({ playing: false }),
@@ -110,7 +138,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (s.repeat === "one") return { progress: { ...s.progress, positionSec: 0 } };
       const atEnd = s.currentIndex >= s.queue.length - 1;
       const nextIdx = atEnd ? (s.repeat === "all" ? 0 : s.currentIndex) : s.currentIndex + 1;
-      return { currentIndex: nextIdx, progress: { ...s.progress, positionSec: 0 } };
+      return { currentIndex: nextIdx, progress: freshProgress(s.queue[nextIdx].track) };
     }),
 
   prev: () =>
@@ -118,24 +146,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // 3 秒内回退到上一首，否则回到本曲开头。
       if (s.progress.positionSec > 3) return { progress: { ...s.progress, positionSec: 0 } };
       const prevIdx = s.currentIndex <= 0 ? 0 : s.currentIndex - 1;
-      return { currentIndex: prevIdx, progress: { ...s.progress, positionSec: 0 } };
+      return { currentIndex: prevIdx, progress: freshProgress(s.queue[prevIdx].track) };
     }),
 
   toggleShuffle: () => set((s) => ({ shuffle: !s.shuffle })),
   cycleRepeat: () =>
     set((s) => ({ repeat: REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(s.repeat) + 1) % 3] })),
 
-  toggleFavoriteCurrent: () =>
-    set((s) => {
-      if (s.currentIndex < 0) return s;
-      const queue = s.queue.slice();
-      const item = queue[s.currentIndex];
-      queue[s.currentIndex] = {
-        ...item,
-        track: { ...item.track, favorited: !item.track.favorited },
-      };
-      return { queue };
-    }),
+  toggleFavorite: (id) =>
+    set((s) => ({ favorites: { ...s.favorites, [id]: !s.favorites[id] } })),
+
+  toggleFavoriteAlbum: (id) =>
+    set((s) => ({ favoriteAlbums: { ...s.favoriteAlbums, [id]: !s.favoriteAlbums[id] } })),
 
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),

@@ -4,13 +4,8 @@ import { usePlayerStore } from "@/store/player";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import { fmtTime } from "@/lib/time";
 import type { MouseEvent } from "react";
-
-function fmt(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 export function PlayBar() {
   const track = usePlayerStore((s) => (s.currentIndex >= 0 ? s.queue[s.currentIndex]?.track : null));
@@ -20,18 +15,21 @@ export function PlayBar() {
   const muted = usePlayerStore((s) => s.muted);
   const shuffle = usePlayerStore((s) => s.shuffle);
   const repeat = usePlayerStore((s) => s.repeat);
+  const favorites = usePlayerStore((s) => s.favorites);
 
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const next = usePlayerStore((s) => s.next);
   const prev = usePlayerStore((s) => s.prev);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
   const cycleRepeat = usePlayerStore((s) => s.cycleRepeat);
-  const toggleFav = usePlayerStore((s) => s.toggleFavoriteCurrent);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const seek = usePlayerStore((s) => s.seek);
   const setVolume = usePlayerStore((s) => s.setVolume);
   const { t } = useT();
 
   if (!track) return null;
+
+  const favorited = !!favorites[track.id];
 
   const pct = progress.durationSec ? (progress.positionSec / progress.durationSec) * 100 : 0;
   const remaining = Math.max(0, progress.durationSec - progress.positionSec);
@@ -61,11 +59,11 @@ export function PlayBar() {
         </div>
         {/* 爱心常驻 --ac（对齐设计稿）；实心 = 已收藏，描边 = 未收藏 */}
         <button
-          aria-label={track.favorited ? t("player.unfavorite") : t("player.favorite")}
-          onClick={toggleFav}
+          aria-label={favorited ? t("player.unfavorite") : t("player.favorite")}
+          onClick={() => toggleFavorite(track.id)}
           className="grid size-[30px] flex-shrink-0 place-items-center rounded-full text-ac transition-transform hover:bg-hv active:scale-90"
         >
-          <Icon name={track.favorited ? "heart" : "favorites"} size={16} />
+          <Icon name={favorited ? "heart" : "favorites"} size={16} />
         </button>
       </div>
 
@@ -109,11 +107,11 @@ export function PlayBar() {
           </button>
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="text-[11px] tabular-nums text-tx2">{fmt(progress.positionSec)}</span>
+          <span className="text-[11px] tabular-nums text-tx2">{fmtTime(progress.positionSec)}</span>
           <div onClick={onSeek} className="h-1 flex-1 cursor-pointer overflow-hidden rounded-[2px] bg-bd">
             <div className="h-full rounded-[2px] bg-ac" style={{ width: `${pct}%` }} />
           </div>
-          <span className="text-[11px] tabular-nums text-tx2">-{fmt(remaining)}</span>
+          <span className="text-[11px] tabular-nums text-tx2">-{fmtTime(remaining)}</span>
         </div>
       </div>
 

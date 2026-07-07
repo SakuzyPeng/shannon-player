@@ -25,6 +25,13 @@ export interface Messages {
   "action.search": string;
   "action.playAlbum": string; // {title}
 
+  "album.kicker": string;
+  "album.shufflePlay": string;
+  "album.more": string;
+  "album.collect": string;
+  "album.uncollect": string;
+  "album.collected": string;
+
   "theme.light": string;
   "theme.dark": string;
   "theme.system": string;
@@ -46,6 +53,7 @@ export interface Messages {
   "menu.favorite": string;
   "menu.editTags": string;
   "menu.showInfo": string;
+  "menu.showLyrics": string;
   "menu.revealInFinder": string;
   "menu.removeFromLibrary": string;
 
@@ -84,6 +92,13 @@ const zhHans: Messages = {
   "action.search": "搜索",
   "action.playAlbum": "播放 {title}",
 
+  "album.kicker": "专辑",
+  "album.shufflePlay": "随机播放",
+  "album.more": "更多操作",
+  "album.collect": "收藏专辑",
+  "album.uncollect": "取消收藏专辑",
+  "album.collected": "已收藏",
+
   "theme.light": "浅色",
   "theme.dark": "深色",
   "theme.system": "系统",
@@ -105,6 +120,7 @@ const zhHans: Messages = {
   "menu.favorite": "收藏",
   "menu.editTags": "编辑标签…",
   "menu.showInfo": "显示专辑简介",
+  "menu.showLyrics": "查看歌词",
   "menu.revealInFinder": "在 Finder 中显示",
   "menu.removeFromLibrary": "从曲库中移除",
 
@@ -141,6 +157,13 @@ const zhHant: Messages = {
   "action.search": "搜尋",
   "action.playAlbum": "播放 {title}",
 
+  "album.kicker": "專輯",
+  "album.shufflePlay": "隨機播放",
+  "album.more": "更多操作",
+  "album.collect": "收藏專輯",
+  "album.uncollect": "取消收藏專輯",
+  "album.collected": "已收藏",
+
   "theme.light": "淺色",
   "theme.dark": "深色",
   "theme.system": "系統",
@@ -162,6 +185,7 @@ const zhHant: Messages = {
   "menu.favorite": "收藏",
   "menu.editTags": "編輯標籤…",
   "menu.showInfo": "顯示專輯簡介",
+  "menu.showLyrics": "查看歌詞",
   "menu.revealInFinder": "在 Finder 中顯示",
   "menu.removeFromLibrary": "從曲庫中移除",
 
@@ -198,6 +222,13 @@ const en: Messages = {
   "action.search": "Search",
   "action.playAlbum": "Play {title}",
 
+  "album.kicker": "Album",
+  "album.shufflePlay": "Shuffle",
+  "album.more": "More",
+  "album.collect": "Favorite album",
+  "album.uncollect": "Unfavorite album",
+  "album.collected": "Favorited",
+
   "theme.light": "Light",
   "theme.dark": "Dark",
   "theme.system": "System",
@@ -219,6 +250,7 @@ const en: Messages = {
   "menu.favorite": "Favorite",
   "menu.editTags": "Edit Tags…",
   "menu.showInfo": "Show Album Info",
+  "menu.showLyrics": "Show Lyrics",
   "menu.revealInFinder": "Reveal in Finder",
   "menu.removeFromLibrary": "Remove from Library",
 
@@ -255,6 +287,13 @@ const ja: Messages = {
   "action.search": "検索",
   "action.playAlbum": "{title} を再生",
 
+  "album.kicker": "アルバム",
+  "album.shufflePlay": "シャッフル再生",
+  "album.more": "その他",
+  "album.collect": "アルバムをお気に入りに追加",
+  "album.uncollect": "アルバムをお気に入りから削除",
+  "album.collected": "お気に入り済み",
+
   "theme.light": "ライト",
   "theme.dark": "ダーク",
   "theme.system": "システム",
@@ -276,6 +315,7 @@ const ja: Messages = {
   "menu.favorite": "お気に入り",
   "menu.editTags": "タグを編集…",
   "menu.showInfo": "アルバム情報を表示",
+  "menu.showLyrics": "歌詞を表示",
   "menu.revealInFinder": "Finder で表示",
   "menu.removeFromLibrary": "ライブラリから削除",
 

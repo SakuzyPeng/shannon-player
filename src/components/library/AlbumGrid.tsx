@@ -1,32 +1,25 @@
 import { motion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
-import { AlbumContextMenu } from "@/components/library/AlbumContextMenu";
-import { ALBUMS } from "@/data/library";
+import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { ALBUMS, ALBUM_MENU, tracksOf } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
+import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import type { Album } from "@/types/player";
 
 function playAlbum(album: Album) {
-  usePlayerStore.getState().play({
-    id: `${album.id}-t0`,
-    title: album.title,
-    artist: album.artist,
-    album: album.title,
-    albumId: album.id,
-    cover: album.cover,
-    durationSec: 240,
-    favorited: false,
-  });
+  usePlayerStore.getState().playQueue(tracksOf(album));
 }
 
 export function AlbumGrid() {
   const { t } = useT();
+  const openAlbum = useUiStore((s) => s.openAlbum);
   return (
     <div className="grid grid-cols-4 gap-x-7 gap-y-8">
       {ALBUMS.map((album) => (
-        <AlbumContextMenu key={album.id} album={album}>
-          <div className="min-w-0 cursor-pointer">
+        <ItemContextMenu key={album.id} label={`${album.title} — ${album.artist}`} items={ALBUM_MENU}>
+          <div className="min-w-0 cursor-pointer" onClick={() => openAlbum(album.id)}>
             <motion.div
               whileHover={{ y: -5, scale: 1.015 }}
               transition={{ type: "spring", stiffness: 380, damping: 18 }}
@@ -61,7 +54,7 @@ export function AlbumGrid() {
               {album.artist} · {album.year}
             </div>
           </div>
-        </AlbumContextMenu>
+        </ItemContextMenu>
       ))}
     </div>
   );

@@ -1,5 +1,6 @@
-import { AlbumContextMenu } from "@/components/library/AlbumContextMenu";
-import { ALBUMS } from "@/data/library";
+import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { ALBUMS, ALBUM_MENU } from "@/data/library";
+import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
 
@@ -7,6 +8,7 @@ const COLS = "grid-cols-[64px_1fr_200px_70px_90px_90px]";
 
 export function AlbumList() {
   const { t } = useT();
+  const openAlbum = useUiStore((s) => s.openAlbum);
   const fmtMinutes = (sec: number) => t("unit.minutes", { n: Math.round(sec / 60) });
 
   return (
@@ -22,8 +24,9 @@ export function AlbumList() {
         <span className="text-right">{t("list.duration")}</span>
       </div>
       {ALBUMS.map((album) => (
-        <AlbumContextMenu key={album.id} album={album}>
+        <ItemContextMenu key={album.id} label={`${album.title} — ${album.artist}`} items={ALBUM_MENU}>
           <div
+            onClick={() => openAlbum(album.id)}
             className={`grid ${COLS} cursor-pointer items-center gap-3.5 border-b border-bd px-[18px] py-2 transition-colors last:border-b-0 hover:bg-hv`}
           >
             <div
@@ -44,7 +47,7 @@ export function AlbumList() {
               {fmtMinutes(album.durationSec)}
             </span>
           </div>
-        </AlbumContextMenu>
+        </ItemContextMenu>
       ))}
     </div>
   );

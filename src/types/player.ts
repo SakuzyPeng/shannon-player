@@ -26,6 +26,8 @@ export interface Album {
   title: string;
   artist: string;
   year: number;
+  /** 流派（来自文件标签的内容，不进 i18n）。 */
+  genre: string;
   cover: Cover;
   /** 曲目数。 */
   trackCount: number;
@@ -45,7 +47,6 @@ export interface Track {
   durationSec: number;
   /** 本地文件路径（后期由 Rust 后端提供）。 */
   path?: string;
-  favorited: boolean;
 }
 
 /** 播放队列中的一项（区分同一曲目的多次入队）。 */

@@ -28,6 +28,11 @@
   --cover-action-shadow: rgba(30, 18, 8, 0.35);
   --cover-overlay: rgba(30, 18, 8, 0.42);
   --cover-thumb-highlight: rgba(255, 250, 240, 0.14);
+  --cover-hero-shade: rgba(20, 14, 6, 0.2);
+  --cover-hero-glint: rgba(255, 250, 240, 0.07);
+  --cover-hero-tint: 22%; /* 封面主色调投影透明度（深色 20%） */
+  --cover-hero-overlay: rgba(30, 18, 8, 0.4);
+  --cover-collect-shadow: rgba(30, 18, 8, 0.28);
   --seg-shadow: rgba(60, 40, 20, 0.1);
   --playbar-outer-shadow: rgba(60, 40, 20, 0.16);
   --menu-outer-shadow: rgba(60, 40, 20, 0.2);
@@ -56,6 +61,7 @@
   --pbin: rgba(255, 255, 255, 0.08);
   --danger: #E07B6A;
   --scrim: rgba(28, 22, 14, 0.85);
+  --cover-hero-tint: 20%;
 }
 
 /* 把语义 Token 映射成 Tailwind 工具类（inline 保证随主题实时切换）。
@@ -131,6 +137,21 @@ body {
   }
   .cover-thumb-material {
     box-shadow: inset 0 0 0 1px var(--cover-hairline);
+  }
+  /* 详情页大封面：材质内描边 + 封面主色调投影（Token 文档 §5） */
+  .cover-hero-material {
+    box-shadow:
+      inset 0 0 0 1px var(--cover-hairline),
+      inset 0 -22px 38px var(--cover-hero-shade),
+      inset 0 14px 26px var(--cover-hero-glint),
+      0 26px 68px 14px color-mix(in srgb, var(--cover-c1) var(--cover-hero-tint), transparent);
+  }
+  /* 详情页大封面 hover 罩层（右上角操作区域暗角） */
+  .cover-hero-overlay {
+    background: radial-gradient(130px 110px at 100% 0%, var(--cover-hero-overlay), transparent 72%);
+  }
+  .collect-shadow {
+    box-shadow: 0 3px 10px var(--cover-collect-shadow);
   }
   .play-cover-material {
     box-shadow: inset 0 0 0 1px var(--cover-thumb-highlight);
