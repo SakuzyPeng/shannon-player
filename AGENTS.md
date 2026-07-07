@@ -41,7 +41,7 @@ pnpm tauri build      # 打包桌面应用
 
 ### 设计来源
 
-UI 逐页复刻 Codex Design 项目「香农播放器设计简报」（10 页 + Token 文档），定稿方向「杏色·明快 2a」。当前已实现曲库主界面，其余页面按路线图（见 README.md）逐页迭代；新页面应复用现有 Token、i18n 与 store 体系。
+UI 逐页复刻 Claude Design 项目「香农播放器设计简报」（10 页 + Token 文档，离线导出见 `docs/design/`），定稿方向「杏色·明快 2a」。当前已实现曲库主界面与专辑详情页，其余页面按路线图（见 README.md）逐页迭代；新页面应复用现有 Token、i18n 与 store 体系。
 
 ## 文档约定
 
