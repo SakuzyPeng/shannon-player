@@ -20,7 +20,7 @@ function Segmented() {
           onClick={() => setView(v)}
           className={cn(
             "cursor-pointer rounded-full px-4 py-1.5 font-semibold transition-colors",
-            view === v ? "bg-srf text-tx shadow-[0_1px_3px_rgba(60,40,20,0.1)]" : "text-tx2",
+            view === v ? "segmented-active-shadow bg-srf text-tx" : "text-tx2",
           )}
         >
           {v === "grid" ? t("view.grid") : t("view.list")}
@@ -89,8 +89,7 @@ export function LibraryScreen() {
         </div>
         <div
           ref={thumbRef}
-          className="pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
-          style={{ background: "rgba(112,92,66,0.4)" }}
+          className="scroll-thumb pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
         />
       </div>
     </div>

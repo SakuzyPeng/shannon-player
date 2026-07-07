@@ -1,6 +1,7 @@
 import { AlbumContextMenu } from "@/components/library/AlbumContextMenu";
 import { ALBUMS } from "@/data/library";
 import { useT } from "@/i18n";
+import { coverGradientStyle } from "@/lib/coverStyle";
 
 const COLS = "grid-cols-[64px_1fr_200px_70px_90px_90px]";
 
@@ -26,12 +27,10 @@ export function AlbumList() {
             className={`grid ${COLS} cursor-pointer items-center gap-3.5 border-b border-bd px-[18px] py-2 transition-colors last:border-b-0 hover:bg-hv`}
           >
             <div
-              className="grid size-11 place-items-center rounded-[9px] shadow-[inset_0_0_0_1px_rgba(38,22,8,0.16)]"
-              style={{
-                backgroundImage: `linear-gradient(145deg, ${album.cover.gradient[0]}, ${album.cover.gradient[1]})`,
-              }}
+              className="cover-gradient cover-thumb-material grid size-11 place-items-center rounded-[9px]"
+              style={coverGradientStyle(album.cover)}
             >
-              <span className="font-serif text-[17px] text-[rgba(253,248,240,0.9)]">
+              <span className="cover-initial font-serif text-[17px]">
                 {album.cover.initial}
               </span>
             </div>

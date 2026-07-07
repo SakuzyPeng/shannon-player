@@ -23,27 +23,27 @@ export function TrafficLights() {
       <button
         aria-label={t("window.close")}
         onClick={run((w) => w.close())}
-        className="grid size-3 place-items-center rounded-full bg-[#FF5F57] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.14)]"
+        className="traffic-close traffic-light grid size-3 place-items-center rounded-full"
       >
-        <svg width="8" height="8" viewBox="0 0 24 24" className={glyph} stroke="#5A0000" strokeWidth={2.6} strokeLinecap="round">
+        <svg width="8" height="8" viewBox="0 0 24 24" className={`${glyph} traffic-close-glyph`} strokeWidth={2.6} strokeLinecap="round">
           <path d="M7 7l10 10 M17 7l-10 10" />
         </svg>
       </button>
       <button
         aria-label={t("window.minimize")}
         onClick={run((w) => w.minimize())}
-        className="grid size-3 place-items-center rounded-full bg-[#FEBC2E] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.14)]"
+        className="traffic-light traffic-minimize grid size-3 place-items-center rounded-full"
       >
-        <svg width="8" height="8" viewBox="0 0 24 24" className={glyph} stroke="#5A3A00" strokeWidth={2.6} strokeLinecap="round">
+        <svg width="8" height="8" viewBox="0 0 24 24" className={`${glyph} traffic-minimize-glyph`} strokeWidth={2.6} strokeLinecap="round">
           <path d="M6 12h12" />
         </svg>
       </button>
       <button
         aria-label={t("window.maximize")}
         onClick={run((w) => w.toggleMaximize())}
-        className="grid size-3 place-items-center rounded-full bg-[#28C840] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.14)]"
+        className="traffic-light traffic-maximize grid size-3 place-items-center rounded-full"
       >
-        <svg width="8" height="8" viewBox="0 0 24 24" className={glyph} stroke="#003D0B" strokeWidth={2.4} strokeLinecap="round">
+        <svg width="8" height="8" viewBox="0 0 24 24" className={`${glyph} traffic-maximize-glyph`} strokeWidth={2.4} strokeLinecap="round">
           <path d="M12 6v12 M6 12h12" />
         </svg>
       </button>

@@ -3,6 +3,7 @@ import { Icon } from "@/components/common/Icon";
 import { usePlayerStore } from "@/store/player";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
+import { coverGradientStyle } from "@/lib/coverStyle";
 import type { MouseEvent } from "react";
 
 function fmt(sec: number): string {
@@ -49,12 +50,10 @@ export function PlayBar() {
       {/* 左：封面 + 曲目 + 收藏 */}
       <div className="flex w-[236px] items-center gap-3">
         <div
-          className="grid size-12 place-items-center rounded-xl shadow-[inset_0_0_0_1px_rgba(255,250,240,0.14)]"
-          style={{
-            backgroundImage: `linear-gradient(145deg, ${track.cover.gradient[0]}, ${track.cover.gradient[1]})`,
-          }}
+          className="cover-gradient play-cover-material grid size-12 place-items-center rounded-xl"
+          style={coverGradientStyle(track.cover)}
         >
-          <span className="font-serif text-[19px] text-[rgba(253,248,240,0.9)]">{track.cover.initial}</span>
+          <span className="cover-initial font-serif text-[19px]">{track.cover.initial}</span>
         </div>
         <div className="min-w-0">
           <div className="truncate font-serif text-[14.5px] font-semibold text-tx">{track.title}</div>
@@ -91,7 +90,7 @@ export function PlayBar() {
             onClick={togglePlay}
             whileTap={{ scale: 0.9 }}
             whileHover={{ filter: "brightness(1.08)" }}
-            className="grid size-11 place-items-center rounded-full bg-ac text-[#FFF9F0]"
+            className="grid size-11 place-items-center rounded-full bg-ac text-on-ac"
           >
             <Icon name={playing ? "pause" : "play"} size={17} />
           </motion.button>

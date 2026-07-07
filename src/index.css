@@ -18,6 +18,28 @@
   --pbin: rgba(255, 255, 255, 0.7);
   --danger: #B0483A;
   --scrim: rgba(255, 253, 247, 0.9);
+  --on-ac: #FFF9F0;
+
+  --cover-fg: rgba(253, 248, 240, 0.9);
+  --cover-hairline: rgba(38, 22, 8, 0.16);
+  --cover-shade: rgba(38, 22, 8, 0.14);
+  --cover-glint: rgba(255, 250, 240, 0.06);
+  --cover-hover-shadow: rgba(60, 40, 20, 0.22);
+  --cover-action-shadow: rgba(30, 18, 8, 0.35);
+  --cover-overlay: rgba(30, 18, 8, 0.42);
+  --cover-thumb-highlight: rgba(255, 250, 240, 0.14);
+  --seg-shadow: rgba(60, 40, 20, 0.1);
+  --playbar-outer-shadow: rgba(60, 40, 20, 0.16);
+  --menu-outer-shadow: rgba(60, 40, 20, 0.2);
+  --scroll-thumb: rgba(112, 92, 66, 0.4);
+
+  --traffic-close: #FF5F57;
+  --traffic-minimize: #FEBC2E;
+  --traffic-maximize: #28C840;
+  --traffic-border: rgba(0, 0, 0, 0.14);
+  --traffic-close-glyph: #5A0000;
+  --traffic-minimize-glyph: #5A3A00;
+  --traffic-maximize-glyph: #003D0B;
 }
 
 [data-theme="dark"] {
@@ -51,6 +73,7 @@
   --color-pbk: var(--pbk);
   --color-pbin: var(--pbin);
   --color-danger: var(--danger);
+  --color-on-ac: var(--on-ac);
 
   --font-serif: "Lora Variable", "Lora", "Noto Serif SC Variable", "Noto Serif SC", serif;
   --font-ui: -apple-system, "SF Pro", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -83,27 +106,72 @@ body {
    ============================================================ */
 @layer components {
   /* 所有封面统一材质：发丝边 + 底部暗角 + 顶部微光 */
+  .cover-gradient {
+    background-image: linear-gradient(145deg, var(--cover-c1), var(--cover-c2));
+  }
+  .cover-initial {
+    color: var(--cover-fg);
+  }
+  .cover-overlay {
+    background: linear-gradient(to top, var(--cover-overlay), transparent 45%);
+  }
   .cover-material {
     box-shadow:
-      inset 0 0 0 1px rgba(38, 22, 8, 0.16),
-      inset 0 -22px 38px rgba(38, 22, 8, 0.14),
-      inset 0 14px 28px rgba(255, 250, 240, 0.06);
+      inset 0 0 0 1px var(--cover-hairline),
+      inset 0 -22px 38px var(--cover-shade),
+      inset 0 14px 28px var(--cover-glint);
     transition: box-shadow 0.3s ease;
   }
   .cover-material:hover {
     box-shadow:
-      inset 0 0 0 1px rgba(38, 22, 8, 0.16),
-      inset 0 -22px 38px rgba(38, 22, 8, 0.14),
-      inset 0 14px 28px rgba(255, 250, 240, 0.06),
-      0 16px 32px rgba(60, 40, 20, 0.22);
+      inset 0 0 0 1px var(--cover-hairline),
+      inset 0 -22px 38px var(--cover-shade),
+      inset 0 14px 28px var(--cover-glint),
+      0 16px 32px var(--cover-hover-shadow);
+  }
+  .cover-thumb-material {
+    box-shadow: inset 0 0 0 1px var(--cover-hairline);
+  }
+  .play-cover-material {
+    box-shadow: inset 0 0 0 1px var(--cover-thumb-highlight);
+  }
+  .cover-action-shadow {
+    box-shadow: 0 6px 16px var(--cover-action-shadow);
   }
   /* 悬浮播放条：内侧高光描边 + 外投影 */
   .playbar-shadow {
-    box-shadow: inset 0 0 0 1px var(--pbin), 0 14px 36px rgba(60, 40, 20, 0.16);
+    box-shadow: inset 0 0 0 1px var(--pbin), 0 14px 36px var(--playbar-outer-shadow);
   }
   /* 浮层菜单投影 */
   .menu-shadow {
-    box-shadow: 0 18px 44px rgba(60, 40, 20, 0.2);
+    box-shadow: 0 18px 44px var(--menu-outer-shadow);
+  }
+  .segmented-active-shadow {
+    box-shadow: 0 1px 3px var(--seg-shadow);
+  }
+  .scroll-thumb {
+    background: var(--scroll-thumb);
+  }
+  .traffic-light {
+    box-shadow: inset 0 0 0 0.5px var(--traffic-border);
+  }
+  .traffic-close {
+    background: var(--traffic-close);
+  }
+  .traffic-minimize {
+    background: var(--traffic-minimize);
+  }
+  .traffic-maximize {
+    background: var(--traffic-maximize);
+  }
+  .traffic-close-glyph {
+    stroke: var(--traffic-close-glyph);
+  }
+  .traffic-minimize-glyph {
+    stroke: var(--traffic-minimize-glyph);
+  }
+  .traffic-maximize-glyph {
+    stroke: var(--traffic-maximize-glyph);
   }
 }
 
