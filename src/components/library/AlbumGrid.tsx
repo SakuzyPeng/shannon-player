@@ -6,10 +6,27 @@ import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import type { MessageKey } from "@/i18n/messages";
 import type { Album } from "@/types/player";
 
-function playAlbum(album: Album) {
-  usePlayerStore.getState().playQueue(tracksOf(album));
+function enqueueAlbumNext(album: Album) {
+  const { enqueueNext } = usePlayerStore.getState();
+  tracksOf(album).slice().reverse().forEach(enqueueNext);
+}
+
+function handleAlbumAction(album: Album, key: MessageKey) {
+  const player = usePlayerStore.getState();
+  switch (key) {
+    case "menu.play":
+      player.playQueue(tracksOf(album));
+      break;
+    case "menu.playNext":
+      enqueueAlbumNext(album);
+      break;
+    case "menu.favorite":
+      player.toggleFavoriteAlbum(album.id);
+      break;
+  }
 }
 
 export function AlbumGrid() {
@@ -18,7 +35,12 @@ export function AlbumGrid() {
   return (
     <div className="grid grid-cols-4 gap-x-7 gap-y-8">
       {ALBUMS.map((album) => (
-        <ItemContextMenu key={album.id} label={`${album.title} — ${album.artist}`} items={ALBUM_MENU}>
+        <ItemContextMenu
+          key={album.id}
+          label={`${album.title} — ${album.artist}`}
+          items={ALBUM_MENU}
+          onAction={(key) => handleAlbumAction(album, key)}
+        >
           <div className="min-w-0 cursor-pointer" onClick={() => openAlbum(album.id)}>
             <motion.div
               whileHover={{ y: -5, scale: 1.015 }}
@@ -39,7 +61,7 @@ export function AlbumGrid() {
                   whileTap={{ scale: 0.9 }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    playAlbum(album);
+                    usePlayerStore.getState().playQueue(tracksOf(album));
                   }}
                   className="cover-action-shadow grid size-[38px] place-items-center rounded-full bg-ac text-on-ac"
                 >

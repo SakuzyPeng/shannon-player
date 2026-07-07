@@ -10,6 +10,7 @@ import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { fmtTime } from "@/lib/time";
+import type { MessageKey } from "@/i18n/messages";
 import type { Id, Track } from "@/types/player";
 
 /** 当前播放行的跳动均衡器：3 根 3px 柱，相位差 0.25s，暂停时定格。 */
@@ -45,6 +46,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const toggleFavoriteAlbum = usePlayerStore((s) => s.toggleFavoriteAlbum);
+  const enqueueNext = usePlayerStore((s) => s.enqueueNext);
 
   const album = ALBUMS.find((a) => a.id === albumId);
   const tracks = useMemo(() => (album ? tracksOf(album) : []), [album]);
@@ -62,6 +64,19 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const onShuffleAlbum = () => {
     const shuffled = [...tracks].sort(() => Math.random() - 0.5);
     playQueue(shuffled, 0);
+  };
+  const onTrackAction = (track: Track, index: number, key: MessageKey) => {
+    switch (key) {
+      case "menu.play":
+        playQueue(tracks, index);
+        break;
+      case "menu.playNext":
+        enqueueNext(track);
+        break;
+      case "menu.favorite":
+        toggleFavorite(track.id);
+        break;
+    }
   };
 
   return (
@@ -167,6 +182,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                   key={track.id}
                   label={`${track.title} — ${track.artist}`}
                   items={TRACK_MENU}
+                  onAction={(key) => onTrackAction(track, i, key)}
                 >
                   <div
                     onClick={() => playQueue(tracks, i)}

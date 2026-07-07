@@ -1,10 +1,28 @@
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
-import { ALBUMS, ALBUM_MENU } from "@/data/library";
+import { ALBUMS, ALBUM_MENU, tracksOf } from "@/data/library";
 import { useUiStore } from "@/store/ui";
+import { usePlayerStore } from "@/store/player";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import type { MessageKey } from "@/i18n/messages";
+import type { Album } from "@/types/player";
 
 const COLS = "grid-cols-[64px_1fr_200px_70px_90px_90px]";
+
+function handleAlbumAction(album: Album, key: MessageKey) {
+  const player = usePlayerStore.getState();
+  switch (key) {
+    case "menu.play":
+      player.playQueue(tracksOf(album));
+      break;
+    case "menu.playNext":
+      tracksOf(album).slice().reverse().forEach(player.enqueueNext);
+      break;
+    case "menu.favorite":
+      player.toggleFavoriteAlbum(album.id);
+      break;
+  }
+}
 
 export function AlbumList() {
   const { t } = useT();
@@ -24,7 +42,12 @@ export function AlbumList() {
         <span className="text-right">{t("list.duration")}</span>
       </div>
       {ALBUMS.map((album) => (
-        <ItemContextMenu key={album.id} label={`${album.title} — ${album.artist}`} items={ALBUM_MENU}>
+        <ItemContextMenu
+          key={album.id}
+          label={`${album.title} — ${album.artist}`}
+          items={ALBUM_MENU}
+          onAction={(key) => handleAlbumAction(album, key)}
+        >
           <div
             onClick={() => openAlbum(album.id)}
             className={`grid ${COLS} cursor-pointer items-center gap-3.5 border-b border-bd px-[18px] py-2 transition-colors last:border-b-0 hover:bg-hv`}
