@@ -60,15 +60,13 @@ export function PlayBar() {
           <div className="truncate font-serif text-[14.5px] font-semibold text-tx">{track.title}</div>
           <div className="mt-0.5 truncate text-[12px] text-tx2">{track.artist}</div>
         </div>
+        {/* 爱心常驻 --ac（对齐设计稿）；实心 = 已收藏，描边 = 未收藏 */}
         <button
           aria-label={track.favorited ? t("player.unfavorite") : t("player.favorite")}
           onClick={toggleFav}
-          className={cn(
-            "grid size-[30px] flex-shrink-0 place-items-center rounded-full transition-transform hover:bg-hv active:scale-90",
-            track.favorited ? "text-ac" : "text-tx2",
-          )}
+          className="grid size-[30px] flex-shrink-0 place-items-center rounded-full text-ac transition-transform hover:bg-hv active:scale-90"
         >
-          <Icon name="heart" size={16} />
+          <Icon name={track.favorited ? "heart" : "favorites"} size={16} />
         </button>
       </div>
 
@@ -113,8 +111,8 @@ export function PlayBar() {
         </div>
         <div className="flex items-center gap-2.5">
           <span className="text-[11px] tabular-nums text-tx2">{fmt(progress.positionSec)}</span>
-          <div onClick={onSeek} className="h-1 flex-1 cursor-pointer overflow-hidden rounded-sm bg-bd">
-            <div className="h-full rounded-sm bg-ac" style={{ width: `${pct}%` }} />
+          <div onClick={onSeek} className="h-1 flex-1 cursor-pointer overflow-hidden rounded-[2px] bg-bd">
+            <div className="h-full rounded-[2px] bg-ac" style={{ width: `${pct}%` }} />
           </div>
           <span className="text-[11px] tabular-nums text-tx2">-{fmt(remaining)}</span>
         </div>
@@ -131,8 +129,8 @@ export function PlayBar() {
         <span className="text-tx2">
           <Icon name="volume" size={16} />
         </span>
-        <div onClick={onVol} className="h-1 w-[72px] cursor-pointer rounded-sm bg-bd">
-          <div className="h-full rounded-sm bg-tx2" style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
+        <div onClick={onVol} className="h-1 w-[72px] cursor-pointer rounded-[2px] bg-bd">
+          <div className="h-full rounded-[2px] bg-tx2" style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
         </div>
       </div>
     </div>

@@ -89,7 +89,7 @@ export function LibraryScreen() {
         </div>
         <div
           ref={thumbRef}
-          className="pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-sm opacity-0"
+          className="pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
           style={{ background: "rgba(112,92,66,0.4)" }}
         />
       </div>

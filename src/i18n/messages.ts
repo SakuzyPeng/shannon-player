@@ -23,6 +23,7 @@ export interface Messages {
   "view.grid": string;
   "view.list": string;
   "action.search": string;
+  "action.playAlbum": string; // {title}
 
   "theme.light": string;
   "theme.dark": string;
@@ -81,6 +82,7 @@ const zhHans: Messages = {
   "view.grid": "网格",
   "view.list": "列表",
   "action.search": "搜索",
+  "action.playAlbum": "播放 {title}",
 
   "theme.light": "浅色",
   "theme.dark": "深色",
@@ -137,6 +139,7 @@ const zhHant: Messages = {
   "view.grid": "網格",
   "view.list": "清單",
   "action.search": "搜尋",
+  "action.playAlbum": "播放 {title}",
 
   "theme.light": "淺色",
   "theme.dark": "深色",
@@ -193,6 +196,7 @@ const en: Messages = {
   "view.grid": "Grid",
   "view.list": "List",
   "action.search": "Search",
+  "action.playAlbum": "Play {title}",
 
   "theme.light": "Light",
   "theme.dark": "Dark",
@@ -249,6 +253,7 @@ const ja: Messages = {
   "view.grid": "グリッド",
   "view.list": "リスト",
   "action.search": "検索",
+  "action.playAlbum": "{title} を再生",
 
   "theme.light": "ライト",
   "theme.dark": "ダーク",

@@ -3,6 +3,7 @@ import { Icon } from "@/components/common/Icon";
 import { AlbumContextMenu } from "@/components/library/AlbumContextMenu";
 import { ALBUMS } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
+import { useT } from "@/i18n";
 import type { Album } from "@/types/player";
 
 function playAlbum(album: Album) {
@@ -19,6 +20,7 @@ function playAlbum(album: Album) {
 }
 
 export function AlbumGrid() {
+  const { t } = useT();
   return (
     <div className="grid grid-cols-4 gap-x-7 gap-y-8">
       {ALBUMS.map((album) => (
@@ -37,11 +39,11 @@ export function AlbumGrid() {
               </span>
               {/* hover 浮现播放键（唯一交互入口） */}
               <div
-                className="absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-200 group-hover/cover:opacity-100"
+                className="absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100"
                 style={{ background: "linear-gradient(to top, rgba(30,18,8,0.42), transparent 45%)" }}
               >
                 <motion.button
-                  aria-label={`播放 ${album.title}`}
+                  aria-label={t("action.playAlbum", { title: album.title })}
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={(e) => {

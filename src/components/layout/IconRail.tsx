@@ -32,7 +32,7 @@ export function IconRail() {
     >
       <TrafficLights />
 
-      <div className="my-2 font-serif text-[18px] font-semibold text-ac">香</div>
+      <div className="mb-2 mt-3 font-serif text-[18px] font-semibold text-ac">香</div>
 
       {NAV_ITEMS.map((item) => {
         const active = nav === item.key;
@@ -46,7 +46,7 @@ export function IconRail() {
           >
             <span
               className={cn(
-                "grid size-[46px] place-items-center rounded-[13px] transition-transform duration-150 ease-spring active:scale-90",
+                "grid size-[46px] place-items-center rounded-[13px] transition-transform duration-[180ms] ease-spring active:scale-90",
                 active ? "bg-hv text-ac" : "text-tx2 hover:bg-hv",
               )}
               style={{ height: 44 }}
@@ -66,7 +66,7 @@ export function IconRail() {
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button aria-label={t("rail.language")} title={t("rail.language")} className="flex cursor-pointer flex-col items-center gap-1">
-            <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-transform duration-150 ease-spring hover:bg-hv active:scale-90 data-[state=open]:bg-hv" style={{ height: 44 }}>
+            <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-transform duration-[180ms] ease-spring hover:bg-hv active:scale-90 data-[state=open]:bg-hv" style={{ height: 44 }}>
               <Icon name="globe" size={20} />
             </span>
             <span className="text-[10px] text-tx2">{t("rail.language")}</span>
@@ -99,7 +99,7 @@ export function IconRail() {
         title={t("rail.appearance")}
         className="flex cursor-pointer flex-col items-center gap-1"
       >
-        <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-transform duration-150 ease-spring hover:bg-hv active:scale-90" style={{ height: 44 }}>
+        <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-transform duration-[180ms] ease-spring hover:bg-hv active:scale-90" style={{ height: 44 }}>
           <Icon name={themeInfo.icon} size={20} />
         </span>
         <span className="text-[10px] text-tx2">{t(themeInfo.labelKey)}</span>

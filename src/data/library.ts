@@ -81,5 +81,5 @@ export const DEMO_TRACK: Track = {
   albumId: "alb-9",
   cover: { initial: "万", gradient: ["#706A58", "#403C2C"] },
   durationSec: 371, // 6:11
-  favorited: false,
+  favorited: true, // 对齐设计稿：播放条爱心为已收藏（实心）态
 };

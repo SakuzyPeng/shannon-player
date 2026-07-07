@@ -14,6 +14,7 @@
   --bd:   #ECE3D4;
   --hv:   #F1E9DC;
   --pb:   #FFFEFA;
+  --pbk:  #332A1F; /* 深墨播放条底（歌词页等场景用） */
   --pbin: rgba(255, 255, 255, 0.7);
   --danger: #B0483A;
   --scrim: rgba(255, 253, 247, 0.9);
@@ -29,6 +30,7 @@
   --bd:   #3C3327;
   --hv:   #352C21;
   --pb:   #2B231A;
+  --pbk:  #3D3325;
   --pbin: rgba(255, 255, 255, 0.08);
   --danger: #E07B6A;
   --scrim: rgba(28, 22, 14, 0.85);
@@ -46,10 +48,11 @@
   --color-bd: var(--bd);
   --color-hv: var(--hv);
   --color-pb: var(--pb);
+  --color-pbk: var(--pbk);
   --color-pbin: var(--pbin);
   --color-danger: var(--danger);
 
-  --font-serif: "Lora", "Noto Serif SC", serif;
+  --font-serif: "Lora Variable", "Lora", "Noto Serif SC Variable", "Noto Serif SC", serif;
   --font-ui: -apple-system, "SF Pro", "PingFang SC", "Microsoft YaHei", sans-serif;
 
   /* 全局回弹曲线（spring 代用） */
