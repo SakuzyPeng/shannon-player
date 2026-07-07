@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; }
+  </style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="a4" margin="0.85in" hint-size="100%,100%">
+  <div style="font-family:-apple-system,'SF Pro','PingFang SC','Microsoft YaHei',sans-serif; color:#2C241C; font-size:14px; line-height:1.65;">
+
+    <h1 style="margin:0; font-family:'Lora','Noto Serif SC',serif; font-size:30px; font-weight:600; color:#2C241C;">香农播放器 · 设计 Token</h1>
+    <p style="margin:8px 0 0; color:#6B5D4B; font-size:13px;">v1.0 · 2026-07 · 依据「杏色 · 明快」方向（2a）与十个已定稿页面整理 · 供开发实现使用</p>
+
+    <h2 style="margin:34px 0 4px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600;">1 · 颜色</h2>
+    <p style="margin:6px 0 12px; color:#6B5D4B; font-size:13px;">一律通过语义化 CSS 变量引用，禁止在组件里写字面色值。浅色为默认值，深色整套替换。</p>
+    <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+      <thead>
+        <tr style="border-bottom:1.5px solid #D8CDB8; text-align:left;">
+          <th style="padding:7px 8px 7px 0; font-weight:600;">变量</th>
+          <th style="padding:7px 8px; font-weight:600;">用途</th>
+          <th style="padding:7px 8px; font-weight:600;">浅色</th>
+          <th style="padding:7px 0 7px 8px; font-weight:600;">深色</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--bg</td><td style="padding:7px 8px;">页面背景</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#FBF7F0; border:1px solid #D8CDB8; vertical-align:-1px;"></span> #FBF7F0</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#231D16; vertical-align:-1px;"></span> #231D16</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--sb</td><td style="padding:7px 8px;">侧栏 / 次级底</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#F6F0E6; border:1px solid #D8CDB8; vertical-align:-1px;"></span> #F6F0E6</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#1D1811; vertical-align:-1px;"></span> #1D1811</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--srf</td><td style="padding:7px 8px;">卡片 / 浮层 / 输入框</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#FFFEFA; border:1px solid #D8CDB8; vertical-align:-1px;"></span> #FFFEFA</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#2E261D; vertical-align:-1px;"></span> #2E261D</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--tx</td><td style="padding:7px 8px;">主文字</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#372C20; vertical-align:-1px;"></span> #372C20</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#F2EBE0; border:1px solid #D8CDB8; vertical-align:-1px;"></span> #F2EBE0</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--tx2</td><td style="padding:7px 8px;">次级文字 / 未激活图标</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#9A8B76; vertical-align:-1px;"></span> #9A8B76</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#A69479; vertical-align:-1px;"></span> #A69479</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--ac</td><td style="padding:7px 8px;">强调色（播放、收藏、高亮、进度）</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#CE7A3B; vertical-align:-1px;"></span> #CE7A3B</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#E59A5C; vertical-align:-1px;"></span> #E59A5C</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--bd</td><td style="padding:7px 8px;">描边 / 分割线 / 进度槽</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#ECE3D4; border:1px solid #D8CDB8; vertical-align:-1px;"></span> #ECE3D4</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#3C3327; vertical-align:-1px;"></span> #3C3327</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--hv</td><td style="padding:7px 8px;">hover / 选中底</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#F1E9DC; border:1px solid #D8CDB8; vertical-align:-1px;"></span> #F1E9DC</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#352C21; vertical-align:-1px;"></span> #352C21</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--pb / --pbk</td><td style="padding:7px 8px;">悬浮播放条底（曲库页为深墨底）</td><td style="padding:7px 8px;">#FFFEFA / #332A1F</td><td style="padding:7px 0 7px 8px;">#2B231A / #3D3325</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; font-family:ui-monospace,'SF Mono',monospace;">--danger</td><td style="padding:7px 8px;">危险操作（移除等）</td><td style="padding:7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#B0483A; vertical-align:-1px;"></span> #B0483A</td><td style="padding:7px 0 7px 8px;"><span style="display:inline-block; width:11px; height:11px; border-radius:3px; background:#E07B6A; vertical-align:-1px;"></span> #E07B6A</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:10px 0 0; color:#6B5D4B; font-size:12px;">补充：磨砂浮层（歌词页队列）浅色 rgba(255,253,247,0.9)、深色 rgba(28,22,14,0.85)，均配 backdrop-filter: blur(18px)。封面主色调投影见 §5。</p>
+
+    <h2 style="margin:32px 0 4px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600;">2 · 字体</h2>
+    <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+      <thead>
+        <tr style="border-bottom:1.5px solid #D8CDB8; text-align:left;">
+          <th style="padding:7px 8px 7px 0; font-weight:600;">角色</th>
+          <th style="padding:7px 8px; font-weight:600;">字族</th>
+          <th style="padding:7px 0 7px 8px; font-weight:600;">典型规格</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">内容型文字（曲名/专辑/歌手/歌词）</td><td style="padding:7px 8px; font-family:'Lora','Noto Serif SC',serif;">Lora + Noto Serif SC 回退</td><td style="padding:7px 0 7px 8px;">页面大标题 40/500 · 详情页标题 42/600 · 列表曲名 15.5/600 · 歌词当前行 34/600、其余 25/500</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">界面 UI 文字</td><td style="padding:7px 8px;">系统无衬线（-apple-system / PingFang SC / Microsoft YaHei）</td><td style="padding:7px 0 7px 8px;">正文 13–14 · 次级 12–12.5 · 分区小标 11/600 + 0.08–0.16em 字距</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">数字（时长/计数/时间）</td><td style="padding:7px 8px;">同 UI 字族</td><td style="padding:7px 0 7px 8px;">font-variant-numeric: tabular-nums，右对齐</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">文件路径 / 代码</td><td style="padding:7px 8px;">ui-monospace / SF Mono</td><td style="padding:7px 0 7px 8px;">11.5–12px</td></tr>
+      </tbody>
+    </table>
+    <p style="margin:10px 0 0; color:#6B5D4B; font-size:12px;">中文排序按拼音（pinyin crate），界面排序 localeCompare('zh')。</p>
+
+    <h2 style="margin:32px 0 4px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600;">3 · 圆角与描边</h2>
+    <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+      <tbody>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0; width:200px;">窗口</td><td style="padding:7px 0;">14px</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">大封面（详情页头部）</td><td style="padding:7px 0;">16–20px；歌手头像为正圆</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">网格封面 / 卡片 / 浮层菜单</td><td style="padding:7px 0;">14–16px</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">列表小封面</td><td style="padding:7px 0;">8–9px（26px 徽标封面 6px）</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">列表行 hover 底</td><td style="padding:7px 0;">12px</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">按钮 / 输入框 / 分段控件</td><td style="padding:7px 0;">全圆角 999px；图标栏按钮 13px</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">悬浮播放条</td><td style="padding:7px 0;">19px + 内侧 1px 高光描边（浅 rgba(255,255,255,0.7) / 深 0.08）</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">封面材质（所有封面统一）</td><td style="padding:7px 0;">inset 1px 发丝边 rgba(38,22,8,0.16) + 底部暗角 inset 0 -22px 38px rgba(38,22,8,0.14) + 顶部微光 inset 0 14px 28px rgba(255,250,240,0.06)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="margin:32px 0 4px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600;">4 · 动效</h2>
+    <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+      <thead>
+        <tr style="border-bottom:1.5px solid #D8CDB8; text-align:left;">
+          <th style="padding:7px 8px 7px 0; font-weight:600;">场景</th>
+          <th style="padding:7px 0 7px 8px; font-weight:600;">参数</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">回弹曲线（全局 spring 代用）</td><td style="padding:7px 0 7px 8px; font-family:ui-monospace,'SF Mono',monospace;">cubic-bezier(0.34, 1.56, 0.64, 1)</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">右键菜单 / 浮层弹出</td><td style="padding:7px 0 7px 8px;">scale 0.82→1 + translateY -6px→0，0.26s，回弹曲线，transform-origin 指向触发点</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">按钮按压</td><td style="padding:7px 0 7px 8px;">active scale(0.88–0.95)，0.15–0.18s</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">封面 hover</td><td style="padding:7px 0 7px 8px;">translateY(-4~-5px) (+scale 1.015)，0.3s 回弹曲线 + 投影加深</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">过弹性滚动（弹簧模型）</td><td style="padding:7px 0 7px 8px;">拉伸段 k=320 c=30；释放段 k=560 c=45；位移 84·tanh(x/200)；滚轮判定窗口 40ms（|ΔY|&lt;4 不续期）</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">自绘滚动条</td><td style="padding:7px 0 7px 8px;">6px 宽、越界时按速度压缩（峰值速度/160 提升至最多 68%）、指数平滑 1-e^(-22t)、静止 0.9s 后 0.3s 淡出</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">吸顶栏出现</td><td style="padding:7px 0 7px 8px;">scrollTop &gt; 100–210 触发，opacity + translateY(-12→0)，0.25s 回弹曲线</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">过滤框 hover 展开</td><td style="padding:7px 0 7px 8px;">width 40→318px（吸顶栏 34→300px），0.3s cubic-bezier(0.34,1.3,0.64,1)，锚定右缘向左展开</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">歌词页控制簇自动隐藏</td><td style="padding:7px 0 7px 8px;">鼠标静止 3s 或移出窗口后 0.6s 淡出，移动即现；浮层打开时暂停隐藏</td></tr>
+        <tr style="border-bottom:1px solid #ECE3D4;"><td style="padding:7px 8px 7px 0;">播放中均衡器</td><td style="padding:7px 0 7px 8px;">3 根 3px 柱，scaleY 0.35↔1，0.9s ease-in-out 循环，相位差 0.25s，暂停时 animation-play-state: paused</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="margin:32px 0 4px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600;">5 · 关键组件约定</h2>
+    <ul style="margin:8px 0 0; padding-left:20px; display:flex; flex-direction:column; gap:7px; font-size:13px;">
+      <li><strong>封面主色调投影</strong>：详情页大封面用 <span style="font-family:ui-monospace,monospace; font-size:12px;">0 26px 68px 14px</span> 的封面主色投影（浅色 ~0.22 透明度、深色 ~0.2）；歌词页封面另有 blur(44px) 主色氛围光（浅 0.30 / 深 0.5）。</li>
+      <li><strong>爱心三态</strong>：未收藏无任何标识 → hover 封面右上浮现操作爱心（唯一交互入口）→ 已收藏在标题右上角标（绝对定位，不占版面、不可点）。列表行内爱心常驻可点。</li>
+      <li><strong>悬浮播放条</strong>：左右 26px、底 22px、高 76px；三段布局 236px / 弹性中列（max 520px）/ 236px；主播放键 44px。</li>
+      <li><strong>图标栏</strong>：宽 84px，按钮 46×44，底部固定"语言（弹出菜单）+ 外观（浅/深/系统三态循环）"。</li>
+      <li><strong>右键菜单</strong>：自绘，222px 宽，role="menu"/"menuitem"，方向键循环 + Enter/Esc，危险项用 --danger。</li>
+      <li><strong>过滤 vs 搜索</strong>：搜索页 = 全局跨类型（范围胶囊：全部/歌曲/专辑/歌手/歌单）；页面内圆钮 = 仅过滤当前列表，命中文字用 --ac 高亮。</li>
+      <li><strong>列表行网格</strong>：44 / 1fr / 170 / 190 / 44 / 60（#、曲名、歌手、专辑、爱心、时长），行高约 40px + 9px 垂直内距。</li>
+      <li><strong>无障碍</strong>：switch 用 role="switch" + aria-checked；菜单键盘导航如上；图标按钮带 title/aria-label；最小可点区域 30px（桌面）。</li>
+    </ul>
+
+    <p style="margin:30px 0 0; padding-top:14px; border-top:1px solid #ECE3D4; color:#6B5D4B; font-size:12px;">参考实现见各 .dc.html 视觉稿：曲库主界面（2a）、专辑、歌手、歌单、歌词、搜索、收藏、歌曲、设置、首次启动。许可证 AGPL-3.0；本文档随视觉稿版本同步更新。</p>
+
+  </div>
+</x-import>
+</x-dc>
+</body>
+</html>

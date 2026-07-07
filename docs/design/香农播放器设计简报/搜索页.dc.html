@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #E9E1D2; }
+    @keyframes eqBar { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+    [data-screen-label] ::-webkit-scrollbar { display: none; }
+    [data-screen-label] input::placeholder { color: #9A8B76; opacity: 0.8; }
+  </style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:28px; padding:56px 64px; align-items:flex-start; font-family:-apple-system,'SF Pro','PingFang SC','Microsoft YaHei',sans-serif;">
+  <div style="display:flex; flex-direction:column; gap:8px; max-width:900px;">
+    <h2 style="margin:0; font-family:'Lora','Noto Serif SC',serif; font-size:30px; font-weight:500; color:#2C241C;">搜索页 — 第 1 轮</h2>
+    <p style="margin:0; font-size:14px; line-height:1.7; color:#6B5D4B;">真实可搜：在输入框输入（默认已填"夜"），结果按 歌曲 / 专辑 / 歌手 / 歌单 分组，匹配文字琥珀高亮；清空显示最近搜索；无结果有空状态。回车聚焦由 ⌘F 触发（演示用点击）。</p>
+  </div>
+
+  <div id="1a" style="display:flex; flex-direction:column; gap:14px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="#1a" style="text-decoration:none; font-size:12px; font-weight:700; padding:4px 9px; border-radius:6px; background:#2C241C; color:#F6EFE3;">1a</a>
+      <span style="font-size:14px; font-weight:600; color:#2C241C;">搜索页 · 杏色明快</span>
+      <div style="flex:1; min-width:24px;"></div>
+      <button onClick="{{ toggleDark }}" style="font-size:12.5px; padding:6px 14px; border-radius:999px; border:1px solid #C9BCA6; background:#FBF7EF; color:#4A3E30; cursor:pointer;" style-hover="background:#F1E8D8;">{{ darkBtn }}</button>
+    </div>
+
+    <div style="width:1180px; height:760px; border-radius:14px; overflow:hidden; box-shadow:0 24px 60px rgba(60,40,20,0.18), 0 0 0 1px rgba(60,40,20,0.08);">
+      <div ref="{{ refRoot }}" data-screen-label="搜索页" style="width:100%; height:100%; display:flex; background:var(--bg,#FBF7F0); color:var(--tx,#372C20); position:relative;">
+
+        <!-- icon rail -->
+        <div style="width:84px; flex-shrink:0; background:var(--sb,#F6F0E6); border-right:1px solid var(--bd,#ECE3D4); display:flex; flex-direction:column; align-items:center; padding:16px 0 18px; gap:10px;">
+          <div style="height:26px; display:flex; align-items:center; transform:scale(0.86);">
+            <x-import component-from-global-scope="MacTrafficLights" from="./macos-window.jsx" hint-size="62px,16px"></x-import>
+          </div>
+          <div style="margin:12px 0 8px; font-family:'Lora','Noto Serif SC',serif; font-size:18px; font-weight:600; color:var(--ac,#CE7A3B);">香</div>
+          <sc-for list="{{ nav }}" as="item" hint-placeholder-count="5">
+            <div onClick="{{ item.onClick }}" aria-label="{{ item.l }}" style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer;">
+              <div style="width:46px; height:44px; border-radius:13px; display:grid; place-items:center; background:{{ item.bg }}; color:{{ item.color }}; transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="background:var(--hv,#F1E9DC);" style-active="transform:scale(0.9);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{ item.d }}"></path></svg>
+              </div>
+              <span style="font-size:10px; font-weight:{{ item.w }}; color:{{ item.color }};">{{ item.l }}</span>
+            </div>
+          </sc-for>
+          <div style="flex:1;"></div>
+        </div>
+
+        <!-- main -->
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column; position:relative;">
+
+          <!-- search field -->
+          <div style="padding:30px 40px 18px;">
+            <div style="max-width:560px; margin:0 auto; display:flex; align-items:center; gap:11px; padding:12px 18px; border-radius:999px; background:var(--srf,#FFFEFA); border:1px solid {{ fieldBd }}; box-shadow:{{ fieldShadow }}; transition:box-shadow 0.2s ease, border-color 0.2s ease;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="7"></circle><path d="M16 16l5 5"></path></svg>
+              <input ref="{{ inputRef }}" value="{{ q }}" onChange="{{ onInput }}" onFocus="{{ onFocus }}" onBlur="{{ onBlur }}" placeholder="搜索歌曲、专辑、歌手、歌单…" style="flex:1; border:none; outline:none; background:transparent; font-size:15px; color:var(--tx,#372C20); font-family:inherit;">
+              <sc-if value="{{ hasQ }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ clearQ }}" title="清空" style="width:22px; height:22px; border-radius:50%; display:grid; place-items:center; background:var(--hv,#F1E9DC); color:var(--tx2,#9A8B76); cursor:pointer;" style-hover="color:var(--tx,#372C20);">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+                </div>
+              </sc-if>
+            </div>
+            <div style="max-width:560px; margin:10px auto 0; display:flex; gap:7px;">
+              <sc-for list="{{ scopes }}" as="sp" hint-placeholder-count="5">
+                <div onClick="{{ sp.onClick }}" style="padding:6px 15px; border-radius:999px; font-size:12.5px; font-weight:600; cursor:pointer; background:{{ sp.bg }}; color:{{ sp.color }}; border:1px solid {{ sp.bd }}; transition:transform 0.15s ease;" style-active="transform:scale(0.94);">{{ sp.l }}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- results -->
+          <div ref="{{ thumbRef }}" style="position:absolute; right:5px; top:8px; width:6px; height:120px; border-radius:3px; background:rgba(112,92,66,0.4); opacity:0; z-index:25; pointer-events:none;"></div>
+          <div ref="{{ scrollerRef }}" onScroll="{{ onScrollThumb }}" onWheel="{{ onWheelElastic }}" style="flex:1; overflow:auto; overscroll-behavior:contain; scrollbar-width:none; padding:0 40px 40px;">
+          <div ref="{{ innerRef }}" style="will-change:transform; max-width:760px; margin:0 auto;">
+
+            <!-- recent (empty query) -->
+            <sc-if value="{{ showRecent }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:26px 0 10px; font-size:12.5px; font-weight:600; letter-spacing:0.1em; color:var(--tx2,#9A8B76);">最近搜索</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <sc-for list="{{ recents }}" as="rc" hint-placeholder-count="4">
+                  <div onClick="{{ rc.onClick }}" style="display:flex; align-items:center; gap:7px; padding:8px 15px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--srf,#FFFEFA); font-size:13px; color:var(--tx,#372C20); cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>
+                    {{ rc.l }}
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- no results -->
+            <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding:90px 0 40px; text-align:center;">
+                <div style="width:64px; height:64px; border-radius:50%; background:var(--sb,#F6F0E6); border:1px solid var(--bd,#ECE3D4); display:grid; place-items:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="7"></circle><path d="M16 16l5 5 M8 10.5h5"></path></svg>
+                </div>
+                <div style="font-family:'Lora','Noto Serif SC',serif; font-size:18px; font-weight:600; color:var(--tx,#372C20);">没有找到"{{ q }}"</div>
+                <div style="font-size:13px; color:var(--tx2,#9A8B76); max-width:320px; line-height:1.6;">检查拼写，或试试歌手名、专辑名的其他写法</div>
+              </div>
+            </sc-if>
+
+            <!-- songs -->
+            <sc-if value="{{ hasSongs }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:24px 0 6px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20);">歌曲</div>
+              <sc-for list="{{ songs }}" as="sg" hint-placeholder-count="4">
+                <div onClick="{{ sg.onPlay }}" style="display:flex; align-items:center; gap:13px; padding:8px 12px; border-radius:12px; cursor:pointer; margin:0 -12px;" style-hover="background:var(--hv,#F1E9DC);">
+                  <div style="width:42px; height:42px; flex-shrink:0; border-radius:9px; background:linear-gradient(150deg,{{ sg.c1 }},{{ sg.c2 }}); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16); display:grid; place-items:center; position:relative;">
+                    <span style="font-family:'Lora','Noto Serif SC',serif; font-size:16px; color:rgba(250,248,244,0.88);">{{ sg.ch }}</span>
+                    <sc-if value="{{ sg.isCur }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute; inset:0; border-radius:9px; background:rgba(30,18,8,0.5); display:flex; align-items:center; justify-content:center; gap:2px;">
+                        <div style="width:2.5px; height:12px; border-radius:1px; background:#F6EFE3; transform-origin:bottom; animation:eqBar 0.9s ease-in-out infinite;"></div>
+                        <div style="width:2.5px; height:12px; border-radius:1px; background:#F6EFE3; transform-origin:bottom; animation:eqBar 0.9s ease-in-out 0.25s infinite;"></div>
+                        <div style="width:2.5px; height:12px; border-radius:1px; background:#F6EFE3; transform-origin:bottom; animation:eqBar 0.9s ease-in-out 0.5s infinite;"></div>
+                      </div>
+                    </sc-if>
+                  </div>
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-family:'Lora','Noto Serif SC',serif; font-size:14.5px; font-weight:600; color:var(--tx,#372C20); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><span>{{ sg.tPre }}</span><span style="color:var(--ac,#CE7A3B);">{{ sg.tHit }}</span><span>{{ sg.tPost }}</span></div>
+                    <div style="margin-top:2px; font-size:12px; color:var(--tx2,#9A8B76); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><span>{{ sg.arPre }}</span><span style="color:var(--ac,#CE7A3B);">{{ sg.arHit }}</span><span>{{ sg.arPost }}</span> — {{ sg.al }}</div>
+                  </div>
+                  <span style="font-size:12.5px; color:var(--tx2,#9A8B76); font-variant-numeric:tabular-nums;">{{ sg.du }}</span>
+                </div>
+              </sc-for>
+            </sc-if>
+
+            <!-- albums -->
+            <sc-if value="{{ hasAlbums }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:26px 0 12px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20);">专辑</div>
+              <div style="display:flex; gap:22px; flex-wrap:wrap;">
+                <sc-for list="{{ albums }}" as="al" hint-placeholder-count="3">
+                  <div style="width:150px; cursor:pointer;">
+                    <div style="aspect-ratio:1/1; border-radius:14px; background:linear-gradient(150deg,{{ al.c1 }},{{ al.c2 }}); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), inset 0 -18px 30px rgba(38,22,8,0.14); display:grid; place-items:center; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);" style-hover="transform:translateY(-4px);">
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:40px; font-weight:500; color:rgba(250,248,244,0.88);">{{ al.ch }}</span>
+                    </div>
+                    <div style="margin-top:9px; font-family:'Lora','Noto Serif SC',serif; font-size:13.5px; font-weight:600; color:var(--tx,#372C20); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><span>{{ al.tPre }}</span><span style="color:var(--ac,#CE7A3B);">{{ al.tHit }}</span><span>{{ al.tPost }}</span></div>
+                    <div style="margin-top:2px; font-size:11.5px; color:var(--tx2,#9A8B76); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ al.ar }} · {{ al.yr }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- artists -->
+            <sc-if value="{{ hasArtists }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:26px 0 12px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20);">歌手</div>
+              <div style="display:flex; gap:22px; flex-wrap:wrap;">
+                <sc-for list="{{ artists }}" as="at" hint-placeholder-count="2">
+                  <div style="width:120px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:9px;">
+                    <div style="width:104px; height:104px; border-radius:50%; background:linear-gradient(150deg,{{ at.c1 }},{{ at.c2 }}); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16); display:grid; place-items:center; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);" style-hover="transform:translateY(-4px);">
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:34px; font-weight:500; color:rgba(250,248,244,0.88);">{{ at.ch }}</span>
+                    </div>
+                    <div style="font-family:'Lora','Noto Serif SC',serif; font-size:13.5px; font-weight:600; color:var(--tx,#372C20); text-align:center;"><span>{{ at.tPre }}</span><span style="color:var(--ac,#CE7A3B);">{{ at.tHit }}</span><span>{{ at.tPost }}</span></div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- playlists -->
+            <sc-if value="{{ hasLists }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:26px 0 6px; font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20);">歌单</div>
+              <sc-for list="{{ lists }}" as="pl" hint-placeholder-count="2">
+                <div style="display:flex; align-items:center; gap:13px; padding:8px 12px; border-radius:12px; cursor:pointer; margin:0 -12px;" style-hover="background:var(--hv,#F1E9DC);">
+                  <div style="width:42px; height:42px; flex-shrink:0; border-radius:9px; background:var(--sb,#F6F0E6); border:1px solid var(--bd,#ECE3D4); display:grid; place-items:center; color:var(--tx2,#9A8B76);">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6h16 M4 12h16 M4 18h10"></path></svg>
+                  </div>
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-family:'Lora','Noto Serif SC',serif; font-size:14.5px; font-weight:600; color:var(--tx,#372C20);"><span>{{ pl.tPre }}</span><span style="color:var(--ac,#CE7A3B);">{{ pl.tHit }}</span><span>{{ pl.tPost }}</span></div>
+                    <div style="margin-top:2px; font-size:12px; color:var(--tx2,#9A8B76);">{{ pl.meta }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </sc-if>
+
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;allDark&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;预览&quot; }
+}">
+class Component extends DCLogic {
+  state = { q: '夜', dark: null, navIdx: 1, focused: false, curSong: -1, scope: '全部' };
+
+  SCOPES = ['全部', '歌曲', '专辑', '歌手', '歌单'];
+
+  SONGS = [
+    ['午夜环线', '白鲸电台', '长夜电波', '3:56', '#4A6070', '#26343E', '鲸'],
+    ['夜的第七章', '周杰伦', '依然范特西', '4:59', '#5B6B7A', '#333E48', '范'],
+    ['末班车挽歌', '白鲸电台', '长夜电波', '5:02', '#4A6070', '#26343E', '鲸'],
+    ['夜航', '白鲸电台', '夜航', '4:44', '#4A4458', '#282332', '夜'],
+    ['深夜高速', '新裤子', '生活因你而火热', '4:12', '#A45A48', '#633327', '生'],
+    ['秦皇岛', '万能青年旅店', '万能青年旅店', '6:11', '#706A58', '#403C2C', '万'],
+    ['Nude', 'Radiohead', 'In Rainbows', '4:15', '#3E5C50', '#20332B', 'In'],
+    ['Nights', 'Frank Ocean', 'Blonde', '5:07', '#A8A29A', '#67625B', 'B']
+  ];
+
+  ALBUMS = [
+    ['长夜电波', '白鲸电台', 2023, '#4A6070', '#26343E', '鲸'],
+    ['夜航', '白鲸电台', 2018, '#4A4458', '#282332', '夜'],
+    ['依然范特西', '周杰伦', 2006, '#5B6B7A', '#333E48', '范'],
+    ['In Rainbows', 'Radiohead', 2007, '#3E5C50', '#20332B', 'In'],
+    ['生活因你而火热', '新裤子', 2016, '#A45A48', '#633327', '生']
+  ];
+
+  ARTISTS = [
+    ['白鲸电台', '#4A6070', '#26343E', '鲸'],
+    ['周杰伦', '#5B6B7A', '#333E48', '周'],
+    ['万能青年旅店', '#706A58', '#403C2C', '万'],
+    ['夜愿乐队', '#3E4C6B', '#222C3E', '夜']
+  ];
+
+  LISTS = [
+    ['深夜驾驶', '22 首 · 1 小时 28 分'],
+    ['夜跑歌单', '18 首 · 1 小时 6 分'],
+    ['周末清晨', '15 首 · 52 分钟']
+  ];
+
+  RECENTS = ['万能青年旅店', 'In Rainbows', '陈绮贞', '爵士'];
+
+  NAV = [
+    { l: '专辑', d: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z' },
+    { l: '搜索', d: 'M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14z M16 16l5 5' },
+    { l: '歌手', d: 'M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M5 20v-.5A6.5 6.5 0 0 1 11.5 13h1A6.5 6.5 0 0 1 19 19.5v.5' },
+    { l: '收藏', d: 'M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z' },
+    { l: '设置', d: 'M6 4v4 M6 12v8 M12 4v10 M12 18v2 M18 4v2 M18 10v10 M4 8h4 M10 14h4 M16 6h4' }
+  ];
+
+  PALD = {
+    '--bg': '#231D16', '--sb': '#1D1811', '--srf': '#2E261D', '--tx': '#F2EBE0',
+    '--tx2': '#A69479', '--ac': '#E59A5C', '--bd': '#3C3327', '--hv': '#352C21'
+  };
+
+  root = null;
+  refRoot = (el) => { this.root = el; if (el) this.applyTheme(); };
+  inputEl = null;
+  inputRef = (el) => { this.inputEl = el; };
+
+  scrollerEl = null;
+  innerEl = null;
+  thumbEl = null;
+  scrollerRef = (el) => { this.scrollerEl = el; };
+  innerRef = (el) => { this.innerEl = el; };
+  thumbRef = (el) => { this.thumbEl = el; };
+  _stretch = 0;
+  _vel = 0;
+  _velPeak = 0;
+  _thumbTimer = null;
+  _cur = 0;
+  _sprV = 0;
+  _lastWheelT = 0;
+  _raf = null;
+
+  updateThumb(damped) {
+    const el = this.scrollerEl;
+    const th = this.thumbEl;
+    if (!el || !th) return;
+    const inset = 8;
+    const trackH = el.clientHeight - inset * 2;
+    let h = Math.max(30, trackH * (el.clientHeight / el.scrollHeight));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    let top = (trackH - h) * (el.scrollTop / maxScroll);
+    if (damped !== 0) {
+      const speedBoost = Math.min(0.85, this._velPeak / 160);
+      const ratio = Math.min(0.68, (Math.abs(this._cur) / 260) * (0.35 + speedBoost));
+      h = Math.max(22, h * (1 - ratio));
+      top = damped > 0 ? 0 : trackH - h;
+    }
+    this._thTargetH = h;
+    this._thTargetTop = top;
+    const now = performance.now();
+    const dth = Math.min(0.05, (now - (this._thT || now)) / 1000) || 0.016;
+    this._thT = now;
+    const f = 1 - Math.exp(-22 * dth);
+    this._thH = this._thH == null ? h : this._thH + (h - this._thH) * f;
+    this._thTop = this._thTop == null ? top : this._thTop + (top - this._thTop) * f;
+    th.style.transition = 'opacity 0.3s ease';
+    th.style.height = this._thH.toFixed(2) + 'px';
+    th.style.top = (inset + this._thTop).toFixed(2) + 'px';
+    th.style.opacity = '1';
+    clearTimeout(this._thumbTimer);
+    this._thumbTimer = setTimeout(() => { th.style.opacity = '0'; }, 900);
+  }
+
+  applyStretch() {
+    const inner = this.innerEl;
+    if (!inner) return;
+    const damped = 84 * Math.tanh(this._cur / 200);
+    inner.style.transition = 'none';
+    inner.style.transform = 'translateY(' + damped.toFixed(2) + 'px)';
+    this.updateThumb(Math.abs(damped) < 0.3 ? 0 : damped);
+  }
+
+  tick = (t) => {
+    const dt = Math.min(0.032, (t - (this._lastT || t)) / 1000) || 0.016;
+    this._lastT = t;
+    const releasing = performance.now() - this._lastWheelT > 40;
+    const target = releasing ? 0 : this._stretch;
+    const k = releasing ? 560 : 320;
+    const c = releasing ? 45 : 30;
+    this._sprV += (target - this._cur) * k * dt;
+    this._sprV *= Math.exp(-c * dt);
+    this._cur += this._sprV * dt;
+    const thumbSettled = this._thTargetH == null || (Math.abs(this._thH - this._thTargetH) < 0.5 && Math.abs(this._thTop - this._thTargetTop) < 0.5);
+    if (releasing && thumbSettled && Math.abs(this._cur) < 0.4 && Math.abs(this._sprV) < 2) {
+      this._cur = 0; this._sprV = 0; this._stretch = 0; this._vel = 0; this._velPeak = 0;
+      this.applyStretch();
+      this._raf = null;
+      this._lastT = 0;
+      return;
+    }
+    this.applyStretch();
+    this._raf = requestAnimationFrame(this.tick);
+  };
+
+  onWheelElastic = (e) => {
+    const el = this.scrollerEl;
+    if (!el || !this.innerEl) return;
+    const atTop = el.scrollTop <= 0;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    const pulling = (atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0);
+    if (!pulling) { this._vel = 0; return; }
+    this._vel = this._vel * 0.65 + Math.abs(e.deltaY) * 0.35;
+    this._velPeak = Math.max(this._velPeak || 0, this._vel);
+    this._stretch = Math.max(-260, Math.min(260, this._stretch - e.deltaY * 0.9));
+    if (Math.abs(e.deltaY) >= 4) this._lastWheelT = performance.now();
+    if (!this._raf) { this._lastT = 0; this._raf = requestAnimationFrame(this.tick); }
+  };
+
+  isDark() {
+    return this.state.dark === null ? !!this.props.allDark : this.state.dark;
+  }
+
+  applyTheme() {
+    if (!this.root) return;
+    const dark = this.isDark();
+    Object.keys(this.PALD).forEach((p) => {
+      if (dark) this.root.style.setProperty(p, this.PALD[p]);
+      else this.root.style.removeProperty(p);
+    });
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.allDark !== this.props.allDark) {
+      this.setState({ dark: null }, () => this.applyTheme());
+    }
+  }
+
+  match(text) {
+    const q = this.state.q.trim();
+    if (!q) return null;
+    const idx = text.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) return null;
+    return { pre: text.slice(0, idx), hit: text.slice(idx, idx + q.length), post: text.slice(idx + q.length) };
+  }
+
+  renderVals() {
+    const q = this.state.q.trim();
+    const hasQ = q.length > 0;
+
+    const songs = hasQ ? this.SONGS.map((s, i) => {
+      const mT = this.match(s[0]);
+      const mAr = this.match(s[1]);
+      if (!mT && !mAr) return null;
+      return {
+        tPre: mT ? mT.pre : s[0], tHit: mT ? mT.hit : '', tPost: mT ? mT.post : '',
+        arPre: mAr ? mAr.pre : s[1], arHit: mAr ? mAr.hit : '', arPost: mAr ? mAr.post : '',
+        al: s[2], du: s[3], c1: s[4], c2: s[5], ch: s[6],
+        isCur: this.state.curSong === i,
+        onPlay: () => this.setState({ curSong: i })
+      };
+    }).filter(Boolean) : [];
+
+    const albums = hasQ ? this.ALBUMS.map((a) => {
+      const m = this.match(a[0]);
+      if (!m) return null;
+      return { tPre: m.pre, tHit: m.hit, tPost: m.post, ar: a[1], yr: a[2], c1: a[3], c2: a[4], ch: a[5] };
+    }).filter(Boolean) : [];
+
+    const artists = hasQ ? this.ARTISTS.map((a) => {
+      const m = this.match(a[0]);
+      if (!m) return null;
+      return { tPre: m.pre, tHit: m.hit, tPost: m.post, c1: a[1], c2: a[2], ch: a[3] };
+    }).filter(Boolean) : [];
+
+    const lists = hasQ ? this.LISTS.map((p) => {
+      const m = this.match(p[0]);
+      if (!m) return null;
+      return { tPre: m.pre, tHit: m.hit, tPost: m.post, meta: p[1] };
+    }).filter(Boolean) : [];
+
+    const sc = this.state.scope;
+    const inScope = (k) => sc === '全部' || sc === k;
+    const fSongs = inScope('歌曲') ? songs : [];
+    const fAlbums = inScope('专辑') ? albums : [];
+    const fArtists = inScope('歌手') ? artists : [];
+    const fLists = inScope('歌单') ? lists : [];
+    const total = fSongs.length + fAlbums.length + fArtists.length + fLists.length;
+
+    return {
+      q: this.state.q,
+      hasQ,
+      onInput: (e) => this.setState({ q: e.target.value }),
+      clearQ: () => { this.setState({ q: '' }); if (this.inputEl) this.inputEl.focus(); },
+      onFocus: () => this.setState({ focused: true }),
+      onBlur: () => this.setState({ focused: false }),
+      fieldBd: this.state.focused ? 'var(--ac,#CE7A3B)' : 'var(--bd,#ECE3D4)',
+      fieldShadow: this.state.focused ? '0 0 0 3px rgba(206,122,59,0.18)' : '0 2px 8px rgba(60,40,20,0.06)',
+      inputRef: this.inputRef,
+      refRoot: this.refRoot,
+      scrollerRef: this.scrollerRef,
+      innerRef: this.innerRef,
+      thumbRef: this.thumbRef,
+      onWheelElastic: this.onWheelElastic,
+      onScrollThumb: () => this.updateThumb(0),
+      toggleDark: () => this.setState({ dark: !this.isDark() }, () => this.applyTheme()),
+      darkBtn: this.isDark() ? '切回浅色' : '预览深色',
+      nav: this.NAV.map((it, i) => {
+        const active = this.state.navIdx === i;
+        return {
+          ...it,
+          bg: active ? 'var(--hv,#F1E9DC)' : 'transparent',
+          color: active ? 'var(--ac,#CE7A3B)' : 'var(--tx2,#9A8B76)',
+          w: active ? 600 : 400,
+          onClick: () => this.setState({ navIdx: i })
+        };
+      }),
+      showRecent: !hasQ,
+      recents: this.RECENTS.map((l) => ({ l, onClick: () => { this.setState({ q: l }); if (this.inputEl) this.inputEl.focus(); } })),
+      showEmpty: hasQ && total === 0,
+      hasSongs: fSongs.length > 0,
+      hasAlbums: fAlbums.length > 0,
+      hasArtists: fArtists.length > 0,
+      hasLists: fLists.length > 0,
+      songs: fSongs, albums: fAlbums, artists: fArtists, lists: fLists,
+      scopes: this.SCOPES.map((l) => {
+        const on = sc === l;
+        return {
+          l,
+          bg: on ? 'var(--ac,#CE7A3B)' : 'var(--srf,#FFFEFA)',
+          color: on ? '#FFF9F0' : 'var(--tx2,#9A8B76)',
+          bd: on ? 'var(--ac,#CE7A3B)' : 'var(--bd,#ECE3D4)',
+          onClick: () => this.setState({ scope: l })
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

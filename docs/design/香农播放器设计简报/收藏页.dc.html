@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #E9E1D2; }
+    @keyframes eqBar { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+    @keyframes menuPop { from { opacity: 0; transform: scale(0.82) translateY(-6px); } to { opacity: 1; transform: none; } }
+    [data-screen-label] ::-webkit-scrollbar { display: none; }
+  </style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:28px; padding:56px 64px; align-items:flex-start; font-family:-apple-system,'SF Pro','PingFang SC','Microsoft YaHei',sans-serif;">
+  <div style="display:flex; flex-direction:column; gap:8px; max-width:900px;">
+    <h2 style="margin:0; font-family:'Lora','Noto Serif SC',serif; font-size:30px; font-weight:500; color:#2C241C;">收藏页 — 第 1 轮</h2>
+    <p style="margin:0; font-size:14px; line-height:1.7; color:#6B5D4B;">爱心的落点页：分段切换 歌曲 / 专辑 / 歌手，取消收藏即从列表消失（点行内爱心试试），全部取消后出现空状态。歌曲行带均衡器与右下角同款交互，专辑/歌手复用对应页卡片语言。</p>
+  </div>
+
+  <div id="1a" style="display:flex; flex-direction:column; gap:14px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="#1a" style="text-decoration:none; font-size:12px; font-weight:700; padding:4px 9px; border-radius:6px; background:#2C241C; color:#F6EFE3;">1a</a>
+      <span style="font-size:14px; font-weight:600; color:#2C241C;">收藏页 · 杏色明快</span>
+      <div style="flex:1; min-width:24px;"></div>
+      <button onClick="{{ toggleDark }}" style="font-size:12.5px; padding:6px 14px; border-radius:999px; border:1px solid #C9BCA6; background:#FBF7EF; color:#4A3E30; cursor:pointer;" style-hover="background:#F1E8D8;">{{ darkBtn }}</button>
+    </div>
+
+    <div style="width:1180px; height:760px; border-radius:14px; overflow:hidden; box-shadow:0 24px 60px rgba(60,40,20,0.18), 0 0 0 1px rgba(60,40,20,0.08);">
+      <div ref="{{ refRoot }}" data-screen-label="收藏页" style="width:100%; height:100%; display:flex; background:var(--bg,#FBF7F0); color:var(--tx,#372C20); position:relative;">
+
+        <!-- icon rail -->
+        <div style="width:84px; flex-shrink:0; background:var(--sb,#F6F0E6); border-right:1px solid var(--bd,#ECE3D4); display:flex; flex-direction:column; align-items:center; padding:16px 0 18px; gap:10px;">
+          <div style="height:26px; display:flex; align-items:center; transform:scale(0.86);">
+            <x-import component-from-global-scope="MacTrafficLights" from="./macos-window.jsx" hint-size="62px,16px"></x-import>
+          </div>
+          <div style="margin:12px 0 8px; font-family:'Lora','Noto Serif SC',serif; font-size:18px; font-weight:600; color:var(--ac,#CE7A3B);">香</div>
+          <sc-for list="{{ nav }}" as="item" hint-placeholder-count="5">
+            <div onClick="{{ item.onClick }}" aria-label="{{ item.l }}" style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer;">
+              <div style="width:46px; height:44px; border-radius:13px; display:grid; place-items:center; background:{{ item.bg }}; color:{{ item.color }}; transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="background:var(--hv,#F1E9DC);" style-active="transform:scale(0.9);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{ item.d }}"></path></svg>
+              </div>
+              <span style="font-size:10px; font-weight:{{ item.w }}; color:{{ item.color }};">{{ item.l }}</span>
+            </div>
+          </sc-for>
+          <div style="flex:1;"></div>
+        </div>
+
+        <!-- main -->
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column; position:relative;">
+
+          <!-- collapsing sticky bar -->
+          <div style="position:absolute; top:0; left:0; right:0; height:58px; z-index:20; display:flex; align-items:center; gap:12px; padding:0 24px; background:var(--bg,#FBF7F0); border-bottom:1px solid var(--bd,#ECE3D4); box-shadow:0 6px 18px rgba(60,40,20,0.07); opacity:{{ barOp }}; transform:translateY({{ barTy }}px); pointer-events:{{ barPe }}; transition:opacity 0.25s ease, transform 0.25s cubic-bezier(0.34,1.56,0.64,1);">
+            <div style="width:32px; height:32px; border-radius:50%; background:var(--sb,#F6F0E6); border:1px solid var(--bd,#ECE3D4); display:grid; place-items:center; color:var(--ac,#CE7A3B);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+            </div>
+            <span style="font-family:'Lora','Noto Serif SC',serif; font-size:16.5px; font-weight:600; color:var(--tx,#372C20);">收藏</span>
+            <span style="font-size:12px; color:var(--tx2,#9A8B76); white-space:nowrap;">{{ subtitle }}</span>
+            <div style="display:flex; align-items:center; padding:2.5px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--sb,#F6F0E6); font-size:12px; margin-left:6px;">
+              <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="3">
+                <span onClick="{{ tb.onClick }}" style="padding:4px 13px; border-radius:999px; cursor:pointer; background:{{ tb.bg }}; color:{{ tb.color }}; font-weight:600; box-shadow:{{ tb.shadow }};">{{ tb.l }}</span>
+              </sc-for>
+            </div>
+            <div style="flex:1; min-width:12px; position:relative; height:34px;">
+              <div onMouseEnter="{{ onBarFilterEnter }}" onMouseLeave="{{ onFilterLeave }}" style="position:absolute; right:0; top:0; height:34px; width:{{ barFilterW }}px; box-sizing:border-box; display:flex; align-items:center; gap:7px; padding:0 6px 0 9px; border-radius:999px; background:var(--srf,#FFFEFA); border:1px solid {{ filterBd }}; box-shadow:{{ filterShadow }}; overflow:hidden; transition:width 0.3s cubic-bezier(0.34,1.3,0.64,1), border-color 0.2s ease;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="1.9" stroke-linecap="round" style="flex-shrink:0;"><circle cx="10.5" cy="10.5" r="7"></circle><path d="M16 16l5 5"></path></svg>
+                <input ref="{{ barFilterInputRef }}" value="{{ filterQ }}" onChange="{{ onFilterInput }}" onFocus="{{ onFilterFocus }}" onBlur="{{ onFilterBlur }}" onKeyDown="{{ onFilterKey }}" placeholder="{{ filterPlaceholder }}" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-size:12.5px; color:var(--tx,#372C20); font-family:inherit; opacity:{{ filterInOp }}; transition:opacity 0.2s ease;">
+                <sc-if value="{{ hasFilterQ }}" hint-placeholder-val="{{ false }}">
+                  <div onClick="{{ closeFilter }}" title="清空并关闭" style="width:20px; height:20px; flex-shrink:0; border-radius:50%; display:grid; place-items:center; background:var(--hv,#F1E9DC); color:var(--tx2,#9A8B76); cursor:pointer;" style-hover="color:var(--tx,#372C20);">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </div>
+
+          <div ref="{{ thumbRef }}" style="position:absolute; right:5px; top:8px; width:6px; height:120px; border-radius:3px; background:rgba(112,92,66,0.4); opacity:0; z-index:25; pointer-events:none;"></div>
+          <div ref="{{ scrollerRef }}" onScroll="{{ onScrollThumb }}" onWheel="{{ onWheelElastic }}" style="flex:1; overflow:auto; overscroll-behavior:contain; scrollbar-width:none; padding:0 40px 40px;">
+          <div ref="{{ innerRef }}" style="will-change:transform;">
+
+            <div style="display:flex; align-items:flex-end; gap:16px; padding:34px 0 18px;">
+              <div style="display:flex; flex-direction:column; gap:7px;">
+                <h1 style="margin:0; font-family:'Lora','Noto Serif SC',serif; font-size:40px; font-weight:500; color:var(--tx,#372C20);">收藏</h1>
+                <div style="font-size:13px; color:var(--tx2,#9A8B76);">{{ subtitle }}</div>
+              </div>
+              <div style="flex:1;"></div>
+              <div style="display:flex; align-items:center; padding:3px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--sb,#F6F0E6); font-size:12.5px;">
+                <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="3">
+                  <span onClick="{{ tb.onClick }}" style="padding:6px 16px; border-radius:999px; cursor:pointer; background:{{ tb.bg }}; color:{{ tb.color }}; font-weight:600; box-shadow:{{ tb.shadow }};">{{ tb.l }}</span>
+                </sc-for>
+              </div>
+              <sc-if value="{{ sortVisible }}" hint-placeholder-val="{{ true }}">
+                <div style="position:relative;">
+                  <div onClick="{{ toggleSort }}" style="display:flex; align-items:center; gap:6px; padding:9px 15px; border-radius:999px; background:var(--srf,#FFFEFA); border:1px solid var(--bd,#ECE3D4); color:var(--tx,#372C20); font-size:13px; cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">
+                    {{ sortLabel }}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+                  </div>
+                  <sc-if value="{{ sortOpen }}" hint-placeholder-val="{{ false }}">
+                    <div role="menu" aria-label="排序方式" style="position:absolute; right:0; top:calc(100% + 6px); width:170px; background:var(--srf,#FFFEFA); border:1px solid var(--bd,#ECE3D4); border-radius:14px; box-shadow:0 18px 44px rgba(60,40,20,0.2); padding:6px; z-index:45; transform-origin:top right; animation:menuPop 0.26s cubic-bezier(0.34,1.56,0.64,1);">
+                      <sc-for list="{{ sortItems }}" as="si" hint-placeholder-count="3">
+                        <div role="menuitemradio" onClick="{{ si.onClick }}" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; color:var(--tx,#372C20);" style-hover="background:var(--hv,#F1E9DC);">
+                          <span>{{ si.l }}</span>
+                          <sc-if value="{{ si.on }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ac,#CE7A3B)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+              <div style="position:relative; width:40px; height:40px; flex-shrink:0; margin-right:6px;">
+                <div onMouseEnter="{{ onFilterEnter }}" onMouseLeave="{{ onFilterLeave }}" style="position:absolute; right:0; top:0; height:40px; width:{{ filterW }}px; box-sizing:border-box; display:flex; align-items:center; gap:8px; padding:0 7px 0 10px; border-radius:999px; background:var(--srf,#FFFEFA); border:1px solid {{ filterBd }}; box-shadow:{{ filterShadow }}; overflow:hidden; transition:width 0.3s cubic-bezier(0.34,1.3,0.64,1), border-color 0.2s ease; z-index:15;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="1.9" stroke-linecap="round" style="flex-shrink:0;"><circle cx="10.5" cy="10.5" r="7"></circle><path d="M16 16l5 5"></path></svg>
+                  <input ref="{{ filterInputRef }}" value="{{ filterQ }}" onChange="{{ onFilterInput }}" onFocus="{{ onFilterFocus }}" onBlur="{{ onFilterBlur }}" onKeyDown="{{ onFilterKey }}" placeholder="{{ filterPlaceholder }}" style="flex:1; min-width:0; border:none; outline:none; background:transparent; font-size:12.5px; color:var(--tx,#372C20); font-family:inherit; opacity:{{ filterInOp }}; transition:opacity 0.2s ease;">
+                  <sc-if value="{{ hasFilterQ }}" hint-placeholder-val="{{ false }}">
+                    <div onClick="{{ closeFilter }}" title="清空并关闭" style="width:22px; height:22px; flex-shrink:0; border-radius:50%; display:grid; place-items:center; background:var(--hv,#F1E9DC); color:var(--tx2,#9A8B76); cursor:pointer;" style-hover="color:var(--tx,#372C20);">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+
+            <!-- empty state -->
+            <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding:120px 0 40px; text-align:center;">
+                <div style="width:64px; height:64px; border-radius:50%; background:var(--sb,#F6F0E6); border:1px solid var(--bd,#ECE3D4); display:grid; place-items:center;">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                </div>
+                <div style="font-family:'Lora','Noto Serif SC',serif; font-size:18px; font-weight:600; color:var(--tx,#372C20);">{{ emptyTitle }}</div>
+                <div style="font-size:13px; color:var(--tx2,#9A8B76); max-width:320px; line-height:1.6;">在任意页面 hover 封面或曲目行，点击爱心即可收藏到这里</div>
+              </div>
+            </sc-if>
+
+            <!-- songs grouped by artist -->
+            <sc-if value="{{ showGrouped }}" hint-placeholder-val="{{ false }}">
+              <div style="border-top:1px solid var(--bd,#ECE3D4);">
+                <sc-for list="{{ groups }}" as="gp" hint-placeholder-count="3">
+                  <div style="display:flex; align-items:baseline; gap:10px; padding:22px 2px 4px; margin-top:{{ gp.mt }}px; border-top:{{ gp.bt }};">
+                    <span style="font-family:'Lora','Noto Serif SC',serif; font-size:22px; font-weight:600; color:var(--tx,#372C20);">{{ gp.artist }}</span>
+                    <span style="font-size:12px; color:var(--tx2,#9A8B76);">{{ gp.meta }}</span>
+                  </div>
+                  <sc-for list="{{ gp.albums }}" as="ab" hint-placeholder-count="2">
+                    <div style="display:flex; align-items:center; gap:9px; padding:14px 2px 7px;">
+                      <div style="width:26px; height:26px; border-radius:6px; background:linear-gradient(150deg,{{ ab.c1 }},{{ ab.c2 }}); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16); display:grid; place-items:center;"><span style="font-family:'Lora','Noto Serif SC',serif; font-size:11px; color:rgba(250,248,244,0.88);">{{ ab.ch }}</span></div>
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:14px; font-weight:600; color:var(--tx2,#9A8B76); white-space:nowrap;">{{ ab.al }}</span>
+                      <div style="flex:1; height:1px; background:var(--bd,#ECE3D4); margin-left:6px;"></div>
+                    </div>
+                    <sc-for list="{{ ab.tracks }}" as="tk" hint-placeholder-count="3">
+                      <div onClick="{{ tk.onPlay }}" style="display:grid; grid-template-columns:44px 1fr 44px 60px; align-items:center; gap:12px; padding:8px 14px 8px 26px; border-radius:12px; cursor:pointer; margin-top:1px;" style-hover="background:var(--hv,#F1E9DC);">
+                        <sc-if value="{{ tk.isCur }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex; align-items:flex-end; gap:2.5px; height:15px; padding-left:3px;">
+                            <div style="width:3px; height:100%; border-radius:1.5px; background:var(--ac,#CE7A3B); transform-origin:bottom; animation:eqBar 0.9s ease-in-out infinite;"></div>
+                            <div style="width:3px; height:100%; border-radius:1.5px; background:var(--ac,#CE7A3B); transform-origin:bottom; animation:eqBar 0.9s ease-in-out 0.25s infinite;"></div>
+                            <div style="width:3px; height:100%; border-radius:1.5px; background:var(--ac,#CE7A3B); transform-origin:bottom; animation:eqBar 0.9s ease-in-out 0.5s infinite;"></div>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ tk.notCur }}" hint-placeholder-val="{{ true }}">
+                          <span style="font-size:13px; color:var(--tx2,#9A8B76); font-variant-numeric:tabular-nums; padding-left:3px;">{{ tk.no }}</span>
+                        </sc-if>
+                        <span style="font-family:'Lora','Noto Serif SC',serif; font-size:15px; font-weight:{{ tk.fw }}; color:{{ tk.color }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.t }}</span>
+                        <div onClick="{{ tk.onUnlike }}" title="取消收藏" style="width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--ac,#CE7A3B); cursor:pointer;" style-hover="background:rgba(206,122,59,0.12);">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                        </div>
+                        <span style="font-size:13px; color:var(--tx2,#9A8B76); font-variant-numeric:tabular-nums; text-align:right;">{{ tk.du }}</span>
+                      </div>
+                    </sc-for>
+                  </sc-for>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- songs -->
+            <sc-if value="{{ showSongs }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid; grid-template-columns:44px 1fr 170px 190px 44px 60px; align-items:center; gap:12px; padding:6px 14px 8px; font-size:11px; font-weight:600; letter-spacing:0.08em; color:var(--tx2,#9A8B76);">
+                <span>#</span><span>歌曲</span><span>歌手</span><span>专辑</span><span></span><span style="text-align:right;">时长</span>
+              </div>
+              <sc-for list="{{ songs }}" as="tk" hint-placeholder-count="6">
+                <div onClick="{{ tk.onPlay }}" style="display:grid; grid-template-columns:44px 1fr 170px 190px 44px 60px; align-items:center; gap:12px; padding:9px 14px; border-radius:12px; cursor:pointer; margin-top:2px;" style-hover="background:var(--hv,#F1E9DC);">
+                  <sc-if value="{{ tk.isCur }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex; align-items:flex-end; gap:2.5px; height:15px; padding-left:3px;">
+                      <div style="width:3px; height:100%; border-radius:1.5px; background:var(--ac,#CE7A3B); transform-origin:bottom; animation:eqBar 0.9s ease-in-out infinite;"></div>
+                      <div style="width:3px; height:100%; border-radius:1.5px; background:var(--ac,#CE7A3B); transform-origin:bottom; animation:eqBar 0.9s ease-in-out 0.25s infinite;"></div>
+                      <div style="width:3px; height:100%; border-radius:1.5px; background:var(--ac,#CE7A3B); transform-origin:bottom; animation:eqBar 0.9s ease-in-out 0.5s infinite;"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ tk.notCur }}" hint-placeholder-val="{{ true }}">
+                    <span style="font-size:13px; color:var(--tx2,#9A8B76); font-variant-numeric:tabular-nums; padding-left:3px;">{{ tk.no }}</span>
+                  </sc-if>
+                  <span style="font-family:'Lora','Noto Serif SC',serif; font-size:15.5px; font-weight:{{ tk.fw }}; color:{{ tk.color }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.t }}</span>
+                  <span style="font-size:13px; color:var(--tx2,#9A8B76); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.ar }}</span>
+                  <span style="font-size:13px; color:var(--tx2,#9A8B76); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ tk.al }}</span>
+                  <div onClick="{{ tk.onUnlike }}" title="取消收藏" style="width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--ac,#CE7A3B); cursor:pointer;" style-hover="background:rgba(206,122,59,0.12);">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                  </div>
+                  <span style="font-size:13px; color:var(--tx2,#9A8B76); font-variant-numeric:tabular-nums; text-align:right;">{{ tk.du }}</span>
+                </div>
+              </sc-for>
+            </sc-if>
+
+            <!-- albums -->
+            <sc-if value="{{ showAlbums }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:28px; padding-top:8px;">
+                <sc-for list="{{ albums }}" as="al" hint-placeholder-count="4">
+                  <div style="cursor:pointer; min-width:0;">
+                    <div style="position:relative; aspect-ratio:1/1; border-radius:16px; background:linear-gradient(150deg,{{ al.c1 }},{{ al.c2 }}); display:grid; place-items:center; box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), inset 0 -22px 38px rgba(38,22,8,0.14), inset 0 14px 28px rgba(255,250,240,0.06); transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease;" style-hover="transform:translateY(-5px) scale(1.015); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), inset 0 -22px 38px rgba(38,22,8,0.14), inset 0 14px 28px rgba(255,250,240,0.06), 0 16px 32px rgba(60,40,20,0.22);">
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:48px; font-weight:500; color:rgba(245,248,250,0.85);">{{ al.ch }}</span>
+                      <div style="position:absolute; inset:0; border-radius:16px; background:linear-gradient(to top, rgba(30,18,8,0.42), transparent 45%), radial-gradient(120px 100px at 100% 0%, rgba(30,18,8,0.45), transparent 70%); opacity:0; transition:opacity 0.22s ease; display:flex; align-items:flex-end; justify-content:flex-end; padding:12px;" style-hover="opacity:1;">
+                        <div onClick="{{ al.onUnfav }}" title="取消收藏" style="position:absolute; top:8px; right:10px; width:36px; height:36px; display:grid; place-items:center; color:#EE9560; cursor:pointer; filter:drop-shadow(0 1px 4px rgba(30,18,8,0.55)); transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="transform:scale(1.12);" style-active="transform:scale(0.9);">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                        </div>
+                        <div style="width:36px; height:36px; border-radius:50%; display:grid; place-items:center; background:var(--ac,#CE7A3B); color:#FFF9F0; box-shadow:0 6px 16px rgba(30,18,8,0.35);" style-active="transform:scale(0.9);">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-left:2px;"><path d="M8 5v14l11-7z"></path></svg>
+                        </div>
+                      </div>
+                    </div>
+                    <div style="margin-top:12px; display:flex; align-items:center; gap:6px; min-width:0;">
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:15.5px; font-weight:600; color:var(--tx,#372C20); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ al.t }}</span>
+                      <div style="flex:1;"></div>
+                      <div title="已收藏" style="flex-shrink:0; display:grid; place-items:center; color:var(--ac,#CE7A3B);">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                      </div>
+                    </div>
+                    <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">{{ al.ar }} · {{ al.yr }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <!-- artists -->
+            <sc-if value="{{ showArtists }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex; gap:34px; flex-wrap:wrap; padding-top:14px;">
+                <sc-for list="{{ artists }}" as="at" hint-placeholder-count="3">
+                  <div style="width:150px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:11px;">
+                    <div style="position:relative; width:132px; height:132px; border-radius:50%; background:linear-gradient(150deg,{{ at.c1 }},{{ at.c2 }}); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), inset 0 -16px 28px rgba(38,22,8,0.14); display:grid; place-items:center; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);" style-hover="transform:translateY(-4px);">
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:44px; font-weight:500; color:rgba(250,248,244,0.88);">{{ at.ch }}</span>
+                      <div style="position:absolute; inset:0; border-radius:50%; background:radial-gradient(100px 90px at 78% 12%, rgba(30,18,8,0.5), transparent 65%); opacity:0; transition:opacity 0.22s ease;" style-hover="opacity:1;">
+                        <div onClick="{{ at.onUnfollow }}" title="取消收藏" style="position:absolute; top:6px; right:14px; width:34px; height:34px; display:grid; place-items:center; color:#EE9560; cursor:pointer; filter:drop-shadow(0 1px 4px rgba(30,18,8,0.55)); transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="transform:scale(1.12);" style-active="transform:scale(0.9);">
+                          <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                        </div>
+                      </div>
+                    </div>
+                    <div style="position:relative;">
+                      <span style="font-family:'Lora','Noto Serif SC',serif; font-size:14.5px; font-weight:600; color:var(--tx,#372C20); text-align:center;">{{ at.t }}</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="var(--ac,#CE7A3B)" style="position:absolute; right:-14px; top:1px;"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                    </div>
+                    <div style="margin-top:-6px; font-size:12px; color:var(--tx2,#9A8B76);">{{ at.meta }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;allDark&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;预览&quot; }
+}">
+class Component extends DCLogic {
+  state = {
+    dark: null,
+    navIdx: 3,
+    tab: '歌曲',
+    curSong: -1,
+    sort: '最近收藏',
+    sortOpen: false,
+    barVisible: false,
+    filterOpen: false,
+    filterQ: '',
+    filterFocused: false,
+    songs: [
+      ['秦皇岛', '万能青年旅店', '万能青年旅店', '6:11'],
+      ['午夜环线', '白鲸电台', '长夜电波', '3:56'],
+      ['Nude', 'Radiohead', 'In Rainbows', '4:15'],
+      ['夜的第七章', '周杰伦', '依然范特西', '4:59'],
+      ['Nights', 'Frank Ocean', 'Blonde', '5:07'],
+      ['旅行的意义', '陈绮贞', '华丽的冒险', '4:45'],
+      ['末班车挽歌', '白鲸电台', '长夜电波', '5:02'],
+      ['公路之光', '新裤子', '生活因你而火热', '4:33'],
+      ['无人月台', '白鲸电台', '长夜电波', '4:08'],
+      ['Weird Fishes', 'Radiohead', 'In Rainbows', '5:18'],
+      ['我去2000年', '朴树', '我去2000年', '4:37'],
+      ['小宇宙', '苏打绿', '小宇宙', '4:02'],
+      ['夜航', '白鲸电台', '夜航', '4:44'],
+      ['Pink + White', 'Frank Ocean', 'Blonde', '3:04'],
+      ['之乎者也', '罗大佑', '之乎者也', '3:48'],
+      ['Dreams', 'Fleetwood Mac', 'Rumours', '4:17'],
+      ['塔台之歌', '白鲸电台', '空港日记', '3:28'],
+      ['杀死那个石家庄人', '万能青年旅店', '万能青年旅店', '6:23'],
+      ['So What', 'Miles Davis', 'Kind of Blue', '9:22'],
+      ['华丽的冒险', '陈绮贞', '华丽的冒险', '4:29']
+    ],
+    albums: [
+      { t: '长夜电波', ar: '白鲸电台', yr: 2023, ch: '鲸', c1: '#4A6070', c2: '#26343E' },
+      { t: '万能青年旅店', ar: '万能青年旅店', yr: 2010, ch: '万', c1: '#706A58', c2: '#403C2C' },
+      { t: 'In Rainbows', ar: 'Radiohead', yr: 2007, ch: 'In', c1: '#3E5C50', c2: '#20332B' },
+      { t: '环线现场', ar: '白鲸电台', yr: 2020, ch: '现', c1: '#7A6A55', c2: '#463B2C' },
+      { t: 'Kind of Blue', ar: 'Miles Davis', yr: 1959, ch: 'K', c1: '#33506B', c2: '#1B2C3E' }
+    ],
+    artists: [
+      { t: '白鲸电台', meta: '7 张专辑', ch: '鲸', c1: '#4A6070', c2: '#26343E' },
+      { t: '万能青年旅店', meta: '2 张专辑', ch: '万', c1: '#706A58', c2: '#403C2C' },
+      { t: '陈绮贞', meta: '5 张专辑', ch: '陈', c1: '#B99A76', c2: '#7C6244' },
+      { t: 'Radiohead', meta: '9 张专辑', ch: 'R', c1: '#3E5C50', c2: '#20332B' }
+    ]
+  };
+
+  TABS = ['歌曲', '专辑', '歌手'];
+  SORTS = ['最近收藏', '按标题', '按歌手'];
+
+  ALB_ART = {
+    '万能青年旅店': ['#706A58', '#403C2C', '万'],
+    '长夜电波': ['#4A6070', '#26343E', '鲸'],
+    'In Rainbows': ['#3E5C50', '#20332B', 'In'],
+    '依然范特西': ['#5B6B7A', '#333E48', '范'],
+    'Blonde': ['#A8A29A', '#67625B', 'B'],
+    '华丽的冒险': ['#B99A76', '#7C6244', '华'],
+    '生活因你而火热': ['#A45A48', '#633327', '生'],
+    '我去2000年': ['#B08D57', '#75582F', '我'],
+    '小宇宙': ['#6B8A5A', '#3F5733', '小'],
+    '夜航': ['#4A4458', '#282332', '夜'],
+    '之乎者也': ['#8A6A4A', '#523B26', '之'],
+    'Rumours': ['#B07A50', '#71482A', 'R'],
+    '空港日记': ['#6E8A8A', '#3E5252', '空'],
+    'Kind of Blue': ['#33506B', '#1B2C3E', 'K']
+  };
+
+  NAV = [
+    { l: '专辑', d: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z' },
+    { l: '歌曲', d: 'M9 17V5l11-2v12 M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z M20 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z' },
+    { l: '歌手', d: 'M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M5 20v-.5A6.5 6.5 0 0 1 11.5 13h1A6.5 6.5 0 0 1 19 19.5v.5' },
+    { l: '收藏', d: 'M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z' },
+    { l: '设置', d: 'M6 4v4 M6 12v8 M12 4v10 M12 18v2 M18 4v2 M18 10v10 M4 8h4 M10 14h4 M16 6h4' }
+  ];
+
+  PALD = {
+    '--bg': '#231D16', '--sb': '#1D1811', '--srf': '#2E261D', '--tx': '#F2EBE0',
+    '--tx2': '#A69479', '--ac': '#E59A5C', '--bd': '#3C3327', '--hv': '#352C21'
+  };
+
+  root = null;
+  refRoot = (el) => { this.root = el; if (el) this.applyTheme(); };
+
+  scrollerEl = null;
+  innerEl = null;
+  thumbEl = null;
+  scrollerRef = (el) => { this.scrollerEl = el; };
+  innerRef = (el) => { this.innerEl = el; };
+  thumbRef = (el) => { this.thumbEl = el; };
+  _stretch = 0;
+  _vel = 0;
+  _velPeak = 0;
+  _thumbTimer = null;
+  _cur = 0;
+  _sprV = 0;
+  _lastWheelT = 0;
+  _raf = null;
+
+  updateThumb(damped) {
+    const el = this.scrollerEl;
+    const th = this.thumbEl;
+    if (!el || !th) return;
+    const inset = 8;
+    const trackH = el.clientHeight - inset * 2;
+    let h = Math.max(30, trackH * (el.clientHeight / el.scrollHeight));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    let top = (trackH - h) * (el.scrollTop / maxScroll);
+    if (damped !== 0) {
+      const speedBoost = Math.min(0.85, this._velPeak / 160);
+      const ratio = Math.min(0.68, (Math.abs(this._cur) / 260) * (0.35 + speedBoost));
+      h = Math.max(22, h * (1 - ratio));
+      top = damped > 0 ? 0 : trackH - h;
+    }
+    this._thTargetH = h;
+    this._thTargetTop = top;
+    const now = performance.now();
+    const dth = Math.min(0.05, (now - (this._thT || now)) / 1000) || 0.016;
+    this._thT = now;
+    const f = 1 - Math.exp(-22 * dth);
+    this._thH = this._thH == null ? h : this._thH + (h - this._thH) * f;
+    this._thTop = this._thTop == null ? top : this._thTop + (top - this._thTop) * f;
+    th.style.transition = 'opacity 0.3s ease';
+    th.style.height = this._thH.toFixed(2) + 'px';
+    th.style.top = (inset + this._thTop).toFixed(2) + 'px';
+    th.style.opacity = '1';
+    clearTimeout(this._thumbTimer);
+    this._thumbTimer = setTimeout(() => { th.style.opacity = '0'; }, 900);
+  }
+
+  applyStretch() {
+    const inner = this.innerEl;
+    if (!inner) return;
+    const damped = 84 * Math.tanh(this._cur / 200);
+    inner.style.transition = 'none';
+    inner.style.transform = 'translateY(' + damped.toFixed(2) + 'px)';
+    this.updateThumb(Math.abs(damped) < 0.3 ? 0 : damped);
+  }
+
+  tick = (t) => {
+    const dt = Math.min(0.032, (t - (this._lastT || t)) / 1000) || 0.016;
+    this._lastT = t;
+    const releasing = performance.now() - this._lastWheelT > 40;
+    const target = releasing ? 0 : this._stretch;
+    const k = releasing ? 560 : 320;
+    const c = releasing ? 45 : 30;
+    this._sprV += (target - this._cur) * k * dt;
+    this._sprV *= Math.exp(-c * dt);
+    this._cur += this._sprV * dt;
+    const thumbSettled = this._thTargetH == null || (Math.abs(this._thH - this._thTargetH) < 0.5 && Math.abs(this._thTop - this._thTargetTop) < 0.5);
+    if (releasing && thumbSettled && Math.abs(this._cur) < 0.4 && Math.abs(this._sprV) < 2) {
+      this._cur = 0; this._sprV = 0; this._stretch = 0; this._vel = 0; this._velPeak = 0;
+      this.applyStretch();
+      this._raf = null;
+      this._lastT = 0;
+      return;
+    }
+    this.applyStretch();
+    this._raf = requestAnimationFrame(this.tick);
+  };
+
+  onWheelElastic = (e) => {
+    const el = this.scrollerEl;
+    if (!el || !this.innerEl) return;
+    const atTop = el.scrollTop <= 0;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    const pulling = (atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0);
+    if (!pulling) { this._vel = 0; return; }
+    this._vel = this._vel * 0.65 + Math.abs(e.deltaY) * 0.35;
+    this._velPeak = Math.max(this._velPeak || 0, this._vel);
+    this._stretch = Math.max(-260, Math.min(260, this._stretch - e.deltaY * 0.9));
+    if (Math.abs(e.deltaY) >= 4) this._lastWheelT = performance.now();
+    if (!this._raf) { this._lastT = 0; this._raf = requestAnimationFrame(this.tick); }
+  };
+
+  isDark() {
+    return this.state.dark === null ? !!this.props.allDark : this.state.dark;
+  }
+
+  applyTheme() {
+    if (!this.root) return;
+    const dark = this.isDark();
+    Object.keys(this.PALD).forEach((p) => {
+      if (dark) this.root.style.setProperty(p, this.PALD[p]);
+      else this.root.style.removeProperty(p);
+    });
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.allDark !== this.props.allDark) {
+      this.setState({ dark: null }, () => this.applyTheme());
+    }
+  }
+
+  closeSort = () => {
+    if (this.state.sortOpen) this.setState({ sortOpen: false });
+  };
+
+  componentDidMount() {
+    document.addEventListener('click', this.closeSort);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('click', this.closeSort);
+  }
+
+  renderVals() {
+    const tab = this.state.tab;
+    const fq = this.state.filterOpen ? this.state.filterQ.trim().toLowerCase() : '';
+    const hit = (parts) => !fq || parts.join(' ').toLowerCase().indexOf(fq) >= 0;
+    let fSongs = this.state.songs.map((t, i) => ({ t, i })).filter((x) => hit([x.t[0], x.t[1], x.t[2]]));
+    const sort = this.state.sort;
+    const grouped = tab === '歌曲' && sort === '按歌手';
+    if (tab === '歌曲') {
+      if (sort === '按标题') fSongs = [...fSongs].sort((a, b) => a.t[0].localeCompare(b.t[0], 'zh'));
+      else if (grouped) fSongs = [...fSongs].sort((a, b) => a.t[1].localeCompare(b.t[1], 'zh') || a.t[2].localeCompare(b.t[2], 'zh') || a.t[0].localeCompare(b.t[0], 'zh'));
+    }
+    const fAlbums = this.state.albums.map((a, i) => ({ a, i })).filter((x) => hit([x.a.t, x.a.ar]));
+    const fArtists = this.state.artists.map((a, i) => ({ a, i })).filter((x) => hit([x.a.t]));
+    const counts = {
+      '歌曲': this.state.songs.length,
+      '专辑': this.state.albums.length,
+      '歌手': this.state.artists.length
+    };
+    const shown = { '歌曲': fSongs.length, '专辑': fAlbums.length, '歌手': fArtists.length };
+    const empty = shown[tab] === 0;
+    return {
+      refRoot: this.refRoot,
+      scrollerRef: this.scrollerRef,
+      innerRef: this.innerRef,
+      thumbRef: this.thumbRef,
+      onWheelElastic: this.onWheelElastic,
+      onScrollThumb: (e) => {
+        this.updateThumb(0);
+        const v = e.target.scrollTop > 100;
+        if (v !== this.state.barVisible) this.setState({ barVisible: v });
+      },
+      barOp: this.state.barVisible ? 1 : 0,
+      barTy: this.state.barVisible ? 0 : -12,
+      barPe: this.state.barVisible ? 'auto' : 'none',
+      filterQ: this.state.filterQ,
+      hasFilterQ: this.state.filterQ.trim().length > 0,
+      filterW: this.state.filterOpen ? 318 : 40,
+      barFilterW: this.state.filterOpen ? 300 : 34,
+      filterInOp: this.state.filterOpen ? 1 : 0,
+      filterPlaceholder: `过滤收藏的${this.state.tab}…`,
+      filterInputRef: (el) => { this.filterInputEl = el; },
+      barFilterInputRef: (el) => { this.barFilterInputEl = el; },
+      onFilterEnter: () => {
+        this.setState({ filterOpen: true });
+        clearTimeout(this._filterFocusT);
+        this._filterFocusT = setTimeout(() => { if (this.filterInputEl) this.filterInputEl.focus({ preventScroll: true }); }, 200);
+      },
+      onBarFilterEnter: () => {
+        this.setState({ filterOpen: true });
+        clearTimeout(this._filterFocusT);
+        this._filterFocusT = setTimeout(() => { if (this.barFilterInputEl) this.barFilterInputEl.focus({ preventScroll: true }); }, 200);
+      },
+      onFilterLeave: () => {
+        if (!this.state.filterFocused && !this.state.filterQ.trim()) this.setState({ filterOpen: false });
+      },
+      closeFilter: (e) => { if (e) e.stopPropagation(); this.setState({ filterOpen: false, filterQ: '', filterFocused: false }); },
+      onFilterInput: (e) => this.setState({ filterQ: e.target.value }),
+      onFilterFocus: () => this.setState({ filterFocused: true }),
+      onFilterBlur: () => {
+        this.setState({ filterFocused: false });
+        if (!this.state.filterQ.trim()) this.setState({ filterOpen: false });
+      },
+      onFilterKey: (e) => { if (e.key === 'Escape') { this.setState({ filterOpen: false, filterQ: '', filterFocused: false }); e.target.blur(); } },
+      filterBd: this.state.filterFocused ? 'var(--ac,#CE7A3B)' : 'var(--bd,#ECE3D4)',
+      filterShadow: this.state.filterFocused ? '0 0 0 3px rgba(206,122,59,0.18)' : 'none',
+      toggleDark: () => this.setState({ dark: !this.isDark() }, () => this.applyTheme()),
+      darkBtn: this.isDark() ? '切回浅色' : '预览深色',
+      nav: this.NAV.map((it, i) => {
+        const active = this.state.navIdx === i;
+        return {
+          ...it,
+          bg: active ? 'var(--hv,#F1E9DC)' : 'transparent',
+          color: active ? 'var(--ac,#CE7A3B)' : 'var(--tx2,#9A8B76)',
+          w: active ? 600 : 400,
+          onClick: () => this.setState({ navIdx: i })
+        };
+      }),
+      subtitle: `${counts['歌曲']} 首歌曲 · ${counts['专辑']} 张专辑 · ${counts['歌手']} 位歌手`,
+      tabs: this.TABS.map((l) => ({
+        l,
+        bg: tab === l ? 'var(--srf,#FFFEFA)' : 'transparent',
+        color: tab === l ? 'var(--tx,#372C20)' : 'var(--tx2,#9A8B76)',
+        shadow: tab === l ? '0 1px 3px rgba(60,40,20,0.1)' : 'none',
+        onClick: () => this.setState({ tab: l })
+      })),
+      showEmpty: empty,
+      emptyTitle: fq && counts[tab] > 0
+        ? `没有找到"${this.state.filterQ.trim()}"`
+        : (tab === '歌曲' ? '还没有收藏歌曲' : tab === '专辑' ? '还没有收藏专辑' : '还没有收藏歌手'),
+      sortVisible: tab === '歌曲',
+      sortLabel: sort,
+      sortOpen: this.state.sortOpen,
+      toggleSort: (e) => { e.stopPropagation(); this.setState((s) => ({ sortOpen: !s.sortOpen })); },
+      sortItems: this.SORTS.map((l) => ({
+        l,
+        on: l === sort,
+        onClick: (e) => { e.stopPropagation(); this.setState({ sort: l, sortOpen: false }); }
+      })),
+      showGrouped: grouped && !empty,
+      groups: (() => {
+        if (!grouped) return [];
+        const groups = [];
+        fSongs.forEach(({ t, i }) => {
+          const ar = t[1];
+          const al = t[2];
+          let g = groups[groups.length - 1];
+          if (!g || g.artist !== ar) { g = { artist: ar, n: 0, albums: [] }; groups.push(g); }
+          let ab = g.albums[g.albums.length - 1];
+          if (!ab || ab.al !== al) {
+            const art = this.ALB_ART[al] || ['#706A58', '#403C2C', al[0]];
+            ab = { al, c1: art[0], c2: art[1], ch: art[2], tracks: [] };
+            g.albums.push(ab);
+          }
+          const isCur = this.state.curSong === i;
+          ab.tracks.push({
+            t: t[0], du: t[3],
+            no: ab.tracks.length + 1,
+            isCur, notCur: !isCur,
+            fw: isCur ? 600 : 500,
+            color: isCur ? 'var(--ac,#CE7A3B)' : 'var(--tx,#372C20)',
+            onPlay: () => this.setState({ curSong: i }),
+            onUnlike: (e) => {
+              e.stopPropagation();
+              this.setState((s) => ({ songs: s.songs.filter((x, j) => j !== i), curSong: s.curSong === i ? -1 : s.curSong > i ? s.curSong - 1 : s.curSong }));
+            }
+          });
+          g.n += 1;
+        });
+        groups.forEach((g, gi) => {
+          g.meta = `${g.albums.length} 张专辑 · ${g.n} 首`;
+          g.bt = gi === 0 ? 'none' : '1px solid var(--bd,#ECE3D4)';
+          g.mt = gi === 0 ? 0 : 18;
+        });
+        return groups;
+      })(),
+      showSongs: tab === '歌曲' && !empty && !grouped,
+      showAlbums: tab === '专辑' && !empty,
+      showArtists: tab === '歌手' && !empty,
+      songs: fSongs.map(({ t, i }, n) => ({
+        t: t[0], ar: t[1], al: t[2], du: t[3],
+        no: n + 1,
+        isCur: this.state.curSong === i,
+        notCur: this.state.curSong !== i,
+        fw: this.state.curSong === i ? 600 : 500,
+        color: this.state.curSong === i ? 'var(--ac,#CE7A3B)' : 'var(--tx,#372C20)',
+        onPlay: () => this.setState({ curSong: i }),
+        onUnlike: (e) => {
+          e.stopPropagation();
+          this.setState((s) => ({ songs: s.songs.filter((x, j) => j !== i), curSong: s.curSong === i ? -1 : s.curSong > i ? s.curSong - 1 : s.curSong }));
+        }
+      })),
+      albums: fAlbums.map(({ a, i }) => ({
+        ...a,
+        onUnfav: (e) => {
+          e.stopPropagation();
+          this.setState((s) => ({ albums: s.albums.filter((x, j) => j !== i) }));
+        }
+      })),
+      artists: fArtists.map(({ a, i }) => ({
+        ...a,
+        onUnfollow: (e) => {
+          e.stopPropagation();
+          this.setState((s) => ({ artists: s.artists.filter((x, j) => j !== i) }));
+        }
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

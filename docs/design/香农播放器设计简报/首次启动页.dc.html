@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #E9E1D2; }
+    @keyframes discSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  </style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:28px; padding:56px 64px; align-items:flex-start; font-family:-apple-system,'SF Pro','PingFang SC','Microsoft YaHei',sans-serif;">
+  <div style="display:flex; flex-direction:column; gap:8px; max-width:900px;">
+    <h2 style="margin:0; font-family:'Lora','Noto Serif SC',serif; font-size:30px; font-weight:500; color:#2C241C;">首次启动 · 空状态 — 第 1 轮</h2>
+    <p style="margin:0; font-size:14px; line-height:1.7; color:#6B5D4B;">三态流程可交互：欢迎页（空曲库）→ 点击"添加音乐文件夹"进入扫描（进度条 + 实时计数 + 当前文件路径，可后台/取消）→ 完成摘要。右上角可重置重看。扫描中侧边栏保持可用，对应"全量扫描异步执行"的决策。</p>
+  </div>
+
+  <div id="1a" style="display:flex; flex-direction:column; gap:14px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="#1a" style="text-decoration:none; font-size:12px; font-weight:700; padding:4px 9px; border-radius:6px; background:#2C241C; color:#F6EFE3;">1a</a>
+      <span style="font-size:14px; font-weight:600; color:#2C241C;">首次启动 · 杏色明快</span>
+      <div style="flex:1; min-width:24px;"></div>
+      <button onClick="{{ resetFlow }}" style="font-size:12.5px; padding:6px 14px; border-radius:999px; border:1px solid #C9BCA6; background:#FBF7EF; color:#4A3E30; cursor:pointer;" style-hover="background:#F1E8D8;">重置流程</button>
+      <button onClick="{{ toggleDark }}" style="font-size:12.5px; padding:6px 14px; border-radius:999px; border:1px solid #C9BCA6; background:#FBF7EF; color:#4A3E30; cursor:pointer;" style-hover="background:#F1E8D8;">{{ darkBtn }}</button>
+    </div>
+
+    <div style="width:1180px; height:760px; border-radius:14px; overflow:hidden; box-shadow:0 24px 60px rgba(60,40,20,0.18), 0 0 0 1px rgba(60,40,20,0.08);">
+      <div ref="{{ refRoot }}" data-screen-label="首次启动" style="width:100%; height:100%; display:flex; background:var(--bg,#FBF7F0); color:var(--tx,#372C20); position:relative;">
+
+        <!-- icon rail -->
+        <div style="width:84px; flex-shrink:0; background:var(--sb,#F6F0E6); border-right:1px solid var(--bd,#ECE3D4); display:flex; flex-direction:column; align-items:center; padding:16px 0 18px; gap:10px;">
+          <div style="height:26px; display:flex; align-items:center; transform:scale(0.86);">
+            <x-import component-from-global-scope="MacTrafficLights" from="./macos-window.jsx" hint-size="62px,16px"></x-import>
+          </div>
+          <div style="margin:12px 0 8px; font-family:'Lora','Noto Serif SC',serif; font-size:18px; font-weight:600; color:var(--ac,#CE7A3B);">香</div>
+          <sc-for list="{{ nav }}" as="item" hint-placeholder-count="5">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:default; opacity:{{ item.op }};">
+              <div style="width:46px; height:44px; border-radius:13px; display:grid; place-items:center; background:{{ item.bg }}; color:{{ item.color }};">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{ item.d }}"></path></svg>
+              </div>
+              <span style="font-size:10px; font-weight:{{ item.w }}; color:{{ item.color }};">{{ item.l }}</span>
+            </div>
+          </sc-for>
+          <div style="flex:1;"></div>
+        </div>
+
+        <!-- main -->
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; padding:0 40px;">
+
+          <!-- welcome -->
+          <sc-if value="{{ isWelcome }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:0; max-width:460px; text-align:center; animation:fadeUp 0.5s ease both;">
+              <div style="width:108px; height:108px; border-radius:28px; background:var(--sb,#F6F0E6); border:1px solid var(--bd,#ECE3D4); box-shadow:0 14px 36px rgba(60,40,20,0.1); display:grid; place-items:center;">
+                <span style="font-family:'Lora','Noto Serif SC',serif; font-size:52px; font-weight:600; color:var(--ac,#CE7A3B);">香</span>
+              </div>
+              <h1 style="margin:30px 0 0; font-family:'Lora','Noto Serif SC',serif; font-size:34px; font-weight:600; color:var(--tx,#372C20);">欢迎使用香农播放器</h1>
+              <p style="margin:14px 0 0; font-size:14.5px; line-height:1.8; color:var(--tx2,#9A8B76);">你的音乐留在本地，播放器只是帮你听见它。<br>先告诉我音乐放在哪里。</p>
+              <div onClick="{{ startScan }}" style="margin-top:34px; display:flex; align-items:center; gap:9px; padding:13px 30px; border-radius:999px; background:var(--ac,#CE7A3B); color:#FFF9F0; font-size:15px; font-weight:600; cursor:pointer; box-shadow:0 10px 26px rgba(206,122,59,0.35); transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1), filter 0.15s ease;" style-hover="filter:brightness(1.07);" style-active="transform:scale(0.95);">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M12 10v6 M9 13h6"></path></svg>
+                添加音乐文件夹
+              </div>
+              <div style="margin-top:18px; font-size:12px; color:var(--tx2,#9A8B76); opacity:0.85;">支持 FLAC · MP3 · AAC · OGG · WAV 等格式，也可以直接把文件夹拖进来</div>
+            </div>
+          </sc-if>
+
+          <!-- scanning -->
+          <sc-if value="{{ isScanning }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; align-items:center; max-width:520px; width:100%; text-align:center; animation:fadeUp 0.4s ease both;">
+              <div style="width:96px; height:96px; border-radius:50%; background:linear-gradient(150deg,#4A6070,#26343E); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.2), 0 14px 36px rgba(60,40,20,0.18); display:grid; place-items:center; animation:discSpin 3.2s linear infinite;">
+                <div style="width:26px; height:26px; border-radius:50%; background:var(--bg,#FBF7F0); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.2);"></div>
+              </div>
+              <h1 style="margin:28px 0 0; font-family:'Lora','Noto Serif SC',serif; font-size:27px; font-weight:600; color:var(--tx,#372C20);">正在整理你的曲库</h1>
+              <div style="margin-top:10px; font-size:13.5px; color:var(--tx2,#9A8B76);">已找到 <span style="color:var(--ac,#CE7A3B); font-weight:700; font-variant-numeric:tabular-nums;">{{ foundCount }}</span> 首歌曲 · {{ foundAlbums }} 张专辑</div>
+              <div style="width:100%; max-width:400px; margin-top:26px; height:5px; border-radius:3px; background:var(--bd,#ECE3D4); overflow:hidden;">
+                <div style="height:100%; border-radius:3px; background:var(--ac,#CE7A3B); width:{{ scanPct }}%; transition:width 0.3s ease;"></div>
+              </div>
+              <div style="margin-top:12px; font-size:11.5px; color:var(--tx2,#9A8B76); font-family:ui-monospace,'SF Mono',monospace; max-width:420px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:0.8;">{{ curFile }}</div>
+              <div style="margin-top:30px; display:flex; gap:10px;">
+                <div onClick="{{ finishNow }}" style="padding:9px 20px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--srf,#FFFEFA); color:var(--tx,#372C20); font-size:13px; font-weight:600; cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">在后台继续</div>
+                <div onClick="{{ resetFlow }}" style="padding:9px 20px; border-radius:999px; color:var(--tx2,#9A8B76); font-size:13px; cursor:pointer;" style-hover="background:var(--hv,#F1E9DC); color:var(--tx,#372C20);">取消</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- done -->
+          <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; align-items:center; max-width:480px; text-align:center; animation:fadeUp 0.4s ease both;">
+              <div style="display:flex; gap:-10px;">
+                <div style="width:88px; height:88px; border-radius:16px; background:linear-gradient(150deg,#7A4A3A,#46291F); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), 0 12px 30px rgba(60,40,20,0.2); display:grid; place-items:center; transform:rotate(-8deg) translateX(14px);"><span style="font-family:'Lora','Noto Serif SC',serif; font-size:34px; color:rgba(250,248,244,0.88);">范</span></div>
+                <div style="width:88px; height:88px; border-radius:16px; background:linear-gradient(150deg,#4A6070,#26343E); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), 0 14px 34px rgba(60,40,20,0.26); display:grid; place-items:center; z-index:2;"><span style="font-family:'Lora','Noto Serif SC',serif; font-size:34px; color:rgba(240,246,250,0.88);">鲸</span></div>
+                <div style="width:88px; height:88px; border-radius:16px; background:linear-gradient(150deg,#3E5C50,#20332B); box-shadow:inset 0 0 0 1px rgba(38,22,8,0.16), 0 12px 30px rgba(60,40,20,0.2); display:grid; place-items:center; transform:rotate(8deg) translateX(-14px);"><span style="font-family:'Lora','Noto Serif SC',serif; font-size:34px; color:rgba(250,248,244,0.88);">In</span></div>
+              </div>
+              <h1 style="margin:30px 0 0; font-family:'Lora','Noto Serif SC',serif; font-size:30px; font-weight:600; color:var(--tx,#372C20);">曲库整理好了</h1>
+              <div style="margin-top:12px; font-size:14px; color:var(--tx2,#9A8B76); line-height:1.8;">1,847 首歌曲 · 132 张专辑 · 86 位歌手<br>之后新增的文件会自动加入，无需再次扫描</div>
+              <div onClick="{{ resetFlow }}" style="margin-top:32px; display:flex; align-items:center; gap:9px; padding:13px 34px; border-radius:999px; background:var(--ac,#CE7A3B); color:#FFF9F0; font-size:15px; font-weight:600; cursor:pointer; box-shadow:0 10px 26px rgba(206,122,59,0.35); transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1), filter 0.15s ease;" style-hover="filter:brightness(1.07);" style-active="transform:scale(0.95);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>
+                开始听歌
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;allDark&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;预览&quot; }
+}">
+class Component extends DCLogic {
+  state = { phase: 'welcome', dark: null, found: 0, pct: 0, fileIdx: 0 };
+
+  FILES = [
+    '~/Music/曲库/万能青年旅店/万能青年旅店/01 狗尿馆.flac',
+    '~/Music/曲库/周杰伦/范特西/03 双截棍.flac',
+    '~/Music/曲库/Radiohead/In Rainbows/04 Weird Fishes.flac',
+    '~/Music/曲库/白鲸电台/长夜电波/02 午夜环线.flac',
+    '~/Music/曲库/陈绮贞/华丽的冒险/07 旅行的意义.mp3',
+    '~/Music/曲库/Frank Ocean/Blonde/09 Nights.m4a',
+    '~/Music/曲库/朴树/我去2000年/05 New Boy.flac',
+    '~/Music/曲库/Miles Davis/Kind of Blue/01 So What.flac',
+    '~/Music/曲库/新裤子/生活因你而火热/03 没有理想的人不伤心.flac',
+    '~/Music/曲库/罗大佑/之乎者也/01 之乎者也.flac'
+  ];
+
+  NAV = [
+    { l: '专辑', d: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z' },
+    { l: '歌曲', d: 'M9 17V5l11-2v12 M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z M20 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z' },
+    { l: '歌手', d: 'M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M5 20v-.5A6.5 6.5 0 0 1 11.5 13h1A6.5 6.5 0 0 1 19 19.5v.5' },
+    { l: '收藏', d: 'M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z' },
+    { l: '设置', d: 'M6 4v4 M6 12v8 M12 4v10 M12 18v2 M18 4v2 M18 10v10 M4 8h4 M10 14h4 M16 6h4' }
+  ];
+
+  PALD = {
+    '--bg': '#231D16', '--sb': '#1D1811', '--srf': '#2E261D', '--tx': '#F2EBE0',
+    '--tx2': '#A69479', '--ac': '#E59A5C', '--bd': '#3C3327', '--hv': '#352C21'
+  };
+
+  root = null;
+  refRoot = (el) => { this.root = el; if (el) this.applyTheme(); };
+  _timer = null;
+
+  isDark() {
+    return this.state.dark === null ? !!this.props.allDark : this.state.dark;
+  }
+
+  applyTheme() {
+    if (!this.root) return;
+    const dark = this.isDark();
+    Object.keys(this.PALD).forEach((p) => {
+      if (dark) this.root.style.setProperty(p, this.PALD[p]);
+      else this.root.style.removeProperty(p);
+    });
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.allDark !== this.props.allDark) {
+      this.setState({ dark: null }, () => this.applyTheme());
+    }
+  }
+
+  componentWillUnmount() {
+    clearInterval(this._timer);
+  }
+
+  startScan = () => {
+    this.setState({ phase: 'scanning', found: 0, pct: 0, fileIdx: 0 });
+    clearInterval(this._timer);
+    this._timer = setInterval(() => {
+      this.setState((s) => {
+        if (s.phase !== 'scanning') return null;
+        const pct = Math.min(100, s.pct + 1.6 + Math.random() * 2.2);
+        const found = Math.min(1847, Math.round((pct / 100) * 1847) + Math.floor(Math.random() * 8));
+        if (pct >= 100) {
+          clearInterval(this._timer);
+          return { phase: 'done', pct: 100, found: 1847 };
+        }
+        return { pct, found, fileIdx: (s.fileIdx + 1) % this.FILES.length };
+      });
+    }, 180);
+  };
+
+  finishNow = () => {
+    clearInterval(this._timer);
+    this.setState({ phase: 'done' });
+  };
+
+  resetFlow = () => {
+    clearInterval(this._timer);
+    this.setState({ phase: 'welcome', found: 0, pct: 0, fileIdx: 0 });
+  };
+
+  renderVals() {
+    const phase = this.state.phase;
+    const scanned = phase !== 'welcome';
+    return {
+      refRoot: this.refRoot,
+      toggleDark: () => this.setState({ dark: !this.isDark() }, () => this.applyTheme()),
+      darkBtn: this.isDark() ? '切回浅色' : '预览深色',
+      resetFlow: this.resetFlow,
+      startScan: this.startScan,
+      finishNow: this.finishNow,
+      isWelcome: phase === 'welcome',
+      isScanning: phase === 'scanning',
+      isDone: phase === 'done',
+      foundCount: this.state.found.toLocaleString(),
+      foundAlbums: Math.max(1, Math.round(this.state.found / 14)),
+      scanPct: Math.round(this.state.pct),
+      curFile: this.FILES[this.state.fileIdx],
+      nav: this.NAV.map((it, i) => ({
+        ...it,
+        op: scanned ? 1 : 0.4,
+        bg: i === 0 && scanned ? 'var(--hv,#F1E9DC)' : 'transparent',
+        color: i === 0 && scanned ? 'var(--ac,#CE7A3B)' : 'var(--tx2,#9A8B76)',
+        w: i === 0 && scanned ? 600 : 400
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

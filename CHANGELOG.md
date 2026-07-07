@@ -8,6 +8,7 @@
 ## [未发布]
 
 ### 新增
+- 设计参考资料：整理「香农播放器设计简报」离线导出包到 `docs/design/`。
 - Tauri 2 + React 19 + TypeScript + Vite 工程骨架。
 - 设计 Token 层：Tailwind v4 + CSS 变量，浅色 / 深色两套语义配色。
 - 曲库主界面（「杏色 · 明快 2a」设计）：

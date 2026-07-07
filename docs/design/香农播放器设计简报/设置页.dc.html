@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #E9E1D2; }
+    @keyframes menuPop { from { opacity: 0; transform: scale(0.82) translateY(-6px); } to { opacity: 1; transform: none; } }
+    [data-screen-label] ::-webkit-scrollbar { display: none; }
+  </style>
+</helmet>
+
+<section style="display:flex; flex-direction:column; gap:28px; padding:56px 64px; align-items:flex-start; font-family:-apple-system,'SF Pro','PingFang SC','Microsoft YaHei',sans-serif;">
+  <div style="display:flex; flex-direction:column; gap:8px; max-width:900px;">
+    <h2 style="margin:0; font-family:'Lora','Noto Serif SC',serif; font-size:30px; font-weight:500; color:#2C241C;">设置页 — 第 1 轮</h2>
+    <p style="margin:0; font-size:14px; line-height:1.7; color:#6B5D4B;">沿用 2a 语言：曲库文件夹管理（可移除/添加）、实时监听与云盘占位符开关、响度均一化（默认关，仅增益不压缩）、歌词源、外观三态与界面语言（与图标栏入口共享状态）、关于与打赏。所有开关可交互，弹性滚动照旧。</p>
+  </div>
+
+  <div id="1a" style="display:flex; flex-direction:column; gap:14px;">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="#1a" style="text-decoration:none; font-size:12px; font-weight:700; padding:4px 9px; border-radius:6px; background:#2C241C; color:#F6EFE3;">1a</a>
+      <span style="font-size:14px; font-weight:600; color:#2C241C;">设置页 · 杏色明快</span>
+      <div style="flex:1; min-width:24px;"></div>
+      <button onClick="{{ toggleDark }}" style="font-size:12.5px; padding:6px 14px; border-radius:999px; border:1px solid #C9BCA6; background:#FBF7EF; color:#4A3E30; cursor:pointer;" style-hover="background:#F1E8D8;">{{ darkBtn }}</button>
+    </div>
+
+    <div style="width:1180px; height:760px; border-radius:14px; overflow:hidden; box-shadow:0 24px 60px rgba(60,40,20,0.18), 0 0 0 1px rgba(60,40,20,0.08);">
+      <div ref="{{ refRoot }}" data-screen-label="设置页" style="width:100%; height:100%; display:flex; background:var(--bg,#FBF7F0); color:var(--tx,#372C20); position:relative;">
+
+        <!-- icon rail -->
+        <div style="width:84px; flex-shrink:0; background:var(--sb,#F6F0E6); border-right:1px solid var(--bd,#ECE3D4); display:flex; flex-direction:column; align-items:center; padding:16px 0 18px; gap:10px;">
+          <div style="height:26px; display:flex; align-items:center; transform:scale(0.86);">
+            <x-import component-from-global-scope="MacTrafficLights" from="./macos-window.jsx" hint-size="62px,16px"></x-import>
+          </div>
+          <div style="margin:12px 0 8px; font-family:'Lora','Noto Serif SC',serif; font-size:18px; font-weight:600; color:var(--ac,#CE7A3B);">香</div>
+          <sc-for list="{{ nav }}" as="item" hint-placeholder-count="5">
+            <div onClick="{{ item.onClick }}" aria-label="{{ item.l }}" style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer;">
+              <div style="width:46px; height:44px; border-radius:13px; display:grid; place-items:center; background:{{ item.bg }}; color:{{ item.color }}; transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="background:var(--hv,#F1E9DC);" style-active="transform:scale(0.9);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{ item.d }}"></path></svg>
+              </div>
+              <span style="font-size:10px; font-weight:{{ item.w }}; color:{{ item.color }};">{{ item.l }}</span>
+            </div>
+          </sc-for>
+          <div style="flex:1;"></div>
+          <div onClick="{{ toggleLang }}" title="界面语言" style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer;">
+            <div style="width:46px; height:44px; border-radius:13px; display:grid; place-items:center; background:{{ langBtnBg }}; color:var(--tx2,#9A8B76); transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="background:var(--hv,#F1E9DC);" style-active="transform:scale(0.9);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a15 15 0 0 1 0 18 M12 3a15 15 0 0 0 0 18"></path></svg>
+            </div>
+            <span style="font-size:10px; color:var(--tx2,#9A8B76);">语言</span>
+          </div>
+          <div onClick="{{ cycleTheme }}" title="切换外观：浅色 / 深色 / 系统" style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer;">
+            <div style="width:46px; height:44px; border-radius:13px; display:grid; place-items:center; color:var(--tx2,#9A8B76); transition:transform 0.18s cubic-bezier(0.34,1.56,0.64,1);" style-hover="background:var(--hv,#F1E9DC);" style-active="transform:scale(0.9);">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="{{ themeD }}"></path></svg>
+            </div>
+            <span style="font-size:10px; color:var(--tx2,#9A8B76);">{{ themeLabel }}</span>
+          </div>
+        </div>
+
+        <!-- main -->
+        <div style="flex:1; min-width:0; display:flex; flex-direction:column; position:relative;">
+          <div ref="{{ thumbRef }}" style="position:absolute; right:5px; top:8px; width:6px; height:120px; border-radius:3px; background:rgba(112,92,66,0.4); opacity:0; z-index:25; pointer-events:none;"></div>
+          <div ref="{{ scrollerRef }}" onScroll="{{ onScrollThumb }}" onWheel="{{ onWheelElastic }}" style="flex:1; overflow:auto; overscroll-behavior:contain; scrollbar-width:none; padding:0 40px 60px;">
+          <div ref="{{ innerRef }}" style="will-change:transform; max-width:680px; margin:0 auto;">
+
+            <h1 style="margin:0; padding:34px 0 6px; font-family:'Lora','Noto Serif SC',serif; font-size:40px; font-weight:500; color:var(--tx,#372C20);">设置</h1>
+
+            <!-- 曲库 -->
+            <div ref="{{ secLib }}" style="font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20); padding:30px 0 4px;">曲库</div>
+            <div style="padding:12px 0 4px; font-size:12.5px; color:var(--tx2,#9A8B76);">音乐文件夹</div>
+            <div style="display:flex; flex-direction:column; border:1px solid var(--bd,#ECE3D4); border-radius:13px; background:var(--srf,#FFFEFA); overflow:hidden;">
+              <sc-for list="{{ folders }}" as="fd" hint-placeholder-count="3">
+                <div style="display:flex; align-items:center; gap:12px; padding:11px 16px; border-bottom:1px solid var(--bd,#ECE3D4);" style-hover="background:var(--hv,#F1E9DC);">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx2,#9A8B76)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:13.5px; font-weight:500; color:var(--tx,#372C20); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ fd.path }}</div>
+                    <div style="margin-top:2px; font-size:11.5px; color:var(--tx2,#9A8B76);">{{ fd.meta }}</div>
+                  </div>
+                  <div onClick="{{ fd.onRemove }}" title="移除文件夹" style="width:28px; height:28px; border-radius:50%; display:grid; place-items:center; color:var(--tx2,#9A8B76); cursor:pointer; flex-shrink:0;" style-hover="background:rgba(176,72,58,0.12); color:#B0483A;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12 M18 6L6 18"></path></svg>
+                  </div>
+                </div>
+              </sc-for>
+              <div style="display:flex; align-items:center; gap:9px; padding:11px 16px; font-size:13px; color:var(--ac,#CE7A3B); font-weight:600; cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14 M5 12h14"></path></svg>
+                添加文件夹…
+              </div>
+            </div>
+            <sc-for list="{{ libToggles }}" as="tg" hint-placeholder-count="2">
+              <div style="display:flex; align-items:center; gap:16px; padding:15px 2px; border-bottom:1px solid var(--bd,#ECE3D4);">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:14px; font-weight:600; color:var(--tx,#372C20);">{{ tg.l }}</div>
+                  <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">{{ tg.desc }}</div>
+                </div>
+                <div onClick="{{ tg.onToggle }}" role="switch" aria-checked="{{ tg.on }}" style="width:42px; height:25px; border-radius:999px; background:{{ tg.bg }}; cursor:pointer; position:relative; flex-shrink:0; transition:background 0.2s ease;">
+                  <div style="position:absolute; top:2.5px; left:{{ tg.knobLeft }}px; width:20px; height:20px; border-radius:50%; background:#FFFEFA; box-shadow:0 1px 4px rgba(60,40,20,0.3); transition:left 0.22s cubic-bezier(0.34,1.56,0.64,1);"></div>
+                </div>
+              </div>
+            </sc-for>
+
+            <!-- 播放 -->
+            <div ref="{{ secPlay }}" style="font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20); padding:32px 0 4px;">播放</div>
+            <sc-for list="{{ playToggles }}" as="tg" hint-placeholder-count="1">
+              <div style="display:flex; align-items:center; gap:16px; padding:15px 2px; border-bottom:1px solid var(--bd,#ECE3D4);">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:14px; font-weight:600; color:var(--tx,#372C20);">{{ tg.l }}</div>
+                  <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">{{ tg.desc }}</div>
+                </div>
+                <div onClick="{{ tg.onToggle }}" role="switch" aria-checked="{{ tg.on }}" style="width:42px; height:25px; border-radius:999px; background:{{ tg.bg }}; cursor:pointer; position:relative; flex-shrink:0; transition:background 0.2s ease;">
+                  <div style="position:absolute; top:2.5px; left:{{ tg.knobLeft }}px; width:20px; height:20px; border-radius:50%; background:#FFFEFA; box-shadow:0 1px 4px rgba(60,40,20,0.3); transition:left 0.22s cubic-bezier(0.34,1.56,0.64,1);"></div>
+                </div>
+              </div>
+            </sc-for>
+
+            <!-- 歌词 -->
+            <div ref="{{ secLyric }}" style="font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20); padding:32px 0 4px;">歌词</div>
+            <sc-for list="{{ lyricToggles }}" as="tg" hint-placeholder-count="2">
+              <div style="display:flex; align-items:center; gap:16px; padding:15px 2px; border-bottom:1px solid var(--bd,#ECE3D4);">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:14px; font-weight:600; color:var(--tx,#372C20);">{{ tg.l }}</div>
+                  <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">{{ tg.desc }}</div>
+                </div>
+                <div onClick="{{ tg.onToggle }}" role="switch" aria-checked="{{ tg.on }}" style="width:42px; height:25px; border-radius:999px; background:{{ tg.bg }}; cursor:pointer; position:relative; flex-shrink:0; transition:background 0.2s ease;">
+                  <div style="position:absolute; top:2.5px; left:{{ tg.knobLeft }}px; width:20px; height:20px; border-radius:50%; background:#FFFEFA; box-shadow:0 1px 4px rgba(60,40,20,0.3); transition:left 0.22s cubic-bezier(0.34,1.56,0.64,1);"></div>
+                </div>
+              </div>
+            </sc-for>
+
+            <!-- 外观与语言 -->
+            <div ref="{{ secAppear }}" style="font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20); padding:32px 0 4px;">外观与语言</div>
+            <div style="display:flex; align-items:center; gap:16px; padding:15px 2px; border-bottom:1px solid var(--bd,#ECE3D4);">
+              <div style="flex:1;">
+                <div style="font-size:14px; font-weight:600; color:var(--tx,#372C20);">外观</div>
+                <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">跟随系统时将自动在日出日落间切换</div>
+              </div>
+              <div style="display:flex; align-items:center; padding:3px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--sb,#F6F0E6); font-size:12.5px;">
+                <sc-for list="{{ themeSeg }}" as="sg" hint-placeholder-count="3">
+                  <span onClick="{{ sg.onClick }}" style="padding:6px 15px; border-radius:999px; cursor:pointer; background:{{ sg.bg }}; color:{{ sg.color }}; font-weight:600; box-shadow:{{ sg.shadow }};">{{ sg.l }}</span>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:16px; padding:15px 2px; border-bottom:1px solid var(--bd,#ECE3D4);">
+              <div style="flex:1;">
+                <div style="font-size:14px; font-weight:600; color:var(--tx,#372C20);">界面语言</div>
+                <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">重启后对全部界面文案生效</div>
+              </div>
+              <div style="position:relative;">
+                <div onClick="{{ toggleLang }}" style="display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--srf,#FFFEFA); color:var(--tx,#372C20); font-size:13px; cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">
+                  {{ lang }}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+                </div>
+                <sc-if value="{{ langOpen }}" hint-placeholder-val="{{ false }}">
+                  <div role="menu" aria-label="界面语言" style="position:absolute; right:0; top:calc(100% + 6px); width:186px; background:var(--srf,#FFFEFA); border:1px solid var(--bd,#ECE3D4); border-radius:14px; box-shadow:0 18px 44px rgba(60,40,20,0.2); padding:6px; z-index:45; transform-origin:top right; animation:menuPop 0.26s cubic-bezier(0.34,1.56,0.64,1);">
+                    <sc-for list="{{ langItems }}" as="li" hint-placeholder-count="5">
+                      <div role="menuitemradio" onClick="{{ li.onClick }}" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; color:var(--tx,#372C20);" style-hover="background:var(--hv,#F1E9DC);">
+                        <span>{{ li.l }}</span>
+                        <sc-if value="{{ li.on }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ac,#CE7A3B)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+
+            <!-- 关于 -->
+            <div ref="{{ secAbout }}" style="font-family:'Lora','Noto Serif SC',serif; font-size:19px; font-weight:600; color:var(--tx,#372C20); padding:32px 0 4px;">关于</div>
+            <div style="display:flex; align-items:center; gap:16px; padding:16px 2px 4px;">
+              <div style="width:52px; height:52px; border-radius:14px; background:var(--sb,#F6F0E6); border:1px solid var(--bd,#ECE3D4); display:grid; place-items:center; font-family:'Lora','Noto Serif SC',serif; font-size:24px; font-weight:600; color:var(--ac,#CE7A3B);">香</div>
+              <div style="flex:1;">
+                <div style="font-family:'Lora','Noto Serif SC',serif; font-size:16px; font-weight:600; color:var(--tx,#372C20);">香农播放器</div>
+                <div style="margin-top:3px; font-size:12.5px; color:var(--tx2,#9A8B76);">0.1.0 · AGPL-3.0 · 永久免费，无付费功能</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; padding:12px 2px 0; flex-wrap:wrap;">
+              <div style="padding:7px 15px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--srf,#FFFEFA); font-size:12.5px; font-weight:600; color:var(--tx,#372C20); cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">源代码</div>
+              <div style="padding:7px 15px; border-radius:999px; border:1px solid var(--bd,#ECE3D4); background:var(--srf,#FFFEFA); font-size:12.5px; font-weight:600; color:var(--tx,#372C20); cursor:pointer;" style-hover="background:var(--hv,#F1E9DC);">支持者名单</div>
+              <div style="display:flex; align-items:center; gap:6px; padding:7px 15px; border-radius:999px; background:var(--ac,#CE7A3B); font-size:12.5px; font-weight:600; color:#FFF9F0; cursor:pointer; transition:filter 0.15s ease;" style-hover="filter:brightness(1.08);">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z"></path></svg>
+                打赏支持
+              </div>
+            </div>
+
+          </div>
+          </div>
+
+          <!-- toc -->
+          <div style="position:absolute; right:36px; top:96px; display:flex; flex-direction:column; gap:2px; z-index:20;">
+            <sc-for list="{{ tocItems }}" as="tc" hint-placeholder-count="5">
+              <div onClick="{{ tc.onClick }}" style="display:flex; align-items:center; gap:9px; padding:6px 10px; border-radius:8px; font-size:12.5px; cursor:pointer; color:{{ tc.color }}; font-weight:{{ tc.w }};" style-hover="background:var(--hv,#F1E9DC);">
+                <div style="width:3px; height:14px; border-radius:1.5px; background:{{ tc.bar }}; transition:background 0.2s ease;"></div>
+                {{ tc.l }}
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- rail language menu -->
+        <sc-if value="{{ railLangOpen }}" hint-placeholder-val="{{ false }}">
+          <div role="menu" aria-label="界面语言" style="position:absolute; left:92px; bottom:78px; width:186px; background:var(--srf,#FFFEFA); border:1px solid var(--bd,#ECE3D4); border-radius:14px; box-shadow:0 18px 44px rgba(60,40,20,0.2); padding:6px; z-index:45; transform-origin:bottom left; animation:menuPop 0.26s cubic-bezier(0.34,1.56,0.64,1);">
+            <sc-for list="{{ langItems }}" as="li" hint-placeholder-count="5">
+              <div role="menuitemradio" onClick="{{ li.onClick }}" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; color:var(--tx,#372C20);" style-hover="background:var(--hv,#F1E9DC);">
+                <span>{{ li.l }}</span>
+                <sc-if value="{{ li.on }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ac,#CE7A3B)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;allDark&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;预览&quot; }
+}">
+class Component extends DCLogic {
+  state = {
+    dark: null,
+    navIdx: 4,
+    langOpen: false,
+    railLangOpen: false,
+    lang: '跟随系统',
+    folders: [
+      { path: '/Users/shannon/Music/曲库', meta: '1,532 首 · 上次扫描 10 分钟前' },
+      { path: '/Volumes/NAS/无损音乐', meta: '281 首 · 上次扫描 2 小时前' },
+      { path: '~/Downloads/待整理', meta: '34 首 · 监听中' }
+    ],
+    toggles: { watch: true, cloud: true, loudness: false, ttml: true, karaoke: true }
+  };
+
+  LANGS = ['跟随系统', '简体中文', '繁體中文', 'English', '日本語'];
+
+  NAV = [
+    { l: '专辑', d: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z' },
+    { l: '歌曲', d: 'M9 17V5l11-2v12 M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z M20 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z' },
+    { l: '歌手', d: 'M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M5 20v-.5A6.5 6.5 0 0 1 11.5 13h1A6.5 6.5 0 0 1 19 19.5v.5' },
+    { l: '收藏', d: 'M12 20.5C7.2 16.6 4 13.6 4 10.2 4 7.9 5.8 6 8.1 6c1.4 0 2.8.7 3.9 2.2C13.1 6.7 14.5 6 15.9 6 18.2 6 20 7.9 20 10.2c0 3.4-3.2 6.4-8 10.3z' },
+    { l: '设置', d: 'M6 4v4 M6 12v8 M12 4v10 M12 18v2 M18 4v2 M18 10v10 M4 8h4 M10 14h4 M16 6h4' }
+  ];
+
+  TOGGLE_DEFS = {
+    lib: [
+      { k: 'watch', l: '实时监听文件变化', desc: '文件夹内容变动时自动更新曲库' },
+      { k: 'cloud', l: '云盘占位符检测', desc: '跳过尚未下载到本地的占位文件，避免触发云端下载' }
+    ],
+    play: [
+      { k: 'loudness', l: '响度均一化', desc: '仅调整整曲音量增益，不压缩动态范围' }
+    ],
+    lyric: [
+      { k: 'ttml', l: '在线歌词源', desc: '从 AMLL TTML DB 获取逐字歌词，本地歌词优先' },
+      { k: 'karaoke', l: '逐字高亮', desc: '关闭后按行高亮，降低功耗' }
+    ]
+  };
+
+  PALD = {
+    '--bg': '#231D16', '--sb': '#1D1811', '--srf': '#2E261D', '--tx': '#F2EBE0',
+    '--tx2': '#A69479', '--ac': '#E59A5C', '--bd': '#3C3327', '--hv': '#352C21'
+  };
+
+  root = null;
+  refRoot = (el) => { this.root = el; if (el) this.applyTheme(); };
+
+  secEls = {};
+  secRef = (k) => (el) => { this.secEls[k] = el; };
+  SECTIONS = [['lib', '曲库'], ['play', '播放'], ['lyric', '歌词'], ['appear', '外观与语言'], ['about', '关于']];
+
+  jumpTo(k) {
+    const el = this.secEls[k];
+    const sc = this.scrollerEl;
+    if (!el || !sc) return;
+    const maxScroll = Math.max(0, sc.scrollHeight - sc.clientHeight);
+    const top = Math.min(Math.max(0, el.offsetTop - 18), maxScroll);
+    this._tocPin = k;
+    this._tocPinTarget = top;
+    this._tocPinSettled = false;
+    sc.scrollTo({ top, behavior: 'smooth' });
+    this.forceUpdate();
+  }
+
+  tocScrollCheck() {
+    if (this._tocPin == null || !this.scrollerEl) return;
+    const d = Math.abs(this.scrollerEl.scrollTop - this._tocPinTarget);
+    if (!this._tocPinSettled) {
+      if (d < 2) this._tocPinSettled = true;
+    } else if (d > 24) {
+      this._tocPin = null;
+    }
+  }
+
+  activeSection() {
+    if (this._tocPin != null) return this._tocPin;
+    const sc = this.scrollerEl;
+    if (!sc) return 'lib';
+    if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2) {
+      return this.SECTIONS[this.SECTIONS.length - 1][0];
+    }
+    const pos = sc.scrollTop + sc.clientHeight * 0.45;
+    let cur = 'lib';
+    this.SECTIONS.forEach(([k]) => {
+      const el = this.secEls[k];
+      if (el && el.offsetTop <= pos) cur = k;
+    });
+    return cur;
+  }
+
+  scrollerEl = null;
+  innerEl = null;
+  thumbEl = null;
+  scrollerRef = (el) => { this.scrollerEl = el; };
+  innerRef = (el) => { this.innerEl = el; };
+  thumbRef = (el) => { this.thumbEl = el; };
+  _stretch = 0;
+  _vel = 0;
+  _velPeak = 0;
+  _thumbTimer = null;
+  _cur = 0;
+  _sprV = 0;
+  _lastWheelT = 0;
+  _raf = null;
+
+  updateThumb(damped) {
+    const el = this.scrollerEl;
+    const th = this.thumbEl;
+    if (!el || !th) return;
+    const inset = 8;
+    const trackH = el.clientHeight - inset * 2;
+    let h = Math.max(30, trackH * (el.clientHeight / el.scrollHeight));
+    const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
+    let top = (trackH - h) * (el.scrollTop / maxScroll);
+    if (damped !== 0) {
+      const speedBoost = Math.min(0.85, this._velPeak / 160);
+      const ratio = Math.min(0.68, (Math.abs(this._cur) / 260) * (0.35 + speedBoost));
+      h = Math.max(22, h * (1 - ratio));
+      top = damped > 0 ? 0 : trackH - h;
+    }
+    this._thTargetH = h;
+    this._thTargetTop = top;
+    const now = performance.now();
+    const dth = Math.min(0.05, (now - (this._thT || now)) / 1000) || 0.016;
+    this._thT = now;
+    const f = 1 - Math.exp(-22 * dth);
+    this._thH = this._thH == null ? h : this._thH + (h - this._thH) * f;
+    this._thTop = this._thTop == null ? top : this._thTop + (top - this._thTop) * f;
+    th.style.transition = 'opacity 0.3s ease';
+    th.style.height = this._thH.toFixed(2) + 'px';
+    th.style.top = (inset + this._thTop).toFixed(2) + 'px';
+    th.style.opacity = '1';
+    clearTimeout(this._thumbTimer);
+    this._thumbTimer = setTimeout(() => { th.style.opacity = '0'; }, 900);
+  }
+
+  applyStretch() {
+    const inner = this.innerEl;
+    if (!inner) return;
+    const damped = 84 * Math.tanh(this._cur / 200);
+    inner.style.transition = 'none';
+    inner.style.transform = 'translateY(' + damped.toFixed(2) + 'px)';
+    this.updateThumb(Math.abs(damped) < 0.3 ? 0 : damped);
+  }
+
+  tick = (t) => {
+    const dt = Math.min(0.032, (t - (this._lastT || t)) / 1000) || 0.016;
+    this._lastT = t;
+    const releasing = performance.now() - this._lastWheelT > 40;
+    const target = releasing ? 0 : this._stretch;
+    const k = releasing ? 560 : 320;
+    const c = releasing ? 45 : 30;
+    this._sprV += (target - this._cur) * k * dt;
+    this._sprV *= Math.exp(-c * dt);
+    this._cur += this._sprV * dt;
+    const thumbSettled = this._thTargetH == null || (Math.abs(this._thH - this._thTargetH) < 0.5 && Math.abs(this._thTop - this._thTargetTop) < 0.5);
+    if (releasing && thumbSettled && Math.abs(this._cur) < 0.4 && Math.abs(this._sprV) < 2) {
+      this._cur = 0; this._sprV = 0; this._stretch = 0; this._vel = 0; this._velPeak = 0;
+      this.applyStretch();
+      this._raf = null;
+      this._lastT = 0;
+      return;
+    }
+    this.applyStretch();
+    this._raf = requestAnimationFrame(this.tick);
+  };
+
+  onWheelElastic = (e) => {
+    const el = this.scrollerEl;
+    if (!el || !this.innerEl) return;
+    const atTop = el.scrollTop <= 0;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    const pulling = (atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0);
+    if (!pulling) { this._vel = 0; return; }
+    this._vel = this._vel * 0.65 + Math.abs(e.deltaY) * 0.35;
+    this._velPeak = Math.max(this._velPeak || 0, this._vel);
+    this._stretch = Math.max(-260, Math.min(260, this._stretch - e.deltaY * 0.9));
+    if (Math.abs(e.deltaY) >= 4) this._lastWheelT = performance.now();
+    if (!this._raf) { this._lastT = 0; this._raf = requestAnimationFrame(this.tick); }
+  };
+
+  sysDark() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
+  isDark() {
+    const d = this.state.dark;
+    if (d === 'sys') return this.sysDark();
+    return d === null ? !!this.props.allDark : d;
+  }
+
+  cycleTheme = () => {
+    const d = this.state.dark;
+    const next = d === 'sys' ? false : d === true ? 'sys' : d === false ? true : (this.isDark() ? 'sys' : true);
+    this.setState({ dark: next }, () => this.applyTheme());
+  };
+
+  applyTheme() {
+    if (!this.root) return;
+    const dark = this.isDark();
+    Object.keys(this.PALD).forEach((p) => {
+      if (dark) this.root.style.setProperty(p, this.PALD[p]);
+      else this.root.style.removeProperty(p);
+    });
+  }
+
+  closeMenus = () => {
+    if (this.state.langOpen || this.state.railLangOpen) this.setState({ langOpen: false, railLangOpen: false });
+  };
+
+  componentDidMount() {
+    document.addEventListener('click', this.closeMenus);
+    try {
+      this._mql = window.matchMedia('(prefers-color-scheme: dark)');
+      this._mqh = () => { if (this.state.dark === 'sys') this.applyTheme(); };
+      this._mql.addEventListener('change', this._mqh);
+    } catch (err) {}
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('click', this.closeMenus);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.allDark !== this.props.allDark) {
+      this.setState({ dark: null }, () => this.applyTheme());
+    }
+  }
+
+  togglesFor(group) {
+    return this.TOGGLE_DEFS[group].map((d) => {
+      const on = !!this.state.toggles[d.k];
+      return {
+        ...d,
+        on,
+        bg: on ? 'var(--ac,#CE7A3B)' : 'var(--bd,#ECE3D4)',
+        knobLeft: on ? 19.5 : 2.5,
+        onToggle: () => this.setState((s) => ({ toggles: { ...s.toggles, [d.k]: !s.toggles[d.k] } }))
+      };
+    });
+  }
+
+  renderVals() {
+    const dk = this.state.dark;
+    const segCur = dk === 'sys' ? '系统' : (this.isDark() ? '深色' : '浅色');
+    return {
+      refRoot: this.refRoot,
+      scrollerRef: this.scrollerRef,
+      innerRef: this.innerRef,
+      thumbRef: this.thumbRef,
+      onWheelElastic: this.onWheelElastic,
+      onScrollThumb: () => { this.updateThumb(0); this.tocScrollCheck(); this.forceUpdate(); },
+      secLib: this.secRef('lib'),
+      secPlay: this.secRef('play'),
+      secLyric: this.secRef('lyric'),
+      secAppear: this.secRef('appear'),
+      secAbout: this.secRef('about'),
+      tocItems: this.SECTIONS.map(([k, l]) => {
+        const active = this.activeSection() === k;
+        return {
+          l,
+          color: active ? 'var(--tx,#372C20)' : 'var(--tx2,#9A8B76)',
+          w: active ? 600 : 400,
+          bar: active ? 'var(--ac,#CE7A3B)' : 'transparent',
+          onClick: () => this.jumpTo(k)
+        };
+      }),
+      toggleDark: () => this.setState({ dark: !this.isDark() }, () => this.applyTheme()),
+      darkBtn: this.isDark() ? '切回浅色' : '预览深色',
+      cycleTheme: this.cycleTheme,
+      themeD: dk === 'sys' ? 'M4 5h16v11H4z M9 20h6 M12 16v4' : (this.isDark() ? 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z' : 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 2v2 M12 20v2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M2 12h2 M20 12h2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4'),
+      themeLabel: dk === 'sys' ? '系统' : (this.isDark() ? '深色' : '浅色'),
+      nav: this.NAV.map((it, i) => {
+        const active = this.state.navIdx === i;
+        return {
+          ...it,
+          bg: active ? 'var(--hv,#F1E9DC)' : 'transparent',
+          color: active ? 'var(--ac,#CE7A3B)' : 'var(--tx2,#9A8B76)',
+          w: active ? 600 : 400,
+          onClick: () => this.setState({ navIdx: i })
+        };
+      }),
+      folders: this.state.folders.map((f, i) => ({
+        ...f,
+        onRemove: (e) => {
+          e.stopPropagation();
+          this.setState((s) => ({ folders: s.folders.filter((x, j) => j !== i) }));
+        }
+      })),
+      libToggles: this.togglesFor('lib'),
+      playToggles: this.togglesFor('play'),
+      lyricToggles: this.togglesFor('lyric'),
+      themeSeg: ['浅色', '深色', '系统'].map((l) => ({
+        l,
+        bg: l === segCur ? 'var(--srf,#FFFEFA)' : 'transparent',
+        color: l === segCur ? 'var(--tx,#372C20)' : 'var(--tx2,#9A8B76)',
+        shadow: l === segCur ? '0 1px 3px rgba(60,40,20,0.1)' : 'none',
+        onClick: () => this.setState({ dark: l === '系统' ? 'sys' : l === '深色' }, () => this.applyTheme())
+      })),
+      lang: this.state.lang,
+      langOpen: this.state.langOpen,
+      railLangOpen: this.state.railLangOpen,
+      toggleLang: (e) => { e.stopPropagation(); this.setState((s) => ({ langOpen: !s.langOpen, railLangOpen: false })); },
+      langBtnBg: this.state.railLangOpen ? 'var(--hv,#F1E9DC)' : 'transparent',
+      langItems: this.LANGS.map((l) => ({
+        l,
+        on: l === this.state.lang,
+        onClick: (e) => { e.stopPropagation(); this.setState({ lang: l, langOpen: false, railLangOpen: false }); }
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>
