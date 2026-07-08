@@ -18,7 +18,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const { t } = useT();
   const closeAlbum = useUiStore((s) => s.closeAlbum);
   const openArtist = useUiStore((s) => s.openArtist);
-  const { scrollerRef, innerRef, thumbRef, onWheel, onScroll } = useElasticScroll();
+  const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
 
   const playing = usePlayerStore((s) => s.playing);
   const current = usePlayerStore((s) =>
@@ -71,7 +71,6 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
     <div className="relative min-h-0 flex-1">
       <div
         ref={scrollerRef}
-        onWheel={onWheel}
         onScroll={onScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >

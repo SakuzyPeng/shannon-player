@@ -127,7 +127,7 @@ function FilterPill({
 
 export function SongsScreen() {
   const { t } = useT();
-  const { scrollerRef, innerRef, thumbRef, onWheel, onScroll } = useElasticScroll();
+  const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
 
   const [sort, setSort] = useState<SortMode>("title");
@@ -340,7 +340,6 @@ export function SongsScreen() {
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollerRef}
-          onWheel={onWheel}
           onScroll={handleScroll}
           className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
         >
