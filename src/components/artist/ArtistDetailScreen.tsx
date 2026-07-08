@@ -21,7 +21,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const { t } = useT();
   const closeArtist = useUiStore((s) => s.closeArtist);
   const openAlbum = useUiStore((s) => s.openAlbum);
-  const { scrollerRef, innerRef, thumbRef, onWheel, onScroll } = useElasticScroll();
+  const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
 
   const playing = usePlayerStore((s) => s.playing);
@@ -118,7 +118,6 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
 
       <div
         ref={scrollerRef}
-        onWheel={onWheel}
         onScroll={handleScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >

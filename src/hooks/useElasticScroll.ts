@@ -1,24 +1,37 @@
-import { useCallback, useRef, type UIEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useRef, type UIEvent } from "react";
 
 /**
- * 过弹性滚动 + 自绘滚动条（严格移植设计稿的弹簧模型）：
- *  - 拉伸段 k=320 c=30；释放段 k=560 c=45；位移 84·tanh(x/200)
- *  - 滚轮判定窗口 40ms（|ΔY|<4 不续期）
- *  - 滚动条 6px 宽、越界按速度压缩、指数平滑 1-e^(-22t)、静止 0.9s 后淡出
+ * 自定义滚动引擎：全平台一致的 macOS 式滚动。
+ *
+ * 不依赖系统原生滚动手感（原生只作布局与 scrollTop 载体），wheel 事件被拦截后
+ * 由本引擎积分位置与速度：
+ *  - 触控板（连续小增量）：1:1 跟手，同时测量速度；冲过边缘时速度灌入回弹弹簧。
+ *  - 滚轮鼠标（离散步进）：每格转成速度冲量，指数摩擦平滑滑行（总位移与原生等距，
+ *    v0 = Δ · λ），连拨自然加速——Windows / Linux 也获得惯性滚动。
+ *  - 边缘橡皮筋：动量自动转化为过冲，近临界弹簧（k=560 c=45，来自设计稿）带初速
+ *    弹回；贴边继续拉为阻尼拉伸。视觉位移 84·tanh(x/200)（设计稿映射）。
+ *  - 自绘滚动条：6px 宽、越界按速度压缩、指数平滑 1-e^(-22t)、静止 0.9s 后淡出。
  */
 export function useElasticScroll() {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLDivElement | null>(null);
 
-  // 物理量
+  // ---- 物理常量 ----
+  const FRICTION = 6; // 惯性摩擦（1/s）：单格总位移 = Δ，滑行约 0.6s
+  const SPRING_K = 560; // 回弹弹簧刚度（设计稿释放段）
+  const SPRING_C = 45; // 回弹阻尼（近临界，无振荡）
+  const MAX_OVER = 260; // 原始过冲上限（视觉再经 tanh 压缩）
+  const INPUT_WINDOW_MS = 40; // 设计稿：输入活跃窗口，期间弹簧让位于直接拉伸
+
+  // 物理量（跨帧可变，不进 React 状态）
   const s = useRef({
-    stretch: 0,
-    vel: 0,
+    pos: 0, // 虚拟滚动位置（可越界）
+    vel: 0, // 速度 px/s
     velPeak: 0,
-    cur: 0,
-    sprV: 0,
-    lastWheelT: 0,
+    momentum: false, // 是否处于离散滚轮惯性模式
+    lastInputT: 0,
+    lastEventT: 0,
     raf: 0,
     lastT: 0,
     thumbTimer: 0,
@@ -28,6 +41,14 @@ export function useElasticScroll() {
     thTargetH: null as number | null,
     thTargetTop: null as number | null,
   }).current;
+
+  const overOf = useCallback(
+    (el: HTMLDivElement) => {
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      return s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
+    },
+    [s],
+  );
 
   const updateThumb = useCallback(
     (damped: number) => {
@@ -40,8 +61,8 @@ export function useElasticScroll() {
       const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
       let top = (trackH - h) * (el.scrollTop / maxScroll);
       if (damped !== 0) {
-        const speedBoost = Math.min(0.85, s.velPeak / 160);
-        const ratio = Math.min(0.68, (Math.abs(s.cur) / 260) * (0.35 + speedBoost));
+        const speedBoost = Math.min(0.85, s.velPeak / 4000);
+        const ratio = Math.min(0.68, (Math.abs(damped) / 84) * (0.35 + speedBoost));
         h = Math.max(22, h * (1 - ratio));
         top = damped > 0 ? 0 : trackH - h;
       }
@@ -65,70 +86,151 @@ export function useElasticScroll() {
     [s],
   );
 
-  const applyStretch = useCallback(() => {
+  const applyFrame = useCallback(() => {
+    const el = scrollerRef.current;
     const inner = innerRef.current;
-    if (!inner) return;
-    const damped = 84 * Math.tanh(s.cur / 200);
+    if (!el || !inner) return;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = Math.max(0, Math.min(s.pos, max));
+    const over = overOf(el);
+    // 视觉映射：过顶（over<0）内容下移，过底上移
+    const damped = over === 0 ? 0 : -Math.sign(over) * 84 * Math.tanh(Math.abs(over) / 200);
     inner.style.transition = "none";
-    inner.style.transform = "translateY(" + damped.toFixed(2) + "px)";
+    inner.style.transform = `translateY(${damped.toFixed(2)}px)`;
     updateThumb(Math.abs(damped) < 0.3 ? 0 : damped);
-  }, [s, updateThumb]);
+  }, [s, overOf, updateThumb]);
 
   const tick = useCallback(
     (t: number) => {
+      const el = scrollerRef.current;
+      if (!el) {
+        s.raf = 0;
+        return;
+      }
       const dt = Math.min(0.032, (t - (s.lastT || t)) / 1000) || 0.016;
       s.lastT = t;
-      const releasing = performance.now() - s.lastWheelT > 40;
-      const target = releasing ? 0 : s.stretch;
-      const k = releasing ? 560 : 320;
-      const c = releasing ? 45 : 30;
-      s.sprV += (target - s.cur) * k * dt;
-      s.sprV *= Math.exp(-c * dt);
-      s.cur += s.sprV * dt;
+      const over = overOf(el);
+      const inputActive = performance.now() - s.lastInputT < INPUT_WINDOW_MS;
+
+      if (over !== 0 && !inputActive) {
+        // 橡皮筋回弹：带入场速度的近临界弹簧
+        s.vel += -SPRING_K * over * dt;
+        s.vel *= Math.exp(-SPRING_C * dt);
+        s.pos += s.vel * dt;
+        // 弹回穿越边界后小速度即收敛，避免界内残余滑动
+        const newOver = overOf(el);
+        if (newOver === 0 || Math.sign(newOver) !== Math.sign(over)) {
+          if (Math.abs(s.vel) < 120) {
+            const max = Math.max(0, el.scrollHeight - el.clientHeight);
+            s.pos = over < 0 ? 0 : max;
+            s.vel = 0;
+          }
+        }
+      } else if (over === 0) {
+        if (s.momentum) {
+          // 离散滚轮惯性：指数摩擦滑行
+          s.pos += s.vel * dt;
+          s.vel *= Math.exp(-FRICTION * dt);
+        } else {
+          // 触控板界内不叠加惯性（速度仅保留给边缘转化），快速衰减
+          s.vel *= Math.exp(-20 * dt);
+        }
+      }
+
+      applyFrame();
+
       const thumbSettled =
         s.thTargetH == null ||
         (Math.abs((s.thH ?? 0) - s.thTargetH) < 0.5 &&
           Math.abs((s.thTop ?? 0) - (s.thTargetTop ?? 0)) < 0.5);
-      if (releasing && thumbSettled && Math.abs(s.cur) < 0.4 && Math.abs(s.sprV) < 2) {
-        s.cur = 0;
-        s.sprV = 0;
-        s.stretch = 0;
+      const overNow = overOf(el);
+      if (!inputActive && thumbSettled && overNow === 0 && Math.abs(s.vel) < 15) {
         s.vel = 0;
         s.velPeak = 0;
-        applyStretch();
+        s.momentum = false;
         s.raf = 0;
         s.lastT = 0;
         return;
       }
-      applyStretch();
       s.raf = requestAnimationFrame(tick);
     },
-    [s, applyStretch],
+    [s, overOf, applyFrame],
   );
 
-  const onWheel = useCallback(
-    (e: WheelEvent<HTMLDivElement>) => {
-      const el = scrollerRef.current;
-      if (!el || !innerRef.current) return;
-      const atTop = el.scrollTop <= 0;
-      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-      const pulling = (atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0);
-      if (!pulling) {
+  const ensureRaf = useCallback(() => {
+    if (!s.raf) {
+      s.lastT = 0;
+      s.raf = requestAnimationFrame(tick);
+    }
+  }, [s, tick]);
+
+  // 拦截 wheel（必须非 passive，React 合成事件在根节点是 passive 的）
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    s.pos = el.scrollTop;
+
+    const onWheelNative = (e: globalThis.WheelEvent) => {
+      e.preventDefault();
+      const now = performance.now();
+      const dtEv = Math.min(0.1, (now - s.lastEventT) / 1000) || 0.016;
+      s.lastEventT = now;
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      // 归一化步进单位（行 / 页 → 像素）
+      const dy =
+        e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * el.clientHeight : e.deltaY;
+      // 离散滚轮：整数大步进（Windows 滚轮多为 ±100/120 的整数倍）
+      const discrete =
+        e.deltaMode !== 0 || (Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
+      const over = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
+
+      if (Math.abs(dy) >= 4) s.lastInputT = now;
+
+      if (over !== 0) {
+        // 贴边继续拉：阻尼累加（视觉经 tanh 压缩），并抑制惯性
+        const next = s.pos + dy * 0.9;
+        s.pos = over < 0 ? Math.max(-MAX_OVER, next) : Math.min(max + MAX_OVER, next);
         s.vel = 0;
-        return;
+        s.momentum = false;
+      } else if (discrete) {
+        // 一格 = 等距总位移的速度冲量（v0 = Δ · λ），连拨叠加
+        s.vel += dy * FRICTION;
+        s.momentum = true;
+      } else {
+        // 触控板：1:1 跟手，速度用于边缘橡皮筋转化
+        s.pos = Math.max(-MAX_OVER, Math.min(max + MAX_OVER, s.pos + dy));
+        s.vel = 0.7 * s.vel + 0.3 * (dy / dtEv);
+        s.momentum = false;
       }
-      s.vel = s.vel * 0.65 + Math.abs(e.deltaY) * 0.35;
-      s.velPeak = Math.max(s.velPeak || 0, s.vel);
-      s.stretch = Math.max(-260, Math.min(260, s.stretch - e.deltaY * 0.9));
-      if (Math.abs(e.deltaY) >= 4) s.lastWheelT = performance.now();
-      if (!s.raf) {
-        s.lastT = 0;
-        s.raf = requestAnimationFrame(tick);
-      }
-    },
-    [s, tick],
-  );
+      s.velPeak = Math.max(s.velPeak, Math.abs(s.vel));
+      ensureRaf();
+    };
 
+    // 外部滚动（键盘 / 程序定位）时回灌位置
+    const onScrollSync = () => {
+      const expected = Math.max(
+        0,
+        Math.min(Math.round(s.pos), Math.max(0, el.scrollHeight - el.clientHeight)),
+      );
+      if (Math.abs(el.scrollTop - expected) > 1 && !s.raf) {
+        s.pos = el.scrollTop;
+        s.vel = 0;
+      }
+    };
+
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    el.addEventListener("scroll", onScrollSync, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", onWheelNative);
+      el.removeEventListener("scroll", onScrollSync);
+      if (s.raf) cancelAnimationFrame(s.raf);
+      s.raf = 0;
+      window.clearTimeout(s.thumbTimer);
+    };
+    // scrollerRef 在组件整个生命周期指向同一元素（mount 后不变）
+  }, [s, ensureRaf]);
+
+  /** 供消费者挂在滚动容器上：驱动自绘滚动条（吸顶栏等自行另加逻辑）。 */
   const onScroll = useCallback(
     (_e: UIEvent<HTMLDivElement>) => {
       updateThumb(0);
@@ -136,5 +238,5 @@ export function useElasticScroll() {
     [updateThumb],
   );
 
-  return { scrollerRef, innerRef, thumbRef, onWheel, onScroll };
+  return { scrollerRef, innerRef, thumbRef, onScroll };
 }

@@ -34,7 +34,7 @@ export function LibraryScreen() {
   const { t } = useT();
   const nav = useUiStore((s) => s.nav);
   const view = useUiStore((s) => s.view);
-  const { scrollerRef, innerRef, thumbRef, onWheel, onScroll } = useElasticScroll();
+  const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
 
   const navItem = NAV_ITEMS.find((n) => n.key === nav);
   const title = navItem ? t(navItem.labelKey) : t("nav.albums");
@@ -68,7 +68,6 @@ export function LibraryScreen() {
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollerRef}
-          onWheel={onWheel}
           onScroll={onScroll}
           className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] pt-1 [overscroll-behavior:contain]"
         >
