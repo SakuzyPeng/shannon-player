@@ -213,13 +213,16 @@ export function useElasticScroll() {
         }
         s.bouncing = false;
       }
-      // 压缩到极限：停止接收，立即开始回弹
+      // 压缩到极限：停止接收，立即开始回弹。清零向内速度——甩动的到达
+      // 速度已把位置送到极限、使命完成，若留着会让弹簧接管后再向内冲一帧
+      // （抽动）。弹簧从极限点静止起弹，回弹单调无抽动。
       const latchIfSaturated = () => {
         const overNow = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
         if (Math.abs(overNow) >= BOUNCE_AT) {
           s.bouncing = true;
           s.bounceDir = Math.sign(overNow);
           s.tailDy = Math.abs(dy);
+          s.vel = 0;
         }
       };
 
