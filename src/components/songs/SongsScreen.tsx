@@ -79,6 +79,7 @@ function FilterPill({
     <div
       onMouseEnter={() => filter.onEnter(inputRef.current)}
       onMouseLeave={filter.onLeave}
+      onClick={() => filter.onEnter(inputRef.current)}
       className={cn(
         "absolute right-0 top-0 box-border flex items-center gap-2 overflow-hidden rounded-full border bg-srf",
         filter.focused ? "filter-focus-ring border-ac" : "border-bd",
@@ -115,7 +116,10 @@ function FilterPill({
           title={t("songs.filterClear")}
           aria-label={t("songs.filterClear")}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={filter.onClear}
+          onClick={(e) => {
+            e.stopPropagation();
+            filter.onClear();
+          }}
           className="grid size-5 flex-shrink-0 cursor-pointer place-items-center rounded-full bg-hv text-tx2 hover:text-tx"
         >
           <Icon name="close" size={9} strokeWidth={2.6} />

@@ -1,7 +1,6 @@
 import { lazy, Suspense } from "react";
 import { IconRail } from "@/components/layout/IconRail";
 import { LibraryScreen } from "@/components/library/LibraryScreen";
-import { SongsScreen } from "@/components/songs/SongsScreen";
 import { PlayBar } from "@/components/player/PlayBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
@@ -16,6 +15,12 @@ const AlbumDetailScreen = lazy(() =>
 const ArtistDetailScreen = lazy(() =>
   import("@/components/artist/ArtistDetailScreen").then((module) => ({
     default: module.ArtistDetailScreen,
+  })),
+);
+
+const SongsScreen = lazy(() =>
+  import("@/components/songs/SongsScreen").then((module) => ({
+    default: module.SongsScreen,
   })),
 );
 
