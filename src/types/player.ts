@@ -58,6 +58,13 @@ export interface QueueItem {
   source: "user" | "auto";
 }
 
+/** 逐字歌词的一个词（时间轴以毫秒为单位，供 AMLL 逐字填充）。 */
+export interface LyricWord {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
 /** 一行歌词（时间轴以毫秒为单位）。 */
 export interface LyricLine {
   /** 起始时间（ms）。 */
@@ -65,6 +72,8 @@ export interface LyricLine {
   /** 结束时间（ms），用于逐行高亮区间；缺省则到下一行。 */
   endMs?: number;
   text: string;
+  /** 逐字时间轴（有则为逐字歌词，无则整行渐显）。 */
+  words?: LyricWord[];
   /** 译文 / 音译（AMLL 多行）。 */
   translation?: string;
   romaji?: string;

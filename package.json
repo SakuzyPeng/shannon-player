@@ -12,6 +12,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@applemusic-like-lyrics/core": "^0.5.1",
+    "@applemusic-like-lyrics/react": "^0.5.1",
     "@fontsource-variable/lora": "^5.2.8",
     "@fontsource-variable/noto-serif-sc": "^5.2.10",
     "@radix-ui/react-context-menu": "^2.2.4",

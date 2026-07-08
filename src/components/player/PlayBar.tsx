@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { usePlayerStore } from "@/store/player";
+import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
@@ -45,18 +46,25 @@ export function PlayBar() {
 
   return (
     <div className="playbar-shadow absolute inset-x-[26px] bottom-[22px] z-30 flex h-[76px] items-center gap-4 rounded-[19px] border border-bd bg-pb px-[18px] transition-colors">
-      {/* 左：封面 + 曲目 + 收藏 */}
+      {/* 左：封面 + 曲目（点击进歌词页）+ 收藏 */}
       <div className="flex w-[236px] items-center gap-3">
-        <div
-          className="cover-gradient play-cover-material grid size-12 place-items-center rounded-xl"
-          style={coverGradientStyle(track.cover)}
+        <button
+          aria-label={t("menu.showLyrics")}
+          title={t("menu.showLyrics")}
+          onClick={() => useUiStore.getState().openLyrics()}
+          className="flex min-w-0 cursor-pointer items-center gap-3 text-left"
         >
-          <span className="cover-initial font-serif text-[19px]">{track.cover.initial}</span>
-        </div>
-        <div className="min-w-0">
-          <div className="truncate font-serif text-[14.5px] font-semibold text-tx">{track.title}</div>
-          <div className="mt-0.5 truncate text-[12px] text-tx2">{track.artist}</div>
-        </div>
+          <div
+            className="cover-gradient play-cover-material grid size-12 flex-shrink-0 place-items-center rounded-xl"
+            style={coverGradientStyle(track.cover)}
+          >
+            <span className="cover-initial font-serif text-[19px]">{track.cover.initial}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="truncate font-serif text-[14.5px] font-semibold text-tx">{track.title}</div>
+            <div className="mt-0.5 truncate text-[12px] text-tx2">{track.artist}</div>
+          </div>
+        </button>
         {/* 爱心常驻 --ac（对齐设计稿）；实心 = 已收藏，描边 = 未收藏 */}
         <button
           aria-label={favorited ? t("player.unfavorite") : t("player.favorite")}

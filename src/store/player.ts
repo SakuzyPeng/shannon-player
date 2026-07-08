@@ -59,6 +59,13 @@ interface PlayerState {
   seek: (positionSec: number) => void;
   /** 供音频引擎/定时器回灌进度。 */
   setProgress: (p: Partial<PlaybackProgress>) => void;
+  /**
+   * 模拟播放推进 dt 秒（真实音频引擎接入前的占位时钟）：
+   * 到曲尾时按循环模式切曲，队列播完则停在末尾。
+   */
+  tick: (dtSec: number) => void;
+  /** 清空当前曲目之后的队列（歌词页队列面板「清除」）。 */
+  clearUpNext: () => void;
   /** 「下一首播放」：插入到当前项之后。 */
   enqueueNext: (track: Track) => void;
   /** 追加到队尾。 */
@@ -178,6 +185,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     })),
 
   setProgress: (p) => set((s) => ({ progress: { ...s.progress, ...p } })),
+
+  tick: (dtSec) =>
+    set((s) => {
+      if (!s.playing || s.currentIndex < 0) return s;
+      const pos = s.progress.positionSec + dtSec;
+      if (pos < s.progress.durationSec) {
+        return { progress: { ...s.progress, positionSec: pos } };
+      }
+      if (s.repeat === "one") return { progress: { ...s.progress, positionSec: 0 } };
+      const atEnd = s.currentIndex >= s.queue.length - 1;
+      if (atEnd && s.repeat === "off") {
+        return { playing: false, progress: { ...s.progress, positionSec: s.progress.durationSec } };
+      }
+      const nextIdx = atEnd ? 0 : s.currentIndex + 1;
+      return { currentIndex: nextIdx, progress: freshProgress(s.queue[nextIdx].track) };
+    }),
+
+  clearUpNext: () =>
+    set((s) => ({ queue: s.queue.slice(0, s.currentIndex + 1) })),
 
   enqueueNext: (track) =>
     set((s) => {

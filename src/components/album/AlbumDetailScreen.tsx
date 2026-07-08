@@ -60,6 +60,10 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
       case "menu.favorite":
         toggleFavorite(track.id);
         break;
+      case "menu.showLyrics":
+        playQueue(tracks, index);
+        useUiStore.getState().openLyrics();
+        break;
     }
   };
 

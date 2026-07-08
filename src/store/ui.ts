@@ -10,6 +10,8 @@ interface UiState {
   openAlbumId: Id | null;
   /** 当前打开的歌手详情页（以歌手名为键；与专辑详情互斥）。 */
   openArtistName: string | null;
+  /** 歌词页（沉浸式，覆盖整个窗口）。 */
+  lyricsOpen: boolean;
 
   /** 外观三态循环：浅色 → 深色 → 跟随系统 → 浅色。 */
   cycleTheme: () => void;
@@ -20,6 +22,8 @@ interface UiState {
   closeAlbum: () => void;
   openArtist: (name: string) => void;
   closeArtist: () => void;
+  openLyrics: () => void;
+  closeLyrics: () => void;
 }
 
 const THEME_CYCLE: ThemeMode[] = ["light", "dark", "system"];
@@ -31,6 +35,7 @@ export const useUiStore = create<UiState>((set) => ({
   language: "跟随系统",
   openAlbumId: null,
   openArtistName: null,
+  lyricsOpen: false,
 
   cycleTheme: () =>
     set((s) => ({ theme: THEME_CYCLE[(THEME_CYCLE.indexOf(s.theme) + 1) % 3] })),
@@ -42,4 +47,6 @@ export const useUiStore = create<UiState>((set) => ({
   closeAlbum: () => set({ openAlbumId: null }),
   openArtist: (openArtistName) => set({ openArtistName, openAlbumId: null }),
   closeArtist: () => set({ openArtistName: null }),
+  openLyrics: () => set({ lyricsOpen: true }),
+  closeLyrics: () => set({ lyricsOpen: false }),
 }));

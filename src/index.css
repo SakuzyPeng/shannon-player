@@ -35,6 +35,19 @@
   --cover-collect-shadow: rgba(30, 18, 8, 0.28);
   --cover-card-corner: rgba(30, 18, 8, 0.45);
   --stickybar-shadow: rgba(60, 40, 20, 0.07);
+
+  /* 歌词页 */
+  --cover-glow: 0.3; /* 封面氛围光透明度（深色 0.5） */
+  --cover-lyrics-shade: rgba(20, 14, 6, 0.22);
+  --lyrics-amb: 11%; /* 窗口边缘主色氛围（深色 18% / 12%） */
+  --lyrics-amb2: 7%;
+  --float-shadow: rgba(60, 40, 20, 0.1);
+  --queue-shadow: rgba(50, 35, 18, 0.28);
+  --qbd: #ECE3D4;
+  --qhv: rgba(60, 40, 20, 0.07);
+  --qring: rgba(38, 22, 8, 0.16);
+  --qpill: rgba(60, 40, 20, 0.05);
+  --qpillbd: #ECE3D4;
   --seg-shadow: rgba(60, 40, 20, 0.1);
   --playbar-outer-shadow: rgba(60, 40, 20, 0.16);
   --menu-outer-shadow: rgba(60, 40, 20, 0.2);
@@ -64,6 +77,14 @@
   --danger: #E07B6A;
   --scrim: rgba(28, 22, 14, 0.85);
   --cover-hero-tint: 20%;
+  --cover-glow: 0.5;
+  --lyrics-amb: 18%;
+  --lyrics-amb2: 12%;
+  --qbd: rgba(255, 255, 255, 0.12);
+  --qhv: rgba(255, 255, 255, 0.08);
+  --qring: rgba(255, 255, 255, 0.12);
+  --qpill: rgba(255, 255, 255, 0.06);
+  --qpillbd: rgba(255, 255, 255, 0.14);
 }
 
 /* 把语义 Token 映射成 Tailwind 工具类（inline 保证随主题实时切换）。
@@ -176,6 +197,47 @@ body {
   .sticky-bar-shadow {
     box-shadow: 0 6px 18px var(--stickybar-shadow);
   }
+  /* 歌词页大封面（300px）：更强的材质与主色调投影 */
+  .lyrics-cover-material {
+    box-shadow:
+      inset 0 0 0 1px var(--cover-hairline),
+      inset 0 -26px 44px var(--cover-lyrics-shade),
+      inset 0 16px 30px var(--cover-hero-glint),
+      0 28px 76px 18px color-mix(in srgb, var(--cover-c1) var(--cover-hero-tint), transparent);
+  }
+  /* 封面氛围光：主色渐变 + 大半径模糊 */
+  .lyrics-cover-glow {
+    background-image: linear-gradient(150deg, var(--cover-c1), var(--cover-c2));
+    filter: blur(44px);
+    opacity: var(--cover-glow);
+  }
+  .lyrics-cover-overlay {
+    background: radial-gradient(150px 130px at 100% 0%, var(--cover-hero-overlay), transparent 72%);
+  }
+  /* 窗口边缘主色氛围（覆盖全窗，指针穿透） */
+  .lyrics-edge-tint {
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--cover-c1) var(--lyrics-amb), transparent), transparent 5%),
+      linear-gradient(270deg, color-mix(in srgb, var(--cover-c1) var(--lyrics-amb2), transparent), transparent 5%),
+      linear-gradient(180deg, color-mix(in srgb, var(--cover-c1) var(--lyrics-amb), transparent), transparent 6%),
+      linear-gradient(0deg, color-mix(in srgb, var(--cover-c2) var(--lyrics-amb), transparent), transparent 7%);
+  }
+  /* 歌词区背景的两团柔光 */
+  .lyrics-stage-bg {
+    background:
+      radial-gradient(560px 420px at 22% 32%, color-mix(in srgb, var(--cover-c1) 10%, transparent), transparent 70%),
+      radial-gradient(520px 460px at 78% 78%, color-mix(in srgb, var(--ac) 7%, transparent), transparent 70%);
+  }
+  .float-shadow {
+    box-shadow: 0 6px 18px var(--float-shadow);
+  }
+  /* 磨砂队列面板 */
+  .queue-panel {
+    background: var(--scrim);
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--qbd);
+    box-shadow: 0 24px 56px var(--queue-shadow);
+  }
   .play-cover-material {
     box-shadow: inset 0 0 0 1px var(--cover-thumb-highlight);
   }
@@ -235,4 +297,21 @@ body {
 @keyframes eq {
   0%, 100% { transform: scaleY(0.35); }
   50%      { transform: scaleY(1); }
+}
+
+/* 歌词页队列面板弹出 */
+@keyframes queuePop {
+  from { opacity: 0; transform: scale(0.92) translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* AMLL 歌词播放器主题适配：默认样式面向深色背景（白字 + plus-lighter 混合），
+   这里改为跟随语义 Token，并用衬线字族与设计稿字号。 */
+.amll-lyric-player {
+  mix-blend-mode: normal;
+  --amll-lp-color: var(--tx);
+  --amll-lp-font-size: 34px;
+  --amll-lp-hover-bg-color: var(--hv);
+  font-family: var(--font-serif);
+  font-weight: 600;
 }

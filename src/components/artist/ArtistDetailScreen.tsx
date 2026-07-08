@@ -66,6 +66,10 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
       case "menu.favorite":
         toggleFavorite(track.id);
         break;
+      case "menu.showLyrics":
+        playQueue(topTracks, index);
+        useUiStore.getState().openLyrics();
+        break;
     }
   };
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
