@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { motion } from "framer-motion";
 import { LyricPlayer } from "@applemusic-like-lyrics/react";
+// AMLL 歌词播放器基础样式随歌词页按需加载；主题适配覆盖见 index.css 尾部。
+import "@applemusic-like-lyrics/core/style.css";
 import { Icon } from "@/components/common/Icon";
 import { TrafficLights } from "@/components/window/TrafficLights";
 import { ALBUMS } from "@/data/library";
