@@ -41,6 +41,18 @@ export interface Messages {
   "artist.showAllSongs": string; // {n}
   "artist.showAllAlbums": string; // {n}
 
+  "songs.subtitle": string; // {n} {h} {m}
+  "songs.sortMenu": string;
+  "songs.sortByTitle": string;
+  "songs.sortByArtist": string;
+  "songs.sortRecent": string;
+  "songs.filterPlaceholder": string;
+  "songs.filterClear": string;
+  "songs.colArtist": string;
+  "songs.groupMeta": string; // {albums} {n}
+  "songs.emptyTitle": string; // {q}
+  "songs.emptyBody": string;
+
   "lyrics.back": string;
   "lyrics.show": string;
   "lyrics.hide": string;
@@ -137,6 +149,18 @@ const zhHans: Messages = {
   "artist.showAllSongs": "显示全部 {n} 首",
   "artist.showAllAlbums": "显示全部 {n} 张",
 
+  "songs.subtitle": "{n} 首 · {h} 小时 {m} 分钟",
+  "songs.sortMenu": "排序方式",
+  "songs.sortByTitle": "按标题",
+  "songs.sortByArtist": "按歌手",
+  "songs.sortRecent": "最近添加",
+  "songs.filterPlaceholder": "过滤全部歌曲…",
+  "songs.filterClear": "清空并关闭",
+  "songs.colArtist": "歌手",
+  "songs.groupMeta": "{albums} 张专辑 · {n} 首",
+  "songs.emptyTitle": "没有找到“{q}”",
+  "songs.emptyBody": "检查拼写，或试试歌手名、专辑名",
+
   "lyrics.back": "返回曲库",
   "lyrics.show": "显示歌词",
   "lyrics.hide": "隐藏歌词",
@@ -230,6 +254,18 @@ const zhHant: Messages = {
   "artist.topSongs": "熱門歌曲",
   "artist.showAllSongs": "顯示全部 {n} 首",
   "artist.showAllAlbums": "顯示全部 {n} 張",
+
+  "songs.subtitle": "{n} 首 · {h} 小時 {m} 分鐘",
+  "songs.sortMenu": "排序方式",
+  "songs.sortByTitle": "按標題",
+  "songs.sortByArtist": "按歌手",
+  "songs.sortRecent": "最近加入",
+  "songs.filterPlaceholder": "過濾全部歌曲…",
+  "songs.filterClear": "清空並關閉",
+  "songs.colArtist": "歌手",
+  "songs.groupMeta": "{albums} 張專輯 · {n} 首",
+  "songs.emptyTitle": "沒有找到「{q}」",
+  "songs.emptyBody": "檢查拼寫，或試試歌手名、專輯名",
 
   "lyrics.back": "返回曲庫",
   "lyrics.show": "顯示歌詞",
@@ -325,6 +361,18 @@ const en: Messages = {
   "artist.showAllSongs": "Show all {n}",
   "artist.showAllAlbums": "Show all {n}",
 
+  "songs.subtitle": "{n} songs · {h} hr {m} min",
+  "songs.sortMenu": "Sort by",
+  "songs.sortByTitle": "By Title",
+  "songs.sortByArtist": "By Artist",
+  "songs.sortRecent": "Recently Added",
+  "songs.filterPlaceholder": "Filter all songs…",
+  "songs.filterClear": "Clear and close",
+  "songs.colArtist": "Artist",
+  "songs.groupMeta": "{albums} albums · {n} songs",
+  "songs.emptyTitle": "No results for “{q}”",
+  "songs.emptyBody": "Check the spelling, or try an artist or album name",
+
   "lyrics.back": "Back to Library",
   "lyrics.show": "Show lyrics",
   "lyrics.hide": "Hide lyrics",
@@ -418,6 +466,18 @@ const ja: Messages = {
   "artist.topSongs": "人気曲",
   "artist.showAllSongs": "全 {n} 曲を表示",
   "artist.showAllAlbums": "全 {n} 枚を表示",
+
+  "songs.subtitle": "{n} 曲 · {h} 時間 {m} 分",
+  "songs.sortMenu": "並べ替え",
+  "songs.sortByTitle": "タイトル順",
+  "songs.sortByArtist": "アーティスト順",
+  "songs.sortRecent": "最近追加した順",
+  "songs.filterPlaceholder": "すべての曲をフィルタ…",
+  "songs.filterClear": "クリアして閉じる",
+  "songs.colArtist": "アーティスト",
+  "songs.groupMeta": "{albums} 枚のアルバム · {n} 曲",
+  "songs.emptyTitle": "「{q}」は見つかりません",
+  "songs.emptyBody": "スペルを確認するか、アーティスト名やアルバム名で試してください",
 
   "lyrics.back": "ライブラリに戻る",
   "lyrics.show": "歌詞を表示",

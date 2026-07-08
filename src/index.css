@@ -231,6 +231,10 @@ body {
   .float-shadow {
     box-shadow: 0 6px 18px var(--float-shadow);
   }
+  /* 过滤框聚焦圈（--ac 18%） */
+  .filter-focus-ring {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ac) 18%, transparent);
+  }
   /* 磨砂队列面板 */
   .queue-panel {
     background: var(--scrim);

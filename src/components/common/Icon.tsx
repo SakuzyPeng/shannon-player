@@ -25,6 +25,7 @@ export type IconName =
   | "chevronLeft"
   | "chevronRight"
   | "chevronDown"
+  | "close"
   | "more";
 
 /** 描边类图标：单个 d（含多段子路径）。 */
@@ -52,6 +53,7 @@ const STROKE: Partial<Record<IconName, string>> = {
   chevronLeft: "M15 6l-6 6 6 6",
   chevronRight: "M9 6l6 6-6 6",
   chevronDown: "M6 9l6 6 6-6",
+  close: "M6 6l12 12 M18 6L6 18",
 };
 
 interface IconProps {

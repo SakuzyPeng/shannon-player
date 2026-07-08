@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { IconRail } from "@/components/layout/IconRail";
 import { LibraryScreen } from "@/components/library/LibraryScreen";
+import { SongsScreen } from "@/components/songs/SongsScreen";
 import { PlayBar } from "@/components/player/PlayBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
@@ -30,10 +31,13 @@ export default function App() {
   const openAlbumId = useUiStore((s) => s.openAlbumId);
   const openArtistName = useUiStore((s) => s.openArtistName);
   const lyricsOpen = useUiStore((s) => s.lyricsOpen);
+  const nav = useUiStore((s) => s.nav);
   const content = openArtistName ? (
     <ArtistDetailScreen artistName={openArtistName} />
   ) : openAlbumId ? (
     <AlbumDetailScreen albumId={openAlbumId} />
+  ) : nav === "songs" ? (
+    <SongsScreen />
   ) : (
     <LibraryScreen />
   );

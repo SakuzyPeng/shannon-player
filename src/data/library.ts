@@ -148,6 +148,11 @@ export function tracksOf(album: Album): Track[] {
   }));
 }
 
+/** 全曲库曲目（按「最近添加」序 = 专辑在库中的顺序）。 */
+export function allTracks(): Track[] {
+  return ALBUMS.flatMap(tracksOf);
+}
+
 /** 歌手的专辑（按年份倒序，对齐歌手页设计稿）。 */
 export function albumsOfArtist(artist: string): Album[] {
   return ALBUMS.filter((a) => a.artist === artist).sort((a, b) => b.year - a.year);
