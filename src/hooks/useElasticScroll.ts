@@ -33,6 +33,7 @@ export function useElasticScroll() {
     momentum: false, // 是否处于离散滚轮惯性模式
     bouncing: false, // 回弹锁定：压缩到极限后立即弹回，忽略同向连续输入（系统动量尾巴）
     bounceDir: 0, // 锁定时的过冲方向
+    tailDy: 0, // 被忽略尾巴的当前幅度（随尾巴衰减更新，用于识别幅度跳升）
     lastInputT: 0,
     lastEventT: 0,
     raf: 0,
@@ -198,11 +199,18 @@ export function useElasticScroll() {
 
       // 回弹锁定（饱和即回弹）：橡皮筋压到极限后立即弹回，之后属于同一
       // 手势的输入一律忽略。Web 层拿不到 momentumPhase（无法得知是否
-      // 松手），判别靠事件流连续性：macOS 动量尾巴以 ~16ms 连续到达，
-      // 真正的新手势必须抬手再滑、间隙必然 >80ms。同向且连续 = 尾巴，
-      // 忽略；间隙断开或反向 = 新输入，解锁交还控制。
+      // 松手），用两个互补信号区分尾巴与新输入：
+      //  - 事件间隙：尾巴以 ~16ms 连续到达，抬手再滑必然 >80ms 断流；
+      //  - 幅度跳升：尾巴单调衰减，新落手的滑动幅度必然突增——覆盖
+      //    「连续滑动无缝接流、没有间隙」的场景。
+      // 反向输入立即接管。
       if (s.bouncing) {
-        if (Math.sign(dy) === s.bounceDir && gapMs < 80) return;
+        const isTail =
+          Math.sign(dy) === s.bounceDir && gapMs < 80 && Math.abs(dy) <= s.tailDy * 1.5;
+        if (isTail) {
+          s.tailDy = Math.abs(dy);
+          return;
+        }
         s.bouncing = false;
       }
       // 压缩到极限：停止接收，立即开始回弹
@@ -211,6 +219,7 @@ export function useElasticScroll() {
         if (Math.abs(overNow) >= BOUNCE_AT) {
           s.bouncing = true;
           s.bounceDir = Math.sign(overNow);
+          s.tailDy = Math.abs(dy);
         }
       };
 
