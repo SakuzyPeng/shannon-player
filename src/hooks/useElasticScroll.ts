@@ -23,6 +23,7 @@ export function useElasticScroll() {
   const SPRING_C = 45; // 回弹阻尼（近临界，无振荡）
   const MAX_OVER = 260; // 原始过冲上限（视觉再经 tanh 压缩）
   const INPUT_WINDOW_MS = 40; // 设计稿：输入活跃窗口，期间弹簧让位于直接拉伸
+  const FLING_VEL = 1000; // 高于此速度冲过边缘视为甩动（fling）→ 立即回弹
 
   // 物理量（跨帧可变，不进 React 状态）
   const s = useRef({
@@ -30,6 +31,8 @@ export function useElasticScroll() {
     vel: 0, // 速度 px/s
     velPeak: 0,
     momentum: false, // 是否处于离散滚轮惯性模式
+    bouncing: false, // 回弹锁定：甩动冲边后立即弹回，忽略系统动量尾巴事件
+    lastBounceDy: 0,
     lastInputT: 0,
     lastEventT: 0,
     raf: 0,
@@ -112,7 +115,7 @@ export function useElasticScroll() {
       const over = overOf(el);
       const inputActive = performance.now() - s.lastInputT < INPUT_WINDOW_MS;
 
-      if (over !== 0 && !inputActive) {
+      if (over !== 0 && (s.bouncing || !inputActive)) {
         // 橡皮筋回弹：带入场速度的近临界弹簧
         s.vel += -SPRING_K * over * dt;
         s.vel *= Math.exp(-SPRING_C * dt);
@@ -124,6 +127,7 @@ export function useElasticScroll() {
             const max = Math.max(0, el.scrollHeight - el.clientHeight);
             s.pos = over < 0 ? 0 : max;
             s.vel = 0;
+            s.bouncing = false;
           }
         }
       } else if (over === 0) {
@@ -184,23 +188,42 @@ export function useElasticScroll() {
         e.deltaMode !== 0 || (Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
       const over = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
 
-      if (Math.abs(dy) >= 4) s.lastInputT = now;
-
       if (over !== 0) {
+        // 回弹锁定中：macOS 松手后系统仍持续发送衰减的动量尾巴事件，
+        // 若任其刷新输入窗口，橡皮筋会被钉在极限处「顿一下」才回弹。
+        // 同向且未增强的事件视为动量尾巴，直接忽略；增量突然变大（手指
+        // 主动再推）或反向输入则解除锁定、交还直接控制。
+        if (s.bouncing) {
+          const sameDir = Math.sign(dy) === Math.sign(over);
+          if (sameDir && Math.abs(dy) <= Math.abs(s.lastBounceDy) * 1.5) {
+            s.lastBounceDy = dy;
+            return;
+          }
+          s.bouncing = false;
+        }
+        if (Math.abs(dy) >= 4) s.lastInputT = now;
         // 贴边继续拉：阻尼累加（视觉经 tanh 压缩），并抑制惯性
         const next = s.pos + dy * 0.9;
         s.pos = over < 0 ? Math.max(-MAX_OVER, next) : Math.min(max + MAX_OVER, next);
         s.vel = 0;
         s.momentum = false;
       } else if (discrete) {
+        if (Math.abs(dy) >= 4) s.lastInputT = now;
         // 一格 = 等距总位移的速度冲量（v0 = Δ · λ），连拨叠加
         s.vel += dy * FRICTION;
         s.momentum = true;
       } else {
+        if (Math.abs(dy) >= 4) s.lastInputT = now;
         // 触控板：1:1 跟手，速度用于边缘橡皮筋转化
         s.pos = Math.max(-MAX_OVER, Math.min(max + MAX_OVER, s.pos + dy));
         s.vel = 0.7 * s.vel + 0.3 * (dy / dtEv);
         s.momentum = false;
+        // 高速冲过边缘 = 甩动：进入回弹锁定，动量立即转化为橡皮筋弹回
+        const afterOver = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
+        if (afterOver !== 0 && Math.abs(s.vel) > FLING_VEL) {
+          s.bouncing = true;
+          s.lastBounceDy = dy;
+        }
       }
       s.velPeak = Math.max(s.velPeak, Math.abs(s.vel));
       ensureRaf();
