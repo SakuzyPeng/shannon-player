@@ -41,9 +41,12 @@ export function AlbumGrid() {
           items={ALBUM_MENU}
           onAction={(key) => handleAlbumAction(album, key)}
         >
-          <div className="min-w-0 cursor-pointer" onClick={() => openAlbum(album.id)}>
+          <div
+            className="relative min-w-0 cursor-pointer hover:z-10"
+            onClick={() => openAlbum(album.id)}
+          >
             <motion.div
-              whileHover={{ y: -5, scale: 1.015 }}
+              whileHover={{ y: -5 }}
               transition={{ type: "spring", stiffness: 380, damping: 18 }}
               className="cover-gradient cover-material group/cover relative grid aspect-square place-items-center rounded-2xl"
               style={coverGradientStyle(album.cover)}
