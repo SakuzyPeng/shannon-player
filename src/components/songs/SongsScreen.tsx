@@ -371,7 +371,7 @@ export function SongsScreen() {
                     align="end"
                     sideOffset={6}
                     aria-label={t("songs.sortMenu")}
-                    className="animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
+                    className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
                   >
                     <DropdownMenu.RadioGroup
                       value={sort}
@@ -438,7 +438,7 @@ export function SongsScreen() {
                           <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">
                             {album && (
                               <div
-                                className="cover-gradient cover-thumb-material grid size-[26px] place-items-center rounded-md"
+                                className="cover-corners cover-gradient cover-thumb-material grid size-[26px] place-items-center rounded-md"
                                 style={coverGradientStyle(album.cover)}
                               >
                                 <span className="cover-initial font-serif text-[11px]">

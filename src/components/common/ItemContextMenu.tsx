@@ -20,7 +20,7 @@ export function ItemContextMenu({ label, items, children, onAction }: Props) {
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="animate-menu-pop menu-shadow z-40 w-[222px] origin-top-left rounded-[14px] border border-bd bg-srf p-1.5">
+        <ContextMenu.Content className="surface-corners animate-menu-pop menu-shadow z-40 w-[222px] origin-top-left rounded-[14px] border border-bd bg-srf p-1.5">
           <div className="mb-[5px] truncate border-b border-bd px-2.5 pb-2 pt-[7px] font-serif text-[12px] text-tx2">
             {label}
           </div>

@@ -48,7 +48,7 @@ export function AlbumGrid() {
             <motion.div
               whileHover={{ y: -5 }}
               transition={{ type: "spring", stiffness: 380, damping: 18 }}
-              className="cover-gradient cover-material group/cover relative grid aspect-square place-items-center rounded-2xl"
+              className="cover-corners cover-gradient cover-material group/cover relative grid aspect-square place-items-center rounded-2xl"
               style={coverGradientStyle(album.cover)}
             >
               <span className="cover-initial font-serif text-[56px] font-medium">
@@ -56,7 +56,7 @@ export function AlbumGrid() {
               </span>
               {/* hover 浮现播放键（唯一交互入口） */}
               <div
-                className="cover-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100"
+                className="cover-corners cover-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100"
               >
                 <motion.button
                   aria-label={t("action.playAlbum", { title: album.title })}

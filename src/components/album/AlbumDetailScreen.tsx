@@ -89,14 +89,14 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
           {/* 专辑头部 */}
           <div className="flex items-center gap-9 pb-[30px] pt-[18px]">
             <div
-              className="cover-gradient cover-hero-material group/cover relative grid size-[232px] flex-shrink-0 place-items-center rounded-2xl"
+              className="cover-corners cover-gradient cover-hero-material group/cover relative grid size-[232px] flex-shrink-0 place-items-center rounded-2xl"
               style={coverGradientStyle(album.cover)}
             >
               <span className="cover-initial font-serif text-[76px] font-medium">
                 {album.cover.initial}
               </span>
               {/* hover 浮现操作爱心（收藏专辑的唯一交互入口） */}
-              <div className="cover-hero-overlay absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
+              <div className="cover-corners cover-hero-overlay absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}

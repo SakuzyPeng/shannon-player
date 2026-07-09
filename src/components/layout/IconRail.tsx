@@ -77,7 +77,7 @@ export function IconRail() {
             side="right"
             align="end"
             sideOffset={8}
-            className="animate-menu-pop menu-shadow z-50 w-[186px] origin-bottom-left rounded-[14px] border border-bd bg-srf p-1.5"
+            className="surface-corners animate-menu-pop menu-shadow z-50 w-[186px] origin-bottom-left rounded-[14px] border border-bd bg-srf p-1.5"
           >
             {LANGUAGES.map((l) => (
               <DropdownMenu.Item

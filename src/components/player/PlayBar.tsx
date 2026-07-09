@@ -45,7 +45,7 @@ export function PlayBar() {
   };
 
   return (
-    <div className="playbar-shadow absolute inset-x-[26px] bottom-[22px] z-30 flex h-[76px] items-center gap-4 rounded-[19px] border border-bd bg-pb px-[18px] transition-colors">
+    <div className="surface-corners playbar-shadow absolute inset-x-[26px] bottom-[22px] z-30 flex h-[76px] items-center gap-4 rounded-[19px] border border-bd bg-pb px-[18px] transition-colors">
       {/* 左：封面 + 曲目（点击进歌词页）+ 收藏 */}
       <div className="flex w-[236px] items-center gap-3">
         <button
@@ -55,7 +55,7 @@ export function PlayBar() {
           className="flex min-w-0 cursor-pointer items-center gap-3 text-left"
         >
           <div
-            className="cover-gradient play-cover-material grid size-12 flex-shrink-0 place-items-center rounded-xl"
+            className="cover-corners cover-gradient play-cover-material grid size-12 flex-shrink-0 place-items-center rounded-xl"
             style={coverGradientStyle(track.cover)}
           >
             <span className="cover-initial font-serif text-[19px]">{track.cover.initial}</span>

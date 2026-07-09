@@ -120,11 +120,11 @@ export function LyricsScreen() {
       >
         <div className="group/cover relative size-[300px]">
           <div className="lyrics-cover-glow pointer-events-none absolute -inset-5 rounded-[40px]" />
-          <div className="lyrics-cover-material cover-gradient relative grid size-[300px] place-items-center rounded-[20px]">
+          <div className="cover-corners lyrics-cover-material cover-gradient relative grid size-[300px] place-items-center rounded-[20px]">
             <span className="cover-initial font-serif text-8xl font-medium">
               {track.cover.initial}
             </span>
-            <div className="lyrics-cover-overlay absolute inset-0 rounded-[20px] opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
+            <div className="cover-corners lyrics-cover-overlay absolute inset-0 rounded-[20px] opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
@@ -335,7 +335,7 @@ export function LyricsScreen() {
       {/* 队列面板（磨砂浮层） */}
       {queueOpen && (
         <div
-          className="queue-panel absolute bottom-[78px] right-[30px] z-40 flex max-h-[470px] w-[330px] origin-bottom-right flex-col overflow-hidden rounded-2xl"
+          className="surface-corners queue-panel absolute bottom-[78px] right-[30px] z-40 flex max-h-[470px] w-[330px] origin-bottom-right flex-col overflow-hidden rounded-2xl"
           style={{ animation: "queuePop 0.28s var(--ease-spring)" }}
         >
           <div className="flex gap-2.5 px-4 pt-3.5">
@@ -387,7 +387,7 @@ export function LyricsScreen() {
                     className="flex cursor-pointer items-center gap-[11px] rounded-[11px] px-2.5 py-[7px] hover:bg-[var(--qhv)]"
                   >
                     <div
-                      className="cover-gradient grid size-[38px] flex-shrink-0 place-items-center rounded-lg shadow-[inset_0_0_0_1px_var(--qring)]"
+                      className="cover-corners cover-gradient grid size-[38px] flex-shrink-0 place-items-center rounded-lg shadow-[inset_0_0_0_1px_var(--qring)]"
                       style={coverGradientStyle(item.track.cover)}
                     >
                       <span className="cover-initial font-serif text-[15px]">

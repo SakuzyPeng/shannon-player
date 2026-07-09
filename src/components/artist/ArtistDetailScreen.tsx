@@ -305,11 +305,11 @@ function ArtistAlbumCard({ album, favorited, onOpen, onPlay, onToggleFavorite }:
       <motion.div
         whileHover={{ y: -5 }}
         transition={{ type: "spring", stiffness: 380, damping: 18 }}
-        className="cover-gradient cover-material group/card relative grid aspect-square place-items-center rounded-2xl"
+        className="cover-corners cover-gradient cover-material group/card relative grid aspect-square place-items-center rounded-2xl"
         style={coverGradientStyle(album.cover)}
       >
         <span className="cover-initial font-serif text-5xl font-medium">{album.cover.initial}</span>
-        <div className="artist-card-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/card:opacity-100">
+        <div className="cover-corners artist-card-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/card:opacity-100">
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}

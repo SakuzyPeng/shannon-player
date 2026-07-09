@@ -30,7 +30,7 @@ export function AlbumList() {
   const fmtMinutes = (sec: number) => t("unit.minutes", { n: Math.round(sec / 60) });
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-[14px] border border-bd bg-srf">
+    <div className="surface-corners flex flex-col overflow-hidden rounded-[14px] border border-bd bg-srf">
       <div
         className={`grid ${COLS} items-center gap-3.5 border-b border-bd px-[18px] py-2.5 text-[11px] font-semibold tracking-[0.08em] text-tx2`}
       >
@@ -53,7 +53,7 @@ export function AlbumList() {
             className={`grid ${COLS} cursor-pointer items-center gap-3.5 border-b border-bd px-[18px] py-2 transition-colors last:border-b-0 hover:bg-hv`}
           >
             <div
-              className="cover-gradient cover-thumb-material grid size-11 place-items-center rounded-[9px]"
+              className="cover-corners cover-gradient cover-thumb-material grid size-11 place-items-center rounded-[9px]"
               style={coverGradientStyle(album.cover)}
             >
               <span className="cover-initial font-serif text-[17px]">
