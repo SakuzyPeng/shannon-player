@@ -3,14 +3,18 @@ import { useCallback, useEffect, useRef, type UIEvent } from "react";
 /**
  * 自定义滚动引擎：全平台一致的 macOS 式滚动。
  *
- * 不依赖系统原生滚动手感（原生只作布局与 scrollTop 载体），wheel 事件被拦截后
- * 由本引擎积分位置与速度：
- *  - 触控板（连续小增量）：1:1 跟手，同时测量速度；冲过边缘时速度灌入回弹弹簧。
- *  - 滚轮鼠标（离散步进）：每格转成速度冲量，指数摩擦平滑滑行（总位移与原生等距，
- *    v0 = Δ · λ），连拨自然加速——Windows / Linux 也获得惯性滚动。
- *  - 边缘橡皮筋：动量自动转化为过冲，近临界弹簧（k=560 c=45，来自设计稿）带初速
- *    弹回；贴边继续拉为阻尼拉伸。视觉位移 84·tanh(x/200)（设计稿映射）。
+ * 不依赖系统原生滚动手感（原生只作布局与 scrollTop 载体）。统一走速度积分模型：
+ * 每个 wheel 事件（触控板与滚轮一视同仁）转成速度冲量 vel += dy·λ（指数摩擦下
+ * 滑行总位移恰为 dy，与原生等距），每帧 pos += vel·dt 积分。位置是速度的积分，
+ * 天然 C1 平滑——即使事件到达抖动、逐帧速度有波动，积分也将其抹平，因此顺滑；
+ * 停手后按摩擦自然滑行一小段（macOS 式惯性）。
+ *  - 边缘橡皮筋：惯性带着速度自然越界进入 overscroll，近临界弹簧带初速回弹
+ *    （k=560 c=45，来自设计稿）；贴边继续拉为阻尼拉伸。视觉位移 84·tanh(x/200)
+ *    （设计稿映射）。压缩到极限即锁定回弹，忽略系统动量尾巴。
  *  - 自绘滚动条：6px 宽、越界按速度压缩、指数平滑 1-e^(-22t)、静止 0.9s 后淡出。
+ *
+ * wheel 监听必须非 passive（React 合成事件在根节点是 passive 的），故由 hook 内部
+ * addEventListener 挂载。
  */
 export function useElasticScroll() {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -18,19 +22,18 @@ export function useElasticScroll() {
   const thumbRef = useRef<HTMLDivElement | null>(null);
 
   // ---- 物理常量 ----
-  const FRICTION = 6; // 惯性摩擦（1/s）：单格总位移 = Δ，滑行约 0.6s
+  const FRICTION = 6; // 惯性摩擦（1/s）：滑行总位移 = Δ，滑行约 0.4s；越大越跟手、越小越飘
   const SPRING_K = 560; // 回弹弹簧刚度（设计稿释放段）
   const SPRING_C = 45; // 回弹阻尼（近临界，无振荡）
   const MAX_OVER = 260; // 原始过冲上限（视觉再经 tanh 压缩）
-  const INPUT_WINDOW_MS = 40; // 设计稿：输入活跃窗口，期间弹簧让位于直接拉伸
-  const BOUNCE_AT = 200; // 压缩到此原始深度（视觉 ~65px，再深进入不可感知爬行区）→ 饱和即回弹
+  const INPUT_WINDOW_MS = 40; // 输入活跃窗口，期间弹簧让位于惯性/直接拉伸
+  const BOUNCE_AT = 200; // 压缩到此原始深度（视觉 ~65px）→ 饱和即回弹
 
   // 物理量（跨帧可变，不进 React 状态）
   const s = useRef({
-    pos: 0, // 虚拟滚动位置（可越界）
+    pos: 0, // 渲染位置（可越界）
     vel: 0, // 速度 px/s
     velPeak: 0,
-    momentum: false, // 是否处于离散滚轮惯性模式
     bouncing: false, // 回弹锁定：压缩到极限后立即弹回，忽略同向连续输入（系统动量尾巴）
     bounceDir: 0, // 锁定时的过冲方向
     tailDy: 0, // 被忽略尾巴的当前幅度（随尾巴衰减更新，用于识别幅度跳升）
@@ -50,8 +53,7 @@ export function useElasticScroll() {
     (el: HTMLDivElement) => {
       const max = Math.max(0, el.scrollHeight - el.clientHeight);
       const over = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
-      // 0.5px 死区：近临界弹簧渐近逼近零点、浮点上永不恰为 0，
-      // 进入死区即视为归位，否则吸附与解锁永不触发。
+      // 0.5px 死区：近临界弹簧渐近逼近零点、浮点上永不恰为 0，进入死区即视为归位。
       return Math.abs(over) < 0.5 ? 0 : over;
     },
     [s],
@@ -116,34 +118,44 @@ export function useElasticScroll() {
       }
       const dt = Math.min(0.032, (t - (s.lastT || t)) / 1000) || 0.016;
       s.lastT = t;
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
       const over = overOf(el);
       const inputActive = performance.now() - s.lastInputT < INPUT_WINDOW_MS;
 
-      if (over !== 0 && (s.bouncing || !inputActive)) {
+      // 惯性仍向内冲入边缘（输入未停，或速度仍在同向推进）：先只按惯性压深，
+      // 不上弹簧——否则 K=560 的硬弹簧会在几十像素内吸掉速度、压不深。等速度
+      // 耗尽（<40）或输入停止后再交给弹簧回弹。
+      const drivingIn = Math.sign(s.vel) === Math.sign(over) && Math.abs(s.vel) > 40;
+      if (over !== 0 && !s.bouncing && (inputActive || drivingIn)) {
+        // 按惯性继续推进，视觉经 tanh 压缩；压缩到极限即锁定回弹
+        // （清零速度，弹簧从极限静止起弹，无抽动）。
+        s.pos += s.vel * dt;
+        s.vel *= Math.exp(-FRICTION * dt);
+        s.pos = Math.max(-MAX_OVER, Math.min(s.pos, max + MAX_OVER));
+        const on = overOf(el);
+        if (Math.abs(on) >= BOUNCE_AT) {
+          s.bouncing = true;
+          s.bounceDir = Math.sign(on);
+          s.tailDy = 0;
+          s.vel = 0;
+        }
+      } else if (over !== 0) {
         // 橡皮筋回弹：带入场速度的近临界弹簧
         s.vel += -SPRING_K * over * dt;
         s.vel *= Math.exp(-SPRING_C * dt);
         s.pos += s.vel * dt;
-        // 弹回穿越边界后小速度即收敛，避免界内残余滑动
         const newOver = overOf(el);
         if (newOver === 0 || Math.sign(newOver) !== Math.sign(over)) {
           if (Math.abs(s.vel) < 120) {
-            const max = Math.max(0, el.scrollHeight - el.clientHeight);
             s.pos = over < 0 ? 0 : max;
             s.vel = 0;
-            // 注意：不在此解锁 bouncing——尾巴可能未尽，解锁统一由
-            // wheel 处理器的「间隙断开 / 反向」判定完成。
           }
         }
-      } else if (over === 0) {
-        if (s.momentum) {
-          // 离散滚轮惯性：指数摩擦滑行
-          s.pos += s.vel * dt;
-          s.vel *= Math.exp(-FRICTION * dt);
-        } else {
-          // 触控板界内不叠加惯性（速度仅保留给边缘转化），快速衰减
-          s.vel *= Math.exp(-20 * dt);
-        }
+      } else {
+        // 界内惯性滑行：位置积分速度（天然平滑），速度按摩擦衰减
+        s.pos += s.vel * dt;
+        s.vel *= Math.exp(-FRICTION * dt);
+        s.pos = Math.max(-MAX_OVER, Math.min(s.pos, max + MAX_OVER));
       }
 
       applyFrame();
@@ -156,7 +168,6 @@ export function useElasticScroll() {
       if (!inputActive && thumbSettled && overNow === 0 && Math.abs(s.vel) < 15) {
         s.vel = 0;
         s.velPeak = 0;
-        s.momentum = false;
         // bouncing 不在此清除：settle 可能发生在动量尾巴仍在到达期间，
         // 解锁由 wheel 处理器的间隙 / 反向判定负责。
         s.raf = 0;
@@ -175,7 +186,6 @@ export function useElasticScroll() {
     }
   }, [s, tick]);
 
-  // 拦截 wheel（必须非 passive，React 合成事件在根节点是 passive 的）
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -185,67 +195,45 @@ export function useElasticScroll() {
       e.preventDefault();
       const now = performance.now();
       const gapMs = now - s.lastEventT;
-      const dtEv = Math.min(0.1, gapMs / 1000) || 0.016;
       s.lastEventT = now;
       const max = Math.max(0, el.scrollHeight - el.clientHeight);
       // 归一化步进单位（行 / 页 → 像素）
       const dy =
         e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * el.clientHeight : e.deltaY;
-      // 离散滚轮：整数大步进（Windows 滚轮多为 ±100/120 的整数倍）
-      const discrete =
-        e.deltaMode !== 0 || (Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 40);
       const overRaw = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
-      const over = Math.abs(overRaw) < 0.5 ? 0 : overRaw; // 同 overOf 的死区
+      const over = Math.abs(overRaw) < 0.5 ? 0 : overRaw;
 
-      // 回弹锁定（饱和即回弹）：橡皮筋压到极限后立即弹回，之后属于同一
-      // 手势的输入一律忽略。Web 层拿不到 momentumPhase（无法得知是否
-      // 松手），用两个互补信号区分尾巴与新输入：
-      //  - 事件间隙：尾巴以 ~16ms 连续到达，抬手再滑必然 >80ms 断流；
-      //  - 幅度跳升：尾巴单调衰减，新落手的滑动幅度必然突增——覆盖
-      //    「连续滑动无缝接流、没有间隙」的场景。
-      // 反向输入立即接管。
+      // 回弹锁定（饱和即回弹）：橡皮筋压到极限后立即弹回，之后属于同一手势的
+      // 输入一律忽略。Web 层拿不到 momentumPhase，用两个互补信号区分尾巴与
+      // 新输入：事件间隙断开（抬手再滑 >80ms）或幅度跳升（连续无缝再甩，尾巴
+      // 单调衰减故超 1.5× 为新滑动）。反向输入立即接管。
       if (s.bouncing) {
         const isTail =
-          Math.sign(dy) === s.bounceDir && gapMs < 80 && Math.abs(dy) <= s.tailDy * 1.5;
+          Math.sign(dy) === s.bounceDir && gapMs < 80 && (s.tailDy === 0 || Math.abs(dy) <= s.tailDy * 1.5);
         if (isTail) {
           s.tailDy = Math.abs(dy);
           return;
         }
         s.bouncing = false;
       }
-      // 压缩到极限：停止接收，立即开始回弹。清零向内速度——甩动的到达
-      // 速度已把位置送到极限、使命完成，若留着会让弹簧接管后再向内冲一帧
-      // （抽动）。弹簧从极限点静止起弹，回弹单调无抽动。
-      const latchIfSaturated = () => {
-        const overNow = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
-        if (Math.abs(overNow) >= BOUNCE_AT) {
-          s.bouncing = true;
-          s.bounceDir = Math.sign(overNow);
-          s.tailDy = Math.abs(dy);
-          s.vel = 0;
-        }
-      };
+
+      if (Math.abs(dy) >= 4) s.lastInputT = now;
 
       if (over !== 0) {
-        if (Math.abs(dy) >= 4) s.lastInputT = now;
-        // 贴边继续拉：阻尼累加（视觉经 tanh 压缩），并抑制惯性
+        // 贴边继续拉：阻尼累加（视觉经 tanh 压缩），抑制惯性
         const next = s.pos + dy * 0.9;
         s.pos = over < 0 ? Math.max(-MAX_OVER, next) : Math.min(max + MAX_OVER, next);
         s.vel = 0;
-        s.momentum = false;
-        latchIfSaturated();
-      } else if (discrete) {
-        if (Math.abs(dy) >= 4) s.lastInputT = now;
-        // 一格 = 等距总位移的速度冲量（v0 = Δ · λ），连拨叠加
-        s.vel += dy * FRICTION;
-        s.momentum = true;
+        const on = s.pos < 0 ? s.pos : s.pos > max ? s.pos - max : 0;
+        if (Math.abs(on) >= BOUNCE_AT) {
+          s.bouncing = true;
+          s.bounceDir = Math.sign(on);
+          s.tailDy = Math.abs(dy);
+          s.vel = 0;
+        }
       } else {
-        if (Math.abs(dy) >= 4) s.lastInputT = now;
-        // 触控板：1:1 跟手，速度用于边缘橡皮筋转化
-        s.pos = Math.max(-MAX_OVER, Math.min(max + MAX_OVER, s.pos + dy));
-        s.vel = 0.7 * s.vel + 0.3 * (dy / dtEv);
-        s.momentum = false;
-        latchIfSaturated();
+        // 速度冲量：滑行总位移 = dy（∫dy·λ·e^{-λt}=dy），连续输入自然叠加加速
+        s.vel += dy * FRICTION;
       }
       s.velPeak = Math.max(s.velPeak, Math.abs(s.vel));
       ensureRaf();
@@ -253,10 +241,8 @@ export function useElasticScroll() {
 
     // 外部滚动（键盘 / 程序定位）时回灌位置
     const onScrollSync = () => {
-      const expected = Math.max(
-        0,
-        Math.min(Math.round(s.pos), Math.max(0, el.scrollHeight - el.clientHeight)),
-      );
+      const max = Math.max(0, el.scrollHeight - el.clientHeight);
+      const expected = Math.max(0, Math.min(Math.round(s.pos), max));
       if (Math.abs(el.scrollTop - expected) > 1 && !s.raf) {
         s.pos = el.scrollTop;
         s.vel = 0;
@@ -272,10 +258,9 @@ export function useElasticScroll() {
       s.raf = 0;
       window.clearTimeout(s.thumbTimer);
     };
-    // scrollerRef 在组件整个生命周期指向同一元素（mount 后不变）
   }, [s, ensureRaf]);
 
-  /** 供消费者挂在滚动容器上：驱动自绘滚动条（吸顶栏等自行另加逻辑）。 */
+  /** 供消费者挂在滚动容器上：驱动自绘滚动条（键盘 / 程序滚动时）。 */
   const onScroll = useCallback(
     (_e: UIEvent<HTMLDivElement>) => {
       updateThumb(0);
