@@ -298,9 +298,12 @@ interface CardProps {
 function ArtistAlbumCard({ album, favorited, onOpen, onPlay, onToggleFavorite }: CardProps) {
   const { t } = useT();
   return (
-    <div className="w-[190px] min-w-0 flex-none snap-start cursor-pointer" onClick={onOpen}>
+    <div
+      className="relative w-[190px] min-w-0 flex-none cursor-pointer snap-start hover:z-10"
+      onClick={onOpen}
+    >
       <motion.div
-        whileHover={{ y: -5, scale: 1.015 }}
+        whileHover={{ y: -5 }}
         transition={{ type: "spring", stiffness: 380, damping: 18 }}
         className="cover-gradient cover-material group/card relative grid aspect-square place-items-center rounded-2xl"
         style={coverGradientStyle(album.cover)}
