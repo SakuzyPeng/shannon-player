@@ -10,6 +10,8 @@ interface UiState {
   openAlbumId: Id | null;
   /** 当前打开的歌手详情页（以歌手名为键；与专辑详情互斥）。 */
   openArtistName: string | null;
+  /** 当前打开的歌单详情页（以歌单 ID 为键；与其他详情互斥）。 */
+  openPlaylistId: Id | null;
   /** 歌词页（沉浸式，覆盖整个窗口）。 */
   lyricsOpen: boolean;
 
@@ -22,6 +24,8 @@ interface UiState {
   closeAlbum: () => void;
   openArtist: (name: string) => void;
   closeArtist: () => void;
+  openPlaylist: (id: Id) => void;
+  closePlaylist: () => void;
   openLyrics: () => void;
   closeLyrics: () => void;
 }
@@ -35,18 +39,23 @@ export const useUiStore = create<UiState>((set) => ({
   language: "跟随系统",
   openAlbumId: null,
   openArtistName: null,
+  openPlaylistId: null,
   lyricsOpen: false,
 
   cycleTheme: () =>
     set((s) => ({ theme: THEME_CYCLE[(THEME_CYCLE.indexOf(s.theme) + 1) % 3] })),
   setView: (view) => set({ view }),
-  // 切换主导航时关闭详情页。
-  setNav: (nav) => set({ nav, openAlbumId: null, openArtistName: null }),
+  // 切换主导航时关闭所有详情页。
+  setNav: (nav) => set({ nav, openAlbumId: null, openArtistName: null, openPlaylistId: null }),
   setLanguage: (language) => set({ language }),
-  openAlbum: (openAlbumId) => set({ openAlbumId, openArtistName: null }),
+  // 详情页互斥：打开一个即关闭其余。
+  openAlbum: (openAlbumId) => set({ openAlbumId, openArtistName: null, openPlaylistId: null }),
   closeAlbum: () => set({ openAlbumId: null }),
-  openArtist: (openArtistName) => set({ openArtistName, openAlbumId: null }),
+  openArtist: (openArtistName) => set({ openArtistName, openAlbumId: null, openPlaylistId: null }),
   closeArtist: () => set({ openArtistName: null }),
+  openPlaylist: (openPlaylistId) =>
+    set({ openPlaylistId, openAlbumId: null, openArtistName: null }),
+  closePlaylist: () => set({ openPlaylistId: null }),
   openLyrics: () => set({ lyricsOpen: true }),
   closeLyrics: () => set({ lyricsOpen: false }),
 }));

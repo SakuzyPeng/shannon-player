@@ -49,6 +49,17 @@ export interface Track {
   path?: string;
 }
 
+/** 歌单（用户创建的跨专辑曲目集合）。 */
+export interface Playlist {
+  id: Id;
+  title: string;
+  /** 简介（内容，不进 i18n）。 */
+  description: string;
+  /** 更新时间标签（如「上周更新」；后期由后端提供真实时间戳）。 */
+  updatedLabel: string;
+  tracks: Track[];
+}
+
 /** 播放队列中的一项（区分同一曲目的多次入队）。 */
 export interface QueueItem {
   /** 队列项自身 ID，与 track.id 不同。 */

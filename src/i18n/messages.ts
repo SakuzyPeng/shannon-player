@@ -97,6 +97,17 @@ export interface Messages {
   "menu.showLyrics": string;
   "menu.revealInFinder": string;
   "menu.removeFromLibrary": string;
+  "menu.removeFromPlaylist": string;
+
+  "favorites.subtitle": string;
+  "favorites.playlists": string;
+  "playlist.kicker": string;
+  "playlist.meta": string; // {n} {m} {updated}
+  "playlist.filterPlaceholder": string;
+  "playlist.dragToReorder": string;
+  "playlist.emptyTitle": string; // {q}
+  "playlist.emptyTryGlobal": string;
+  "playlist.emptyGlobalSearch": string;
 
   "player.favorite": string;
   "player.unfavorite": string;
@@ -205,6 +216,17 @@ const zhHans: Messages = {
   "menu.showLyrics": "查看歌词",
   "menu.revealInFinder": "在 Finder 中显示",
   "menu.removeFromLibrary": "从曲库中移除",
+  "menu.removeFromPlaylist": "从歌单中移除",
+
+  "favorites.subtitle": "爱心的落点：你收藏的歌单与内容",
+  "favorites.playlists": "歌单",
+  "playlist.kicker": "播放列表",
+  "playlist.meta": "{n} 首 · {m} 分钟 · {updated}",
+  "playlist.filterPlaceholder": "过滤歌单内歌曲…",
+  "playlist.dragToReorder": "拖拽排序",
+  "playlist.emptyTitle": "歌单里没有“{q}”",
+  "playlist.emptyTryGlobal": "试试 ",
+  "playlist.emptyGlobalSearch": "在整个曲库中搜索",
 
   "player.favorite": "收藏",
   "player.unfavorite": "取消收藏",
@@ -311,6 +333,17 @@ const zhHant: Messages = {
   "menu.showLyrics": "查看歌詞",
   "menu.revealInFinder": "在 Finder 中顯示",
   "menu.removeFromLibrary": "從曲庫中移除",
+  "menu.removeFromPlaylist": "從歌單中移除",
+
+  "favorites.subtitle": "愛心的落點：你收藏的歌單與內容",
+  "favorites.playlists": "歌單",
+  "playlist.kicker": "播放清單",
+  "playlist.meta": "{n} 首 · {m} 分鐘 · {updated}",
+  "playlist.filterPlaceholder": "過濾歌單內歌曲…",
+  "playlist.dragToReorder": "拖曳排序",
+  "playlist.emptyTitle": "歌單裡沒有「{q}」",
+  "playlist.emptyTryGlobal": "試試 ",
+  "playlist.emptyGlobalSearch": "在整個曲庫中搜尋",
 
   "player.favorite": "收藏",
   "player.unfavorite": "取消收藏",
@@ -417,6 +450,17 @@ const en: Messages = {
   "menu.showLyrics": "Show Lyrics",
   "menu.revealInFinder": "Reveal in Finder",
   "menu.removeFromLibrary": "Remove from Library",
+  "menu.removeFromPlaylist": "Remove from Playlist",
+
+  "favorites.subtitle": "Where the hearts land: your saved playlists and picks",
+  "favorites.playlists": "Playlists",
+  "playlist.kicker": "Playlist",
+  "playlist.meta": "{n} songs · {m} min · {updated}",
+  "playlist.filterPlaceholder": "Filter songs in playlist…",
+  "playlist.dragToReorder": "Drag to reorder",
+  "playlist.emptyTitle": "No “{q}” in this playlist",
+  "playlist.emptyTryGlobal": "Try ",
+  "playlist.emptyGlobalSearch": "searching the whole library",
 
   "player.favorite": "Favorite",
   "player.unfavorite": "Unfavorite",
@@ -523,6 +567,17 @@ const ja: Messages = {
   "menu.showLyrics": "歌詞を表示",
   "menu.revealInFinder": "Finder で表示",
   "menu.removeFromLibrary": "ライブラリから削除",
+  "menu.removeFromPlaylist": "プレイリストから削除",
+
+  "favorites.subtitle": "ハートの落とし場所：保存したプレイリストとコンテンツ",
+  "favorites.playlists": "プレイリスト",
+  "playlist.kicker": "プレイリスト",
+  "playlist.meta": "{n} 曲 · {m} 分 · {updated}",
+  "playlist.filterPlaceholder": "プレイリスト内を絞り込み…",
+  "playlist.dragToReorder": "ドラッグして並べ替え",
+  "playlist.emptyTitle": "プレイリストに「{q}」はありません",
+  "playlist.emptyTryGlobal": "",
+  "playlist.emptyGlobalSearch": "ライブラリ全体を検索",
 
   "player.favorite": "お気に入り",
   "player.unfavorite": "お気に入り解除",

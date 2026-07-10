@@ -26,6 +26,7 @@ export type IconName =
   | "chevronRight"
   | "chevronDown"
   | "close"
+  | "grip"
   | "more";
 
 /** 描边类图标：单个 d（含多段子路径）。 */
@@ -137,6 +138,17 @@ export function Icon({ name, size = 20, strokeWidth = 1.7, className, style }: I
           <circle cx="5" cy="12" r="1.7" />
           <circle cx="12" cy="12" r="1.7" />
           <circle cx="19" cy="12" r="1.7" />
+        </svg>
+      );
+    case "grip":
+      return (
+        <svg {...common} fill="currentColor">
+          <circle cx="9" cy="5" r="1.6" />
+          <circle cx="15" cy="5" r="1.6" />
+          <circle cx="9" cy="12" r="1.6" />
+          <circle cx="15" cy="12" r="1.6" />
+          <circle cx="9" cy="19" r="1.6" />
+          <circle cx="15" cy="19" r="1.6" />
         </svg>
       );
     case "volume":

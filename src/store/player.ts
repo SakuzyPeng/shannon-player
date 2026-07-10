@@ -35,6 +35,8 @@ interface PlayerState {
   favoriteAlbums: Record<Id, boolean>;
   /** 收藏歌手（当前以歌手名为键，后期换稳定 ID）。 */
   favoriteArtists: Record<string, boolean>;
+  /** 收藏歌单（以歌单 ID 为键）。 */
+  favoritePlaylists: Record<Id, boolean>;
 
   /** ---- 音频设备 ---- */
   devices: AudioDevice[];
@@ -54,6 +56,7 @@ interface PlayerState {
   toggleFavorite: (id: Id) => void;
   toggleFavoriteAlbum: (id: Id) => void;
   toggleFavoriteArtist: (name: string) => void;
+  toggleFavoritePlaylist: (id: Id) => void;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
@@ -104,6 +107,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
   favoriteArtists: {},
+  favoritePlaylists: { "pl-nightdrive": true },
 
   devices: [
     { id: "dev-default", label: "系统默认输出", isDefault: true },
@@ -172,6 +176,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   toggleFavoriteArtist: (name) =>
     set((s) => ({ favoriteArtists: { ...s.favoriteArtists, [name]: !s.favoriteArtists[name] } })),
+
+  toggleFavoritePlaylist: (id) =>
+    set((s) => ({ favoritePlaylists: { ...s.favoritePlaylists, [id]: !s.favoritePlaylists[id] } })),
 
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),

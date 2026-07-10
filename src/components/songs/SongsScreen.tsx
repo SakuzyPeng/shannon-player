@@ -1,13 +1,7 @@
-import {
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-  type UIEvent,
-} from "react";
+import { useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { EqBars } from "@/components/common/EqBars";
+import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -49,96 +43,13 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
   return <>{text}</>;
 }
 
-interface FilterState {
-  open: boolean;
-  focused: boolean;
-  q: string;
-  onEnter: (input: HTMLInputElement | null) => void;
-  onLeave: () => void;
-  onChange: (v: string) => void;
-  onFocus: () => void;
-  onBlur: () => void;
-  onEscape: () => void;
-  onClear: () => void;
-}
-
-/** 过滤圆钮：hover 从圆形展开为输入框（设计稿 40→318 / 吸顶 34→300）。 */
-function FilterPill({
-  filter,
-  height,
-  openWidth,
-  inputRef,
-}: {
-  filter: FilterState;
-  height: number;
-  openWidth: number;
-  inputRef: RefObject<HTMLInputElement | null>;
-}) {
-  const { t } = useT();
-  return (
-    <div
-      onMouseEnter={() => filter.onEnter(inputRef.current)}
-      onMouseLeave={filter.onLeave}
-      onClick={() => filter.onEnter(inputRef.current)}
-      className={cn(
-        "absolute right-0 top-0 box-border flex items-center gap-2 overflow-hidden rounded-full border bg-srf",
-        filter.focused ? "filter-focus-ring border-ac" : "border-bd",
-      )}
-      style={{
-        height,
-        width: filter.open ? openWidth : height,
-        paddingLeft: 10,
-        paddingRight: 7,
-        transition: "width 0.3s cubic-bezier(0.34,1.3,0.64,1), border-color 0.2s ease",
-      }}
-    >
-      <span className="flex-shrink-0 text-tx2">
-        <Icon name="search" size={height >= 40 ? 15 : 14} />
-      </span>
-      <input
-        ref={inputRef}
-        value={filter.q}
-        onChange={(e) => filter.onChange(e.target.value)}
-        onFocus={filter.onFocus}
-        onBlur={filter.onBlur}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            filter.onEscape();
-            e.currentTarget.blur();
-          }
-        }}
-        placeholder={t("songs.filterPlaceholder")}
-        className="min-w-0 flex-1 border-none bg-transparent text-[12.5px] text-tx outline-none"
-        style={{ opacity: filter.open ? 1 : 0, transition: "opacity 0.2s ease" }}
-      />
-      {filter.q.trim().length > 0 && (
-        <button
-          title={t("songs.filterClear")}
-          aria-label={t("songs.filterClear")}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.stopPropagation();
-            filter.onClear();
-          }}
-          className="grid size-5 flex-shrink-0 cursor-pointer place-items-center rounded-full bg-hv text-tx2 hover:text-tx"
-        >
-          <Icon name="close" size={9} strokeWidth={2.6} />
-        </button>
-      )}
-    </div>
-  );
-}
-
 export function SongsScreen() {
   const { t } = useT();
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
 
   const [sort, setSort] = useState<SortMode>("title");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [filterQ, setFilterQ] = useState("");
-  const [filterFocused, setFilterFocused] = useState(false);
-  const focusTimer = useRef(0);
+  const { filter, query: q, rawQuery: filterQ } = useFilterPill();
   const headerInputRef = useRef<HTMLInputElement | null>(null);
   const barInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -154,7 +65,6 @@ export function SongsScreen() {
   const tracks = useMemo(() => allTracks(), []);
   const totalSec = useMemo(() => tracks.reduce((s, tk) => s + tk.durationSec, 0), [tracks]);
 
-  const q = filterOpen ? filterQ.trim().toLowerCase() : "";
   const entries = useMemo(() => {
     let list = tracks;
     if (q) {
@@ -175,36 +85,6 @@ export function SongsScreen() {
     }
     return list; // recent = 曲库顺序
   }, [tracks, q, sort]);
-
-  const filter: FilterState = {
-    open: filterOpen,
-    focused: filterFocused,
-    q: filterQ,
-    onEnter: (input) => {
-      setFilterOpen(true);
-      window.clearTimeout(focusTimer.current);
-      focusTimer.current = window.setTimeout(() => input?.focus({ preventScroll: true }), 200);
-    },
-    onLeave: () => {
-      if (!filterFocused && !filterQ.trim()) setFilterOpen(false);
-    },
-    onChange: setFilterQ,
-    onFocus: () => setFilterFocused(true),
-    onBlur: () => {
-      setFilterFocused(false);
-      if (!filterQ.trim()) setFilterOpen(false);
-    },
-    onEscape: () => {
-      setFilterOpen(false);
-      setFilterQ("");
-      setFilterFocused(false);
-    },
-    onClear: () => {
-      setFilterOpen(false);
-      setFilterQ("");
-      setFilterFocused(false);
-    },
-  };
 
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     onScroll(e);
@@ -337,7 +217,13 @@ export function SongsScreen() {
         <span className="font-serif text-[16.5px] font-semibold text-tx">{t("nav.songs")}</span>
         <span className="whitespace-nowrap text-xs text-tx2">{subtitle}</span>
         <div className="relative h-[34px] min-w-3 flex-1">
-          <FilterPill filter={filter} height={34} openWidth={300} inputRef={barInputRef} />
+          <FilterPill
+            filter={filter}
+            height={34}
+            openWidth={300}
+            inputRef={barInputRef}
+            placeholder={t("songs.filterPlaceholder")}
+          />
         </div>
       </div>
 
@@ -396,7 +282,13 @@ export function SongsScreen() {
 
               {/* 过滤圆钮（hover 展开） */}
               <div className="relative mr-1.5 size-10 flex-shrink-0">
-                <FilterPill filter={filter} height={40} openWidth={318} inputRef={headerInputRef} />
+                <FilterPill
+                  filter={filter}
+                  height={40}
+                  openWidth={318}
+                  inputRef={headerInputRef}
+                  placeholder={t("songs.filterPlaceholder")}
+                />
               </div>
             </div>
 
