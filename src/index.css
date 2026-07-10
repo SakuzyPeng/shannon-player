@@ -35,6 +35,7 @@
   --cover-collect-shadow: rgba(30, 18, 8, 0.28);
   --cover-card-corner: rgba(30, 18, 8, 0.45);
   --stickybar-shadow: rgba(60, 40, 20, 0.07);
+  --collage-shadow: rgba(70, 60, 45, 0.22);
 
   /* 歌词页 */
   --cover-glow: 0.3; /* 封面氛围光透明度（深色 0.5） */
@@ -85,6 +86,7 @@
   --qring: rgba(255, 255, 255, 0.12);
   --qpill: rgba(255, 255, 255, 0.06);
   --qpillbd: rgba(255, 255, 255, 0.14);
+  --collage-shadow: rgba(10, 6, 2, 0.32);
 }
 
 /* 把语义 Token 映射成 Tailwind 工具类（inline 保证随主题实时切换）。
@@ -182,6 +184,10 @@ body {
   }
   .collect-shadow {
     box-shadow: 0 3px 10px var(--cover-collect-shadow);
+  }
+  /* 歌单 2×2 拼贴大封面投影 */
+  .collage-hero-shadow {
+    box-shadow: 0 26px 68px 14px var(--collage-shadow);
   }
   /* 歌手页圆形头像：比专辑大封面略收敛的材质与主色调投影 */
   .artist-hero-material {

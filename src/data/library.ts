@@ -59,6 +59,21 @@ export const TRACK_MENU: AlbumMenuItem[] = [
   { kind: "item", labelKey: "menu.removeFromLibrary", kbd: "⌫", danger: true },
 ];
 
+/** 歌单页曲目右键菜单：末项为「从歌单中移除」而非「从曲库中移除」。 */
+export const PLAYLIST_TRACK_MENU: AlbumMenuItem[] = [
+  { kind: "item", labelKey: "menu.play", kbd: "⏎" },
+  { kind: "item", labelKey: "menu.playNext" },
+  { kind: "separator" },
+  { kind: "item", labelKey: "menu.addToPlaylist" },
+  { kind: "item", labelKey: "menu.favorite" },
+  { kind: "separator" },
+  { kind: "item", labelKey: "menu.editTags", kbd: "⌘I" },
+  { kind: "item", labelKey: "menu.showLyrics" },
+  { kind: "item", labelKey: "menu.revealInFinder", kbd: "⇧⌘R" },
+  { kind: "separator" },
+  { kind: "item", labelKey: "menu.removeFromPlaylist", kbd: "⌫", danger: true },
+];
+
 /** 「长夜电波」曲目种子（来自专辑页设计稿）：[标题, 时长（秒）]。 */
 const NIGHT_WAVE_TRACKS: ReadonlyArray<readonly [string, number]> = [
   ["凌晨广播站", 192],

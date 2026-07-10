@@ -30,14 +30,23 @@ const LyricsScreen = lazy(() =>
   })),
 );
 
+const PlaylistDetailScreen = lazy(() =>
+  import("@/components/playlist/PlaylistDetailScreen").then((module) => ({
+    default: module.PlaylistDetailScreen,
+  })),
+);
+
 export default function App() {
   useApplyTheme();
   usePlaybackTicker();
   const openAlbumId = useUiStore((s) => s.openAlbumId);
   const openArtistName = useUiStore((s) => s.openArtistName);
+  const openPlaylistId = useUiStore((s) => s.openPlaylistId);
   const lyricsOpen = useUiStore((s) => s.lyricsOpen);
   const nav = useUiStore((s) => s.nav);
-  const content = openArtistName ? (
+  const content = openPlaylistId ? (
+    <PlaylistDetailScreen playlistId={openPlaylistId} />
+  ) : openArtistName ? (
     <ArtistDetailScreen artistName={openArtistName} />
   ) : openAlbumId ? (
     <AlbumDetailScreen albumId={openAlbumId} />
