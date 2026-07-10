@@ -170,7 +170,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
           <div className="flex items-center gap-9 pb-[30px] pt-[18px]">
             <div className="group/cover relative flex-shrink-0">
               <Collage covers={covers} size={232} radius={16} glyph={38} className="collage-hero-shadow" />
-              <div className="absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
+              <div className="cover-corners absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}

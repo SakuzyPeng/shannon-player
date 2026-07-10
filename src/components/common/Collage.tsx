@@ -17,7 +17,7 @@ interface Props {
 export function Collage({ covers, size, radius, glyph = 0, className }: Props) {
   return (
     <div
-      className={`grid grid-cols-2 grid-rows-2 overflow-hidden shadow-[inset_0_0_0_1px_var(--cover-hairline)] ${className ?? ""}`}
+      className={`cover-corners grid grid-cols-2 grid-rows-2 overflow-hidden shadow-[inset_0_0_0_1px_var(--cover-hairline)] ${className ?? ""}`}
       style={{ width: size, height: size, borderRadius: radius }}
     >
       {covers.slice(0, 4).map((cover, i) => (
