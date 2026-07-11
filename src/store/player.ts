@@ -7,7 +7,12 @@ import type {
   RepeatMode,
   Track,
 } from "@/types/player";
-import { DEMO_TRACK, SEED_FAVORITE_ALBUMS, SEED_FAVORITE_TRACKS } from "@/data/library";
+import {
+  DEMO_TRACK,
+  SEED_FAVORITE_ALBUMS,
+  SEED_FAVORITE_ARTISTS,
+  SEED_FAVORITE_TRACKS,
+} from "@/data/library";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
@@ -106,7 +111,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
-  favoriteArtists: {},
+  favoriteArtists: { ...SEED_FAVORITE_ARTISTS },
   favoritePlaylists: { "pl-nightdrive": true },
 
   devices: [

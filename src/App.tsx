@@ -36,6 +36,12 @@ const PlaylistDetailScreen = lazy(() =>
   })),
 );
 
+const FavoritesScreen = lazy(() =>
+  import("@/components/favorites/FavoritesScreen").then((module) => ({
+    default: module.FavoritesScreen,
+  })),
+);
+
 export default function App() {
   useApplyTheme();
   usePlaybackTicker();
@@ -52,6 +58,8 @@ export default function App() {
     <AlbumDetailScreen albumId={openAlbumId} />
   ) : nav === "songs" ? (
     <SongsScreen />
+  ) : nav === "favorites" ? (
+    <FavoritesScreen />
   ) : (
     <LibraryScreen />
   );
