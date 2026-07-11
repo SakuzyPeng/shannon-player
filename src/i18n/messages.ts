@@ -28,6 +28,37 @@ export interface Messages {
   "search.emptyBody": string;
   "search.clear": string;
 
+  "settings.secLibrary": string;
+  "settings.secPlayback": string;
+  "settings.secLyrics": string;
+  "settings.secAppearance": string;
+  "settings.secAbout": string;
+  "settings.musicFolders": string;
+  "settings.addFolder": string;
+  "settings.removeFolder": string;
+  "settings.folderTracks": string; // {n}
+  "settings.statusScanned": string;
+  "settings.statusWatching": string;
+  "settings.watch": string;
+  "settings.watchDesc": string;
+  "settings.cloud": string;
+  "settings.cloudDesc": string;
+  "settings.loudness": string;
+  "settings.loudnessDesc": string;
+  "settings.onlineLyrics": string;
+  "settings.onlineLyricsDesc": string;
+  "settings.wordByWord": string;
+  "settings.wordByWordDesc": string;
+  "settings.appearance": string;
+  "settings.appearanceDesc": string;
+  "settings.language": string;
+  "settings.languageDesc": string;
+  "settings.appName": string;
+  "settings.aboutTagline": string;
+  "settings.sourceCode": string;
+  "settings.backers": string;
+  "settings.donate": string;
+
   "view.grid": string;
   "view.list": string;
   "action.search": string;
@@ -164,6 +195,37 @@ const zhHans: Messages = {
   "search.emptyBody": "检查拼写，或试试歌手名、专辑名的其他写法",
   "search.clear": "清空",
 
+  "settings.secLibrary": "曲库",
+  "settings.secPlayback": "播放",
+  "settings.secLyrics": "歌词",
+  "settings.secAppearance": "外观与语言",
+  "settings.secAbout": "关于",
+  "settings.musicFolders": "音乐文件夹",
+  "settings.addFolder": "添加文件夹…",
+  "settings.removeFolder": "移除文件夹",
+  "settings.folderTracks": "{n} 首",
+  "settings.statusScanned": "已扫描",
+  "settings.statusWatching": "监听中",
+  "settings.watch": "实时监听文件变化",
+  "settings.watchDesc": "文件夹内容变动时自动更新曲库",
+  "settings.cloud": "云盘占位符检测",
+  "settings.cloudDesc": "跳过尚未下载到本地的占位文件，避免触发云端下载",
+  "settings.loudness": "响度均一化",
+  "settings.loudnessDesc": "仅调整整曲音量增益，不压缩动态范围",
+  "settings.onlineLyrics": "在线歌词源",
+  "settings.onlineLyricsDesc": "从 AMLL TTML DB 获取逐字歌词，本地歌词优先",
+  "settings.wordByWord": "逐字高亮",
+  "settings.wordByWordDesc": "关闭后按行高亮，降低功耗",
+  "settings.appearance": "外观",
+  "settings.appearanceDesc": "跟随系统时将自动在日出日落间切换",
+  "settings.language": "界面语言",
+  "settings.languageDesc": "重启后对全部界面文案生效",
+  "settings.appName": "香农播放器",
+  "settings.aboutTagline": "永久免费，无付费功能",
+  "settings.sourceCode": "源代码",
+  "settings.backers": "支持者名单",
+  "settings.donate": "打赏支持",
+
   "view.grid": "网格",
   "view.list": "列表",
   "action.search": "搜索",
@@ -297,6 +359,37 @@ const zhHant: Messages = {
   "search.emptyTitle": "沒有找到「{q}」",
   "search.emptyBody": "檢查拼寫，或試試歌手名、專輯名的其他寫法",
   "search.clear": "清空",
+
+  "settings.secLibrary": "曲庫",
+  "settings.secPlayback": "播放",
+  "settings.secLyrics": "歌詞",
+  "settings.secAppearance": "外觀與語言",
+  "settings.secAbout": "關於",
+  "settings.musicFolders": "音樂資料夾",
+  "settings.addFolder": "新增資料夾…",
+  "settings.removeFolder": "移除資料夾",
+  "settings.folderTracks": "{n} 首",
+  "settings.statusScanned": "已掃描",
+  "settings.statusWatching": "監聽中",
+  "settings.watch": "即時監聽檔案變化",
+  "settings.watchDesc": "資料夾內容變動時自動更新曲庫",
+  "settings.cloud": "雲端佔位符偵測",
+  "settings.cloudDesc": "略過尚未下載到本機的佔位檔，避免觸發雲端下載",
+  "settings.loudness": "響度均一化",
+  "settings.loudnessDesc": "僅調整整曲音量增益，不壓縮動態範圍",
+  "settings.onlineLyrics": "線上歌詞源",
+  "settings.onlineLyricsDesc": "從 AMLL TTML DB 取得逐字歌詞，本機歌詞優先",
+  "settings.wordByWord": "逐字高亮",
+  "settings.wordByWordDesc": "關閉後按行高亮，降低功耗",
+  "settings.appearance": "外觀",
+  "settings.appearanceDesc": "跟隨系統時將自動在日出日落間切換",
+  "settings.language": "介面語言",
+  "settings.languageDesc": "重啟後對全部介面文案生效",
+  "settings.appName": "香農播放器",
+  "settings.aboutTagline": "永久免費，無付費功能",
+  "settings.sourceCode": "原始碼",
+  "settings.backers": "支持者名單",
+  "settings.donate": "抖內支持",
 
   "view.grid": "網格",
   "view.list": "清單",
@@ -432,6 +525,37 @@ const en: Messages = {
   "search.emptyBody": "Check the spelling, or try another form of the artist or album name",
   "search.clear": "Clear",
 
+  "settings.secLibrary": "Library",
+  "settings.secPlayback": "Playback",
+  "settings.secLyrics": "Lyrics",
+  "settings.secAppearance": "Appearance & Language",
+  "settings.secAbout": "About",
+  "settings.musicFolders": "Music folders",
+  "settings.addFolder": "Add folder…",
+  "settings.removeFolder": "Remove folder",
+  "settings.folderTracks": "{n} tracks",
+  "settings.statusScanned": "Scanned",
+  "settings.statusWatching": "Watching",
+  "settings.watch": "Watch for file changes",
+  "settings.watchDesc": "Update the library automatically when folder contents change",
+  "settings.cloud": "Cloud placeholder detection",
+  "settings.cloudDesc": "Skip placeholder files not yet downloaded locally, avoiding cloud fetches",
+  "settings.loudness": "Loudness normalization",
+  "settings.loudnessDesc": "Adjusts per-track gain only; does not compress dynamic range",
+  "settings.onlineLyrics": "Online lyrics source",
+  "settings.onlineLyricsDesc": "Fetch word-by-word lyrics from AMLL TTML DB; local lyrics take priority",
+  "settings.wordByWord": "Word-by-word highlight",
+  "settings.wordByWordDesc": "When off, highlights per line to reduce power usage",
+  "settings.appearance": "Appearance",
+  "settings.appearanceDesc": "In system mode, switches automatically between sunrise and sunset",
+  "settings.language": "Interface language",
+  "settings.languageDesc": "Applies to all interface text after a restart",
+  "settings.appName": "Shannon Player",
+  "settings.aboutTagline": "Free forever, no paid features",
+  "settings.sourceCode": "Source code",
+  "settings.backers": "Backers",
+  "settings.donate": "Donate",
+
   "view.grid": "Grid",
   "view.list": "List",
   "action.search": "Search",
@@ -565,6 +689,37 @@ const ja: Messages = {
   "search.emptyTitle": "「{q}」は見つかりません",
   "search.emptyBody": "スペルを確認するか、アーティスト名やアルバム名の別の表記をお試しください",
   "search.clear": "クリア",
+
+  "settings.secLibrary": "ライブラリ",
+  "settings.secPlayback": "再生",
+  "settings.secLyrics": "歌詞",
+  "settings.secAppearance": "外観と言語",
+  "settings.secAbout": "情報",
+  "settings.musicFolders": "音楽フォルダ",
+  "settings.addFolder": "フォルダを追加…",
+  "settings.removeFolder": "フォルダを削除",
+  "settings.folderTracks": "{n} 曲",
+  "settings.statusScanned": "スキャン済み",
+  "settings.statusWatching": "監視中",
+  "settings.watch": "ファイル変更を監視",
+  "settings.watchDesc": "フォルダの内容が変わると自動でライブラリを更新",
+  "settings.cloud": "クラウドのプレースホルダー検出",
+  "settings.cloudDesc": "未ダウンロードのプレースホルダーをスキップし、クラウド取得を回避",
+  "settings.loudness": "ラウドネス正規化",
+  "settings.loudnessDesc": "曲ごとのゲインのみ調整し、ダイナミックレンジは圧縮しません",
+  "settings.onlineLyrics": "オンライン歌詞ソース",
+  "settings.onlineLyricsDesc": "AMLL TTML DB から逐語歌詞を取得。ローカル歌詞を優先します",
+  "settings.wordByWord": "逐語ハイライト",
+  "settings.wordByWordDesc": "オフにすると行単位でハイライトし、消費電力を抑えます",
+  "settings.appearance": "外観",
+  "settings.appearanceDesc": "システム連動時は日の出・日の入りで自動的に切り替わります",
+  "settings.language": "表示言語",
+  "settings.languageDesc": "再起動後、すべての UI テキストに反映されます",
+  "settings.appName": "シャノンプレーヤー",
+  "settings.aboutTagline": "永久無料、有料機能なし",
+  "settings.sourceCode": "ソースコード",
+  "settings.backers": "サポーター一覧",
+  "settings.donate": "投げ銭で支援",
 
   "view.grid": "グリッド",
   "view.list": "リスト",
