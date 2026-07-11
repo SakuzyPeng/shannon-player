@@ -48,6 +48,12 @@ const SearchScreen = lazy(() =>
   })),
 );
 
+const SettingsScreen = lazy(() =>
+  import("@/components/settings/SettingsScreen").then((module) => ({
+    default: module.SettingsScreen,
+  })),
+);
+
 export default function App() {
   useApplyTheme();
   usePlaybackTicker();
@@ -81,6 +87,8 @@ export default function App() {
     <SearchScreen />
   ) : nav === "favorites" ? (
     <FavoritesScreen />
+  ) : nav === "settings" ? (
+    <SettingsScreen />
   ) : (
     <LibraryScreen />
   );
