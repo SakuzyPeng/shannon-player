@@ -37,7 +37,7 @@ pnpm tauri build      # 打包桌面应用
 
 **数据**：`src/data/library.ts` 是曲库种子数据（来自设计稿），后期由 Rust 后端扫描本地曲库替换。
 
-**滚动**：曲库滚动区不用系统原生滚动手感。`src/hooks/useElasticScroll.ts` 是一个自定义滚动引擎（拦截 wheel、自行积分位置与速度），目标是全平台一致的 macOS 式滚动：触控板 1:1 跟手、离散滚轮转速度冲量做惯性滑行、动量冲到边缘自动转化为橡皮筋过冲并以近临界弹簧弹回（k=560 c=45、视觉映射 84·tanh(x/200) 来自设计稿），另含自绘 thumb。注意 wheel 监听必须非 passive（React 合成事件在根节点是 passive 的），故由 hook 内部 addEventListener 挂载。
+**滚动**：滚动「手感」交还各平台原生（macOS 触控板橡皮筋、Windows/Linux 滚轮惯性各自沿用系统实现），只统一「视觉」。`src/hooks/useElasticScroll.ts`（名称沿用，实为「原生滚动 + 自绘滚动条」）不再拦截 wheel、不再自积分物理，仅：容器用 `.no-scrollbar` 隐藏系统滚动条，并按原生 `scroll` 事件的 scrollTop/scrollHeight 直接映射绘制一份跨平台一致的 6px thumb（静止 0.9s 后淡出，内容未溢出不显示）。返回签名 `{ scrollerRef, innerRef, thumbRef, onScroll }` 不变，`innerRef` 现仅作内容容器。曾有一版自定义速度积分 + 橡皮筋引擎，因难以在各平台/输入设备上都贴合原生肌肉记忆，权衡后回退为原生手感。
 
 ### 设计来源
 

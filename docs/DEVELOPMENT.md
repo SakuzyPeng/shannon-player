@@ -41,7 +41,7 @@ src/                    前端 React 应用
   types/                 播放器领域类型（Track / QueueItem / Lyrics / AudioDevice …）
   i18n/                  国际化（messages.ts 消息目录、index.ts 运行时）
   data/                  曲库种子数据（后期由 Rust 后端扫描替换）
-  hooks/                 useApplyTheme（主题）、useElasticScroll（弹性滚动物理）
+  hooks/                 useApplyTheme（主题）、useElasticScroll（原生滚动 + 自绘滚动条）
   index.css              Tailwind 入口 + 设计 Token
 src-tauri/               Tauri Rust 外壳（窗口、权限、后续音频后端）
 docs/                    开发文档
