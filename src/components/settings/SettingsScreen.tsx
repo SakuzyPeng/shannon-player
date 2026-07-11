@@ -198,7 +198,10 @@ export function SettingsScreen() {
             {folders.map((f) => (
               <FolderRow key={f.path} folder={f} />
             ))}
-            <button className="flex cursor-pointer items-center gap-2.5 px-4 py-[11px] text-[13px] font-semibold text-ac transition-colors hover:bg-hv">
+            <button
+              onClick={() => useUiStore.getState().openOnboarding()}
+              className="flex cursor-pointer items-center gap-2.5 px-4 py-[11px] text-[13px] font-semibold text-ac transition-colors hover:bg-hv"
+            >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M12 5v14 M5 12h14" />
               </svg>
