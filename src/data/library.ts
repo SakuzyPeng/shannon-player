@@ -245,3 +245,11 @@ export const SEED_FAVORITE_ALBUMS: Record<string, boolean> = {
   [albumIdByTitle("长夜电波")]: true,
   [albumIdByTitle("环线现场")]: true,
 };
+
+/** 收藏歌手种子（收藏页演示状态；以歌手名为键）。 */
+export const SEED_FAVORITE_ARTISTS: Record<string, boolean> = {
+  白鲸电台: true,
+  万能青年旅店: true,
+  陈绮贞: true,
+  Radiohead: true,
+};

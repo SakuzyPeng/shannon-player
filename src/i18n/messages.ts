@@ -99,8 +99,17 @@ export interface Messages {
   "menu.removeFromLibrary": string;
   "menu.removeFromPlaylist": string;
 
-  "favorites.subtitle": string;
+  "favorites.subtitle": string; // {songs} {albums} {artists} {playlists}
   "favorites.playlists": string;
+  "favorites.filterPlaceholder": string;
+  "favorites.sortRecent": string;
+  "favorites.artistMeta": string; // {n}
+  "favorites.emptyHint": string;
+  "favorites.emptyFilter": string; // {q}
+  "favorites.emptySongs": string;
+  "favorites.emptyAlbums": string;
+  "favorites.emptyArtists": string;
+  "favorites.emptyPlaylists": string;
   "playlist.kicker": string;
   "playlist.meta": string; // {n} {m} {updated}
   "playlist.filterPlaceholder": string;
@@ -218,8 +227,17 @@ const zhHans: Messages = {
   "menu.removeFromLibrary": "从曲库中移除",
   "menu.removeFromPlaylist": "从歌单中移除",
 
-  "favorites.subtitle": "爱心的落点：你收藏的歌单与内容",
+  "favorites.subtitle": "{songs} 首歌曲 · {albums} 张专辑 · {artists} 位歌手 · {playlists} 歌单",
   "favorites.playlists": "歌单",
+  "favorites.filterPlaceholder": "过滤收藏…",
+  "favorites.sortRecent": "最近收藏",
+  "favorites.artistMeta": "{n} 张专辑",
+  "favorites.emptyHint": "在任意页面 hover 封面或曲目行，点击爱心即可收藏到这里",
+  "favorites.emptyFilter": "没有找到“{q}”",
+  "favorites.emptySongs": "还没有收藏歌曲",
+  "favorites.emptyAlbums": "还没有收藏专辑",
+  "favorites.emptyArtists": "还没有收藏歌手",
+  "favorites.emptyPlaylists": "还没有收藏歌单",
   "playlist.kicker": "播放列表",
   "playlist.meta": "{n} 首 · {m} 分钟 · {updated}",
   "playlist.filterPlaceholder": "过滤歌单内歌曲…",
@@ -335,8 +353,17 @@ const zhHant: Messages = {
   "menu.removeFromLibrary": "從曲庫中移除",
   "menu.removeFromPlaylist": "從歌單中移除",
 
-  "favorites.subtitle": "愛心的落點：你收藏的歌單與內容",
+  "favorites.subtitle": "{songs} 首歌曲 · {albums} 張專輯 · {artists} 位歌手 · {playlists} 歌單",
   "favorites.playlists": "歌單",
+  "favorites.filterPlaceholder": "過濾收藏…",
+  "favorites.sortRecent": "最近收藏",
+  "favorites.artistMeta": "{n} 張專輯",
+  "favorites.emptyHint": "在任意頁面 hover 封面或曲目行，點擊愛心即可收藏到這裡",
+  "favorites.emptyFilter": "沒有找到「{q}」",
+  "favorites.emptySongs": "還沒有收藏歌曲",
+  "favorites.emptyAlbums": "還沒有收藏專輯",
+  "favorites.emptyArtists": "還沒有收藏歌手",
+  "favorites.emptyPlaylists": "還沒有收藏歌單",
   "playlist.kicker": "播放清單",
   "playlist.meta": "{n} 首 · {m} 分鐘 · {updated}",
   "playlist.filterPlaceholder": "過濾歌單內歌曲…",
@@ -452,8 +479,17 @@ const en: Messages = {
   "menu.removeFromLibrary": "Remove from Library",
   "menu.removeFromPlaylist": "Remove from Playlist",
 
-  "favorites.subtitle": "Where the hearts land: your saved playlists and picks",
+  "favorites.subtitle": "{songs} songs · {albums} albums · {artists} artists · {playlists} playlists",
   "favorites.playlists": "Playlists",
+  "favorites.filterPlaceholder": "Filter favorites…",
+  "favorites.sortRecent": "Recently favorited",
+  "favorites.artistMeta": "{n} albums",
+  "favorites.emptyHint": "Hover any cover or track row and tap the heart to save it here",
+  "favorites.emptyFilter": "No results for “{q}”",
+  "favorites.emptySongs": "No favorite songs yet",
+  "favorites.emptyAlbums": "No favorite albums yet",
+  "favorites.emptyArtists": "No favorite artists yet",
+  "favorites.emptyPlaylists": "No favorite playlists yet",
   "playlist.kicker": "Playlist",
   "playlist.meta": "{n} songs · {m} min · {updated}",
   "playlist.filterPlaceholder": "Filter songs in playlist…",
@@ -569,8 +605,17 @@ const ja: Messages = {
   "menu.removeFromLibrary": "ライブラリから削除",
   "menu.removeFromPlaylist": "プレイリストから削除",
 
-  "favorites.subtitle": "ハートの落とし場所：保存したプレイリストとコンテンツ",
+  "favorites.subtitle": "{songs} 曲 · {albums} アルバム · {artists} アーティスト · {playlists} プレイリスト",
   "favorites.playlists": "プレイリスト",
+  "favorites.filterPlaceholder": "お気に入りを絞り込み…",
+  "favorites.sortRecent": "最近のお気に入り",
+  "favorites.artistMeta": "{n} アルバム",
+  "favorites.emptyHint": "任意のページでカバーや曲の行にホバーし、ハートをタップすればここに保存されます",
+  "favorites.emptyFilter": "「{q}」は見つかりません",
+  "favorites.emptySongs": "お気に入りの曲はまだありません",
+  "favorites.emptyAlbums": "お気に入りのアルバムはまだありません",
+  "favorites.emptyArtists": "お気に入りのアーティストはまだありません",
+  "favorites.emptyPlaylists": "お気に入りのプレイリストはまだありません",
   "playlist.kicker": "プレイリスト",
   "playlist.meta": "{n} 曲 · {m} 分 · {updated}",
   "playlist.filterPlaceholder": "プレイリスト内を絞り込み…",
