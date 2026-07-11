@@ -59,6 +59,19 @@ export interface Messages {
   "settings.backers": string;
   "settings.donate": string;
 
+  "firstRun.welcomeTitle": string;
+  "firstRun.welcomeBody": string;
+  "firstRun.addFolder": string;
+  "firstRun.formats": string;
+  "firstRun.scanningTitle": string;
+  "firstRun.foundLabel": string;
+  "firstRun.foundUnit": string; // {m}
+  "firstRun.background": string;
+  "firstRun.cancel": string;
+  "firstRun.doneTitle": string;
+  "firstRun.doneBody": string; // {n} {m} {a}
+  "firstRun.startListening": string;
+
   "view.grid": string;
   "view.list": string;
   "action.search": string;
@@ -226,6 +239,19 @@ const zhHans: Messages = {
   "settings.backers": "支持者名单",
   "settings.donate": "打赏支持",
 
+  "firstRun.welcomeTitle": "欢迎使用香农播放器",
+  "firstRun.welcomeBody": "你的音乐留在本地，播放器只是帮你听见它。\n先告诉我音乐放在哪里。",
+  "firstRun.addFolder": "添加音乐文件夹",
+  "firstRun.formats": "支持 FLAC · MP3 · AAC · OGG · WAV 等格式，也可以直接把文件夹拖进来",
+  "firstRun.scanningTitle": "正在整理你的曲库",
+  "firstRun.foundLabel": "已找到",
+  "firstRun.foundUnit": "首歌曲 · {m} 张专辑",
+  "firstRun.background": "在后台继续",
+  "firstRun.cancel": "取消",
+  "firstRun.doneTitle": "曲库整理好了",
+  "firstRun.doneBody": "{n} 首歌曲 · {m} 张专辑 · {a} 位歌手\n之后新增的文件会自动加入，无需再次扫描",
+  "firstRun.startListening": "开始听歌",
+
   "view.grid": "网格",
   "view.list": "列表",
   "action.search": "搜索",
@@ -390,6 +416,19 @@ const zhHant: Messages = {
   "settings.sourceCode": "原始碼",
   "settings.backers": "支持者名單",
   "settings.donate": "抖內支持",
+
+  "firstRun.welcomeTitle": "歡迎使用香農播放器",
+  "firstRun.welcomeBody": "你的音樂留在本機，播放器只是幫你聽見它。\n先告訴我音樂放在哪裡。",
+  "firstRun.addFolder": "新增音樂資料夾",
+  "firstRun.formats": "支援 FLAC · MP3 · AAC · OGG · WAV 等格式，也可以直接把資料夾拖進來",
+  "firstRun.scanningTitle": "正在整理你的曲庫",
+  "firstRun.foundLabel": "已找到",
+  "firstRun.foundUnit": "首歌曲 · {m} 張專輯",
+  "firstRun.background": "在背景繼續",
+  "firstRun.cancel": "取消",
+  "firstRun.doneTitle": "曲庫整理好了",
+  "firstRun.doneBody": "{n} 首歌曲 · {m} 張專輯 · {a} 位歌手\n之後新增的檔案會自動加入，無需再次掃描",
+  "firstRun.startListening": "開始聽歌",
 
   "view.grid": "網格",
   "view.list": "清單",
@@ -556,6 +595,19 @@ const en: Messages = {
   "settings.backers": "Backers",
   "settings.donate": "Donate",
 
+  "firstRun.welcomeTitle": "Welcome to Shannon Player",
+  "firstRun.welcomeBody": "Your music stays local; the player just helps you hear it.\nFirst, tell me where your music lives.",
+  "firstRun.addFolder": "Add music folder",
+  "firstRun.formats": "Supports FLAC · MP3 · AAC · OGG · WAV and more — or just drag a folder in",
+  "firstRun.scanningTitle": "Organizing your library",
+  "firstRun.foundLabel": "Found",
+  "firstRun.foundUnit": "songs · {m} albums",
+  "firstRun.background": "Continue in background",
+  "firstRun.cancel": "Cancel",
+  "firstRun.doneTitle": "Your library is ready",
+  "firstRun.doneBody": "{n} songs · {m} albums · {a} artists\nNew files are added automatically — no need to scan again",
+  "firstRun.startListening": "Start listening",
+
   "view.grid": "Grid",
   "view.list": "List",
   "action.search": "Search",
@@ -720,6 +772,19 @@ const ja: Messages = {
   "settings.sourceCode": "ソースコード",
   "settings.backers": "サポーター一覧",
   "settings.donate": "投げ銭で支援",
+
+  "firstRun.welcomeTitle": "シャノンプレーヤーへようこそ",
+  "firstRun.welcomeBody": "音楽はローカルに保存されたまま。プレーヤーはそれを聴くお手伝いをするだけ。\nまず、音楽の場所を教えてください。",
+  "firstRun.addFolder": "音楽フォルダを追加",
+  "firstRun.formats": "FLAC · MP3 · AAC · OGG · WAV などに対応。フォルダをドラッグしても OK",
+  "firstRun.scanningTitle": "ライブラリを整理中",
+  "firstRun.foundLabel": "見つかった",
+  "firstRun.foundUnit": "曲 · {m} アルバム",
+  "firstRun.background": "バックグラウンドで続行",
+  "firstRun.cancel": "キャンセル",
+  "firstRun.doneTitle": "ライブラリの準備ができました",
+  "firstRun.doneBody": "{n} 曲 · {m} アルバム · {a} アーティスト\n新しいファイルは自動で追加され、再スキャンは不要です",
+  "firstRun.startListening": "聴き始める",
 
   "view.grid": "グリッド",
   "view.list": "リスト",

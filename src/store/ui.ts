@@ -25,6 +25,8 @@ interface UiState {
   openPlaylistId: Id | null;
   /** 歌词页（沉浸式，覆盖整个窗口）。 */
   lyricsOpen: boolean;
+  /** 首次启动引导（空曲库时展示；后期由后端根据是否已配置曲库自动触发）。 */
+  onboardingOpen: boolean;
   /** 最近搜索词（会话内保存，后期由后端持久化）。 */
   searchRecents: string[];
   /** 设置页开关状态。 */
@@ -49,6 +51,8 @@ interface UiState {
   closePlaylist: () => void;
   openLyrics: () => void;
   closeLyrics: () => void;
+  openOnboarding: () => void;
+  closeOnboarding: () => void;
   /** 记录一次搜索（去重前插，上限 8 条）。 */
   pushSearchRecent: (q: string) => void;
 }
@@ -64,6 +68,7 @@ export const useUiStore = create<UiState>((set) => ({
   openArtistName: null,
   openPlaylistId: null,
   lyricsOpen: false,
+  onboardingOpen: false,
   searchRecents: ["万能青年旅店", "In Rainbows", "陈绮贞"],
   settings: { watch: true, cloud: true, loudness: false, ttml: true, karaoke: true },
   musicFolders: [
@@ -89,6 +94,8 @@ export const useUiStore = create<UiState>((set) => ({
   closePlaylist: () => set({ openPlaylistId: null }),
   openLyrics: () => set({ lyricsOpen: true }),
   closeLyrics: () => set({ lyricsOpen: false }),
+  openOnboarding: () => set({ onboardingOpen: true }),
+  closeOnboarding: () => set({ onboardingOpen: false }),
   pushSearchRecent: (q) =>
     set((s) => {
       const term = q.trim();

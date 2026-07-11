@@ -54,6 +54,12 @@ const SettingsScreen = lazy(() =>
   })),
 );
 
+const FirstRunScreen = lazy(() =>
+  import("@/components/onboarding/FirstRunScreen").then((module) => ({
+    default: module.FirstRunScreen,
+  })),
+);
+
 export default function App() {
   useApplyTheme();
   usePlaybackTicker();
@@ -74,8 +80,11 @@ export default function App() {
   const openArtistName = useUiStore((s) => s.openArtistName);
   const openPlaylistId = useUiStore((s) => s.openPlaylistId);
   const lyricsOpen = useUiStore((s) => s.lyricsOpen);
+  const onboardingOpen = useUiStore((s) => s.onboardingOpen);
   const nav = useUiStore((s) => s.nav);
-  const content = openPlaylistId ? (
+  const content = onboardingOpen ? (
+    <FirstRunScreen />
+  ) : openPlaylistId ? (
     <PlaylistDetailScreen playlistId={openPlaylistId} />
   ) : openArtistName ? (
     <ArtistDetailScreen artistName={openArtistName} />
@@ -98,7 +107,8 @@ export default function App() {
       <IconRail />
       <main className="relative flex min-w-0 flex-1 flex-col">
         <Suspense fallback={null}>{content}</Suspense>
-        <PlayBar />
+        {/* 首次启动引导期间隐藏播放条（空曲库无播放） */}
+        {!onboardingOpen && <PlayBar />}
       </main>
       {lyricsOpen && (
         <Suspense fallback={null}>

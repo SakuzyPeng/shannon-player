@@ -322,6 +322,12 @@ body {
   to   { opacity: 1; transform: none; }
 }
 
+/* 首次启动扫描中旋转唱片 */
+@keyframes disc-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* AMLL 歌词播放器主题适配：默认样式面向深色背景（白字 + plus-lighter 混合），
    这里改为跟随语义 Token，并用衬线字族与设计稿字号。 */
 .amll-lyric-player {

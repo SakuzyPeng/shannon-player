@@ -31,9 +31,9 @@ quiet, lasting everyday feel.
 - **Multilingual** — Simplified Chinese and English, switchable anytime
 - **Thoughtful interactions** — keyboard-navigable context menus, gentle motion that never shouts
 
-> The project is in early development; the main library screen is done. More
-> pages (lyrics, search, playlists, settings, and so on) are being built out —
-> see the roadmap below.
+> The project is in early development: every interface page is now built to the
+> design spec. Next up is local library scanning and real audio playback (the app
+> currently runs on seed data). See the roadmap below.
 
 ## Installation
 
@@ -43,11 +43,12 @@ No official release yet. To try it early, build from source — see the
 ## Roadmap
 
 - [x] Main library screen (album grid / list, floating play bar, theming and i18n)
-- [ ] Song / Artist / Playlist / Album detail pages
-- [ ] Lyrics page (line-synced scrolling lyrics)
-- [ ] Global search and favorites
-- [ ] Settings page
-- [ ] Local library scanning and real audio playback
+- [x] Album / Artist / Playlist detail pages and Songs page
+- [x] Lyrics page (word-by-word rendering via AMLL)
+- [x] Global search and Favorites page
+- [x] Settings page
+- [x] First-run onboarding (welcome / scanning / done)
+- [ ] Local library scanning and real audio playback (Rust backend)
 
 ## Contributing
 
