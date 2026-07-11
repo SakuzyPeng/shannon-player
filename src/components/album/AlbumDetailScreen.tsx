@@ -74,7 +74,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
         onScroll={onScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >
-        <div ref={innerRef} className="will-change-transform">
+        <div ref={innerRef}>
           {/* 面包屑返回（兼作窗口拖拽区） */}
           <div data-tauri-drag-region className="flex items-center pt-[22px]">
             <button

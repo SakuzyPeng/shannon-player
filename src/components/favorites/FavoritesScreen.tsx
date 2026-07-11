@@ -347,7 +347,7 @@ export function FavoritesScreen() {
           onScroll={handleScroll}
           className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
         >
-          <div ref={innerRef} className="will-change-transform">
+          <div ref={innerRef}>
             {/* 标题栏（兼作窗口拖拽区） */}
             <div data-tauri-drag-region className="flex items-end gap-4 pb-[18px] pt-[34px]">
               <div className="flex flex-col gap-[7px]">
