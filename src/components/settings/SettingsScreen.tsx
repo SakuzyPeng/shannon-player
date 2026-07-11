@@ -183,7 +183,7 @@ export function SettingsScreen() {
         onScroll={handleScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[80px] [overscroll-behavior:contain]"
       >
-        <div ref={innerRef} className="mx-auto max-w-[680px]">
+        <div ref={innerRef} className="mx-auto max-w-[680px] will-change-transform">
           <h1
             data-tauri-drag-region
             className="m-0 pb-1.5 pt-[34px] font-serif text-[40px] font-medium text-tx"
