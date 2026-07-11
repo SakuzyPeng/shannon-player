@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { IconRail } from "@/components/layout/IconRail";
 import { LibraryScreen } from "@/components/library/LibraryScreen";
 import { PlayBar } from "@/components/player/PlayBar";
@@ -42,9 +42,28 @@ const FavoritesScreen = lazy(() =>
   })),
 );
 
+const SearchScreen = lazy(() =>
+  import("@/components/search/SearchScreen").then((module) => ({
+    default: module.SearchScreen,
+  })),
+);
+
 export default function App() {
   useApplyTheme();
   usePlaybackTicker();
+
+  // ⌘F / Ctrl+F 全局唤起搜索页。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        useUiStore.getState().setNav("search");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const openAlbumId = useUiStore((s) => s.openAlbumId);
   const openArtistName = useUiStore((s) => s.openArtistName);
   const openPlaylistId = useUiStore((s) => s.openPlaylistId);
@@ -58,6 +77,8 @@ export default function App() {
     <AlbumDetailScreen albumId={openAlbumId} />
   ) : nav === "songs" ? (
     <SongsScreen />
+  ) : nav === "search" ? (
+    <SearchScreen />
   ) : nav === "favorites" ? (
     <FavoritesScreen />
   ) : (

@@ -5,13 +5,14 @@ import type { Album, NavKey, Track } from "@/types/player";
 export interface NavItem {
   key: NavKey;
   labelKey: MessageKey;
-  icon: "albums" | "songs" | "artists" | "favorites" | "settings";
+  icon: "albums" | "songs" | "artists" | "search" | "favorites" | "settings";
 }
 
 export const NAV_ITEMS: NavItem[] = [
   { key: "albums", labelKey: "nav.albums", icon: "albums" },
   { key: "songs", labelKey: "nav.songs", icon: "songs" },
   { key: "artists", labelKey: "nav.artists", icon: "artists" },
+  { key: "search", labelKey: "nav.search", icon: "search" },
   { key: "favorites", labelKey: "nav.favorites", icon: "favorites" },
   { key: "settings", labelKey: "nav.settings", icon: "settings" },
 ];

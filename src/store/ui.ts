@@ -14,6 +14,8 @@ interface UiState {
   openPlaylistId: Id | null;
   /** 歌词页（沉浸式，覆盖整个窗口）。 */
   lyricsOpen: boolean;
+  /** 最近搜索词（会话内保存，后期由后端持久化）。 */
+  searchRecents: string[];
 
   /** 外观三态循环：浅色 → 深色 → 跟随系统 → 浅色。 */
   cycleTheme: () => void;
@@ -28,6 +30,8 @@ interface UiState {
   closePlaylist: () => void;
   openLyrics: () => void;
   closeLyrics: () => void;
+  /** 记录一次搜索（去重前插，上限 8 条）。 */
+  pushSearchRecent: (q: string) => void;
 }
 
 const THEME_CYCLE: ThemeMode[] = ["light", "dark", "system"];
@@ -41,6 +45,7 @@ export const useUiStore = create<UiState>((set) => ({
   openArtistName: null,
   openPlaylistId: null,
   lyricsOpen: false,
+  searchRecents: ["万能青年旅店", "In Rainbows", "陈绮贞"],
 
   cycleTheme: () =>
     set((s) => ({ theme: THEME_CYCLE[(THEME_CYCLE.indexOf(s.theme) + 1) % 3] })),
@@ -58,4 +63,11 @@ export const useUiStore = create<UiState>((set) => ({
   closePlaylist: () => set({ openPlaylistId: null }),
   openLyrics: () => set({ lyricsOpen: true }),
   closeLyrics: () => set({ lyricsOpen: false }),
+  pushSearchRecent: (q) =>
+    set((s) => {
+      const term = q.trim();
+      if (!term) return {};
+      const next = [term, ...s.searchRecents.filter((r) => r.toLowerCase() !== term.toLowerCase())];
+      return { searchRecents: next.slice(0, 8) };
+    }),
 }));

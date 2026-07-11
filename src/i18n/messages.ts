@@ -13,12 +13,20 @@ export interface Messages {
   "nav.albums": string;
   "nav.songs": string;
   "nav.artists": string;
+  "nav.search": string;
   "nav.favorites": string;
   "nav.settings": string;
 
   "header.albumSubtitle": string; // {count}
   "placeholder.title": string; // {name}
   "placeholder.body": string;
+
+  "search.placeholder": string;
+  "search.scopeAll": string;
+  "search.recent": string;
+  "search.emptyTitle": string; // {q}
+  "search.emptyBody": string;
+  "search.clear": string;
 
   "view.grid": string;
   "view.list": string;
@@ -141,12 +149,20 @@ const zhHans: Messages = {
   "nav.albums": "专辑",
   "nav.songs": "歌曲",
   "nav.artists": "歌手",
+  "nav.search": "搜索",
   "nav.favorites": "收藏",
   "nav.settings": "设置",
 
   "header.albumSubtitle": "{count} 张专辑，按最近添加排序",
   "placeholder.title": "「{name}」页",
   "placeholder.body": "核心骨架已就位，此页将在后续迭代中实现",
+
+  "search.placeholder": "搜索歌曲、专辑、歌手、歌单…",
+  "search.scopeAll": "全部",
+  "search.recent": "最近搜索",
+  "search.emptyTitle": "没有找到“{q}”",
+  "search.emptyBody": "检查拼写，或试试歌手名、专辑名的其他写法",
+  "search.clear": "清空",
 
   "view.grid": "网格",
   "view.list": "列表",
@@ -267,12 +283,20 @@ const zhHant: Messages = {
   "nav.albums": "專輯",
   "nav.songs": "歌曲",
   "nav.artists": "歌手",
+  "nav.search": "搜尋",
   "nav.favorites": "收藏",
   "nav.settings": "設定",
 
   "header.albumSubtitle": "{count} 張專輯，按最近加入排序",
   "placeholder.title": "「{name}」頁",
   "placeholder.body": "核心骨架已就位，此頁將於後續迭代中實作",
+
+  "search.placeholder": "搜尋歌曲、專輯、歌手、歌單…",
+  "search.scopeAll": "全部",
+  "search.recent": "最近搜尋",
+  "search.emptyTitle": "沒有找到「{q}」",
+  "search.emptyBody": "檢查拼寫，或試試歌手名、專輯名的其他寫法",
+  "search.clear": "清空",
 
   "view.grid": "網格",
   "view.list": "清單",
@@ -393,12 +417,20 @@ const en: Messages = {
   "nav.albums": "Albums",
   "nav.songs": "Songs",
   "nav.artists": "Artists",
+  "nav.search": "Search",
   "nav.favorites": "Favorites",
   "nav.settings": "Settings",
 
   "header.albumSubtitle": "{count} albums, sorted by recently added",
   "placeholder.title": "{name}",
   "placeholder.body": "Core scaffold is in place; this page ships in a later iteration",
+
+  "search.placeholder": "Search songs, albums, artists, playlists…",
+  "search.scopeAll": "All",
+  "search.recent": "Recent searches",
+  "search.emptyTitle": "No results for “{q}”",
+  "search.emptyBody": "Check the spelling, or try another form of the artist or album name",
+  "search.clear": "Clear",
 
   "view.grid": "Grid",
   "view.list": "List",
@@ -519,12 +551,20 @@ const ja: Messages = {
   "nav.albums": "アルバム",
   "nav.songs": "曲",
   "nav.artists": "アーティスト",
+  "nav.search": "検索",
   "nav.favorites": "お気に入り",
   "nav.settings": "設定",
 
   "header.albumSubtitle": "{count} 枚のアルバム・追加日順",
   "placeholder.title": "「{name}」ページ",
   "placeholder.body": "コア構造は完成済み。このページは今後の反復で実装します",
+
+  "search.placeholder": "曲・アルバム・アーティスト・プレイリストを検索…",
+  "search.scopeAll": "すべて",
+  "search.recent": "最近の検索",
+  "search.emptyTitle": "「{q}」は見つかりません",
+  "search.emptyBody": "スペルを確認するか、アーティスト名やアルバム名の別の表記をお試しください",
+  "search.clear": "クリア",
 
   "view.grid": "グリッド",
   "view.list": "リスト",

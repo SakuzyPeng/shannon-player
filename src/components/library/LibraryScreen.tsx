@@ -34,6 +34,7 @@ export function LibraryScreen() {
   const { t } = useT();
   const nav = useUiStore((s) => s.nav);
   const view = useUiStore((s) => s.view);
+  const setNav = useUiStore((s) => s.setNav);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
 
   const navItem = NAV_ITEMS.find((n) => n.key === nav);
@@ -56,10 +57,13 @@ export function LibraryScreen() {
         {isAlbums && (
           <>
             <Segmented />
-            <div className="flex w-[190px] cursor-text items-center gap-2 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx2">
+            <button
+              onClick={() => setNav("search")}
+              className="flex w-[190px] cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
+            >
               <Icon name="search" size={14} />
               {t("action.search")}
-            </div>
+            </button>
           </>
         )}
       </div>
