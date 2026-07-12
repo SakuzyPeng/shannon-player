@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
-import { ALBUMS, ALBUM_MENU, tracksOf } from "@/data/library";
+import { ALBUM_MENU, tracksOf } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -29,12 +29,12 @@ function handleAlbumAction(album: Album, key: MessageKey) {
   }
 }
 
-export function AlbumGrid() {
+export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
   const { t } = useT();
   const openAlbum = useUiStore((s) => s.openAlbum);
   return (
     <div className="grid grid-cols-4 gap-x-7 gap-y-8">
-      {ALBUMS.map((album) => (
+      {albums.map((album) => (
         <ItemContextMenu
           key={album.id}
           label={`${album.title} — ${album.artist}`}

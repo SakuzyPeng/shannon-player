@@ -17,7 +17,7 @@ export interface Messages {
   "nav.favorites": string;
   "nav.settings": string;
 
-  "header.albumSubtitle": string; // {count}
+  "header.albumSubtitle": string; // {count} {sort}
   "placeholder.title": string; // {name}
   "placeholder.body": string;
 
@@ -93,6 +93,9 @@ export interface Messages {
   "artist.showAllSongs": string; // {n}
   "artist.showAllAlbums": string; // {n}
   "artists.subtitle": string; // {n}
+  "artists.sortMenu": string;
+  "artists.sortByName": string;
+  "artists.sortByAlbums": string;
   "artists.filterPlaceholder": string;
   "artists.emptyTitle": string; // {q}
   "artists.emptyBody": string;
@@ -201,7 +204,7 @@ const zhHans: Messages = {
   "nav.favorites": "收藏",
   "nav.settings": "设置",
 
-  "header.albumSubtitle": "{count} 张专辑，按最近添加排序",
+  "header.albumSubtitle": "{count} 张专辑，按{sort}排序",
   "placeholder.title": "「{name}」页",
   "placeholder.body": "核心骨架已就位，此页将在后续迭代中实现",
 
@@ -277,6 +280,9 @@ const zhHans: Messages = {
   "artist.showAllSongs": "显示全部 {n} 首",
   "artist.showAllAlbums": "显示全部 {n} 张",
   "artists.subtitle": "{n} 位歌手",
+  "artists.sortMenu": "排序方式",
+  "artists.sortByName": "按名称",
+  "artists.sortByAlbums": "按专辑数",
   "artists.filterPlaceholder": "过滤歌手…",
   "artists.emptyTitle": "没有找到“{q}”",
   "artists.emptyBody": "检查拼写，或试试其他歌手名",
@@ -383,7 +389,7 @@ const zhHant: Messages = {
   "nav.favorites": "收藏",
   "nav.settings": "設定",
 
-  "header.albumSubtitle": "{count} 張專輯，按最近加入排序",
+  "header.albumSubtitle": "{count} 張專輯，按{sort}排序",
   "placeholder.title": "「{name}」頁",
   "placeholder.body": "核心骨架已就位，此頁將於後續迭代中實作",
 
@@ -459,6 +465,9 @@ const zhHant: Messages = {
   "artist.showAllSongs": "顯示全部 {n} 首",
   "artist.showAllAlbums": "顯示全部 {n} 張",
   "artists.subtitle": "{n} 位歌手",
+  "artists.sortMenu": "排序方式",
+  "artists.sortByName": "按名稱",
+  "artists.sortByAlbums": "按專輯數",
   "artists.filterPlaceholder": "過濾歌手…",
   "artists.emptyTitle": "沒有找到「{q}」",
   "artists.emptyBody": "檢查拼寫，或試試其他歌手名",
@@ -565,7 +574,7 @@ const en: Messages = {
   "nav.favorites": "Favorites",
   "nav.settings": "Settings",
 
-  "header.albumSubtitle": "{count} albums, sorted by recently added",
+  "header.albumSubtitle": "{count} albums, sorted by {sort}",
   "placeholder.title": "{name}",
   "placeholder.body": "Core scaffold is in place; this page ships in a later iteration",
 
@@ -641,6 +650,9 @@ const en: Messages = {
   "artist.showAllSongs": "Show all {n}",
   "artist.showAllAlbums": "Show all {n}",
   "artists.subtitle": "{n} artists",
+  "artists.sortMenu": "Sort by",
+  "artists.sortByName": "By Name",
+  "artists.sortByAlbums": "By Album Count",
   "artists.filterPlaceholder": "Filter artists…",
   "artists.emptyTitle": "No artists for “{q}”",
   "artists.emptyBody": "Check the spelling or try another artist name",
@@ -747,7 +759,7 @@ const ja: Messages = {
   "nav.favorites": "お気に入り",
   "nav.settings": "設定",
 
-  "header.albumSubtitle": "{count} 枚のアルバム・追加日順",
+  "header.albumSubtitle": "{count} 枚のアルバム・{sort}",
   "placeholder.title": "「{name}」ページ",
   "placeholder.body": "コア構造は完成済み。このページは今後の反復で実装します",
 
@@ -823,6 +835,9 @@ const ja: Messages = {
   "artist.showAllSongs": "全 {n} 曲を表示",
   "artist.showAllAlbums": "全 {n} 枚を表示",
   "artists.subtitle": "{n} 組のアーティスト",
+  "artists.sortMenu": "並べ替え",
+  "artists.sortByName": "名前順",
+  "artists.sortByAlbums": "アルバム数順",
   "artists.filterPlaceholder": "アーティストを絞り込み…",
   "artists.emptyTitle": "「{q}」のアーティストは見つかりません",
   "artists.emptyBody": "スペルを確認するか、別のアーティスト名で試してください",

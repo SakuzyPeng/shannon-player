@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Icon } from "@/components/common/Icon";
 import { AlbumGrid } from "@/components/library/AlbumGrid";
 import { AlbumList } from "@/components/library/AlbumList";
@@ -7,6 +9,15 @@ import { ALBUMS } from "@/data/library";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
+import type { MessageKey } from "@/i18n/messages";
+
+type AlbumSort = "recent" | "title" | "artist";
+
+const SORT_LABEL: Record<AlbumSort, MessageKey> = {
+  recent: "songs.sortRecent",
+  title: "songs.sortByTitle",
+  artist: "songs.sortByArtist",
+};
 
 function Segmented() {
   const { t } = useT();
@@ -36,10 +47,21 @@ export function LibraryScreen() {
   const view = useUiStore((s) => s.view);
   const setNav = useUiStore((s) => s.setNav);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
+  const [sort, setSort] = useState<AlbumSort>("recent");
 
   const navItem = NAV_ITEMS.find((n) => n.key === nav);
   const title = navItem ? t(navItem.labelKey) : t("nav.albums");
   const isAlbums = nav === "albums";
+  const albums = useMemo(() => {
+    const list = [...ALBUMS];
+    if (sort === "title") return list.sort((a, b) => a.title.localeCompare(b.title, "zh"));
+    if (sort === "artist") {
+      return list.sort(
+        (a, b) => a.artist.localeCompare(b.artist, "zh") || a.title.localeCompare(b.title, "zh"),
+      );
+    }
+    return list;
+  }, [sort]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -49,7 +71,7 @@ export function LibraryScreen() {
           <h1 className="m-0 font-serif text-[40px] font-medium text-tx">{title}</h1>
           <div className="mt-[7px] text-[13px] text-tx2">
             {isAlbums
-              ? t("header.albumSubtitle", { count: ALBUMS.length })
+              ? t("header.albumSubtitle", { count: ALBUMS.length, sort: t(SORT_LABEL[sort]) })
               : t("placeholder.body")}
           </div>
         </div>
@@ -57,6 +79,37 @@ export function LibraryScreen() {
         {isAlbums && (
           <>
             <Segmented />
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
+                  {t(SORT_LABEL[sort])}
+                  <Icon name="chevronDown" size={12} strokeWidth={2} />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={6}
+                  aria-label={t("songs.sortMenu")}
+                  className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
+                >
+                  <DropdownMenu.RadioGroup value={sort} onValueChange={(v) => setSort(v as AlbumSort)}>
+                    {(Object.keys(SORT_LABEL) as AlbumSort[]).map((mode) => (
+                      <DropdownMenu.RadioItem
+                        key={mode}
+                        value={mode}
+                        className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
+                      >
+                        <span>{t(SORT_LABEL[mode])}</span>
+                        {sort === mode && (
+                          <Icon name="check" size={14} className="text-ac" strokeWidth={2.4} />
+                        )}
+                      </DropdownMenu.RadioItem>
+                    ))}
+                  </DropdownMenu.RadioGroup>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
             <button
               onClick={() => setNav("search")}
               className="flex w-[190px] cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
@@ -78,9 +131,9 @@ export function LibraryScreen() {
           <div ref={innerRef} className="will-change-transform">
             {isAlbums ? (
               view === "grid" ? (
-                <AlbumGrid />
+                <AlbumGrid albums={albums} />
               ) : (
-                <AlbumList />
+                <AlbumList albums={albums} />
               )
             ) : (
               <div className="flex h-[520px] flex-col items-center justify-center gap-3 text-center text-tx2">

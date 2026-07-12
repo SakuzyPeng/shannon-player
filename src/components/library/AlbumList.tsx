@@ -1,5 +1,5 @@
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
-import { ALBUMS, ALBUM_MENU, tracksOf } from "@/data/library";
+import { ALBUM_MENU, tracksOf } from "@/data/library";
 import { useUiStore } from "@/store/ui";
 import { usePlayerStore } from "@/store/player";
 import { useT } from "@/i18n";
@@ -24,7 +24,7 @@ function handleAlbumAction(album: Album, key: MessageKey) {
   }
 }
 
-export function AlbumList() {
+export function AlbumList({ albums }: { albums: readonly Album[] }) {
   const { t } = useT();
   const openAlbum = useUiStore((s) => s.openAlbum);
   const fmtMinutes = (sec: number) => t("unit.minutes", { n: Math.round(sec / 60) });
@@ -41,7 +41,7 @@ export function AlbumList() {
         <span>{t("list.tracks")}</span>
         <span className="text-right">{t("list.duration")}</span>
       </div>
-      {ALBUMS.map((album) => (
+      {albums.map((album) => (
         <ItemContextMenu
           key={album.id}
           label={`${album.title} — ${album.artist}`}

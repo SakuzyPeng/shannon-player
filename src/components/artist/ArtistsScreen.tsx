@@ -1,11 +1,21 @@
-import { useMemo, useRef, type UIEvent } from "react";
+import { useMemo, useRef, useState, type UIEvent } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { motion } from "framer-motion";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
+import { Icon } from "@/components/common/Icon";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, albumsOfArtist } from "@/data/library";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import type { MessageKey } from "@/i18n/messages";
+
+type ArtistSort = "name" | "albums";
+
+const SORT_LABEL: Record<ArtistSort, MessageKey> = {
+  name: "artists.sortByName",
+  albums: "artists.sortByAlbums",
+};
 
 /** 歌手索引卡：圆形头像（取最新专辑封面）+ 歌手名 + 专辑数。 */
 function ArtistCard({ name }: { name: string }) {
@@ -43,6 +53,7 @@ export function ArtistsScreen() {
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const { filter, query } = useFilterPill();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [sort, setSort] = useState<ArtistSort>("name");
 
   const artists = useMemo(() => {
     const seen = new Set<string>();
@@ -53,11 +64,20 @@ export function ArtistsScreen() {
         out.push(a.artist);
       }
     }
-    return out.sort((x, y) => x.localeCompare(y, "zh"));
+    return out;
   }, []);
+  const sortedArtists = useMemo(() => {
+    const list = [...artists];
+    if (sort === "albums") {
+      return list.sort(
+        (a, b) => albumsOfArtist(b).length - albumsOfArtist(a).length || a.localeCompare(b, "zh"),
+      );
+    }
+    return list.sort((a, b) => a.localeCompare(b, "zh"));
+  }, [artists, sort]);
   const filteredArtists = useMemo(
-    () => (query ? artists.filter((name) => name.toLowerCase().includes(query)) : artists),
-    [artists, query],
+    () => (query ? sortedArtists.filter((name) => name.toLowerCase().includes(query)) : sortedArtists),
+    [query, sortedArtists],
   );
 
   const handleScroll = (e: UIEvent<HTMLDivElement>) => onScroll(e);
@@ -73,6 +93,37 @@ export function ArtistsScreen() {
           </div>
         </div>
         <div className="flex-1" data-tauri-drag-region />
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
+              {t(SORT_LABEL[sort])}
+              <Icon name="chevronDown" size={12} strokeWidth={2} />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={6}
+              aria-label={t("artists.sortMenu")}
+              className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
+            >
+              <DropdownMenu.RadioGroup value={sort} onValueChange={(v) => setSort(v as ArtistSort)}>
+                {(Object.keys(SORT_LABEL) as ArtistSort[]).map((mode) => (
+                  <DropdownMenu.RadioItem
+                    key={mode}
+                    value={mode}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
+                  >
+                    <span>{t(SORT_LABEL[mode])}</span>
+                    {sort === mode && (
+                      <Icon name="check" size={14} className="text-ac" strokeWidth={2.4} />
+                    )}
+                  </DropdownMenu.RadioItem>
+                ))}
+              </DropdownMenu.RadioGroup>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
         <div className="relative mr-1.5 size-10 flex-shrink-0">
           <FilterPill
             filter={filter}
