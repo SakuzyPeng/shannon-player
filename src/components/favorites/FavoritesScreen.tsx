@@ -260,9 +260,9 @@ export function FavoritesScreen() {
         <div
           onClick={() => playQueue(songEntries, index)}
           className={cn(
-            "grid cursor-pointer items-center gap-3 rounded-xl transition-colors hover:bg-hv",
+            "library-row-divider grid cursor-pointer items-center gap-3 rounded-xl transition-colors hover:bg-hv",
             group
-              ? "mt-px grid-cols-[44px_1fr_44px_60px] py-2 pl-[26px] pr-3.5"
+              ? "library-row-divider--grouped mt-px grid-cols-[44px_1fr_44px_60px] py-2 pl-[26px] pr-3.5"
               : `mt-0.5 ${SONG_COLS} px-3.5 py-[9px]`,
           )}
         >

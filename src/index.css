@@ -286,6 +286,26 @@ body {
   .scroll-thumb {
     background: var(--scroll-thumb);
   }
+  /* 曲库列表：内缩细分隔线保留轻盈的列表感，同时帮助连续行快速扫读。 */
+  .library-row-divider {
+    position: relative;
+  }
+  .library-row-divider::after {
+    position: absolute;
+    right: 14px;
+    bottom: 0;
+    left: 70px;
+    height: 1px;
+    content: "";
+    pointer-events: none;
+    background: color-mix(in srgb, var(--bd) 72%, transparent);
+  }
+  .library-row-divider--grouped::after {
+    left: 82px;
+  }
+  .library-row-divider--cover::after {
+    left: 92px;
+  }
   .traffic-light {
     box-shadow: inset 0 0 0 0.5px var(--traffic-border);
   }

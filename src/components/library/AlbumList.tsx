@@ -30,9 +30,9 @@ export function AlbumList({ albums }: { albums: readonly Album[] }) {
   const fmtMinutes = (sec: number) => t("unit.minutes", { n: Math.round(sec / 60) });
 
   return (
-    <div className="surface-corners flex flex-col overflow-hidden rounded-[14px] border border-bd bg-srf">
+    <div className="flex flex-col">
       <div
-        className={`grid ${COLS} items-center gap-3.5 border-b border-bd px-[18px] py-2.5 text-[11px] font-semibold tracking-[0.08em] text-tx2`}
+        className={`grid ${COLS} items-center gap-3.5 border-b border-bd px-3.5 pb-2 pt-1.5 text-[11px] font-semibold tracking-[0.08em] text-tx2`}
       >
         <span />
         <span>{t("list.album")}</span>
@@ -50,7 +50,7 @@ export function AlbumList({ albums }: { albums: readonly Album[] }) {
         >
           <div
             onClick={() => openAlbum(album.id)}
-            className={`grid ${COLS} cursor-pointer items-center gap-3.5 border-b border-bd px-[18px] py-2 transition-colors last:border-b-0 hover:bg-hv`}
+            className={`library-row-divider library-row-divider--cover mt-0.5 grid ${COLS} cursor-pointer items-center gap-3.5 rounded-xl px-3.5 py-1.5 transition-colors hover:bg-hv`}
           >
             <div
               className="cover-corners cover-gradient cover-thumb-material grid size-11 place-items-center rounded-[9px]"

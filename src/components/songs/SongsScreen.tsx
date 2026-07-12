@@ -173,9 +173,9 @@ export function SongsScreen() {
         <div
           onClick={() => playQueue(entries, index)}
           className={cn(
-            "grid cursor-pointer items-center gap-3 rounded-xl transition-colors hover:bg-hv",
+            "library-row-divider grid cursor-pointer items-center gap-3 rounded-xl transition-colors hover:bg-hv",
             grouped
-              ? "mt-px grid-cols-[44px_1fr_44px_60px] py-2 pl-[26px] pr-3.5"
+              ? "library-row-divider--grouped mt-px grid-cols-[44px_1fr_44px_60px] py-2 pl-[26px] pr-3.5"
               : "mt-0.5 grid-cols-[44px_1fr_170px_190px_44px_60px] px-3.5 py-[9px]",
           )}
         >
