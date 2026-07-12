@@ -216,15 +216,14 @@ export function SongsScreen() {
         </div>
         <span className="font-serif text-[16.5px] font-semibold text-tx">{t("nav.songs")}</span>
         <span className="whitespace-nowrap text-xs text-tx2">{subtitle}</span>
-        <div className="relative h-[34px] min-w-3 flex-1">
-          <FilterPill
-            filter={filter}
-            height={34}
-            openWidth={300}
-            inputRef={barInputRef}
-            placeholder={t("songs.filterPlaceholder")}
-          />
-        </div>
+        <FilterPill
+          filter={filter}
+          height={34}
+          openWidth={300}
+          inputRef={barInputRef}
+          placeholder={t("songs.filterPlaceholder")}
+          className="ml-auto"
+        />
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -281,15 +280,14 @@ export function SongsScreen() {
               </DropdownMenu.Root>
 
               {/* 过滤圆钮（hover 展开） */}
-              <div className="relative mr-1.5 size-10 flex-shrink-0">
-                <FilterPill
-                  filter={filter}
-                  height={40}
-                  openWidth={318}
-                  inputRef={headerInputRef}
-                  placeholder={t("songs.filterPlaceholder")}
-                />
-              </div>
+              <FilterPill
+                filter={filter}
+                height={40}
+                openWidth={318}
+                inputRef={headerInputRef}
+                placeholder={t("songs.filterPlaceholder")}
+                className="mr-1.5"
+              />
             </div>
 
             {/* 空态 */}

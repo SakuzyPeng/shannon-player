@@ -68,10 +68,11 @@ interface Props {
   openWidth: number;
   inputRef: RefObject<HTMLInputElement | null>;
   placeholder: string;
+  className?: string;
 }
 
 /** 过滤圆钮：hover 从圆形展开为输入框，聚焦强调圈，命中清空按钮。 */
-export function FilterPill({ filter, height, openWidth, inputRef, placeholder }: Props) {
+export function FilterPill({ filter, height, openWidth, inputRef, placeholder, className }: Props) {
   const { t } = useT();
   return (
     <div
@@ -79,8 +80,9 @@ export function FilterPill({ filter, height, openWidth, inputRef, placeholder }:
       onMouseLeave={filter.onLeave}
       onClick={() => filter.onEnter(inputRef.current)}
       className={cn(
-        "absolute right-0 top-0 box-border flex items-center gap-2 overflow-hidden rounded-full border bg-srf",
+        "box-border flex flex-none items-center gap-2 overflow-hidden rounded-full border bg-srf",
         filter.focused ? "filter-focus-ring border-ac" : "border-bd",
+        className,
       )}
       style={{
         height,

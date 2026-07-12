@@ -129,15 +129,14 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
             </span>
           )}
         </div>
-        <div className="relative h-[34px] min-w-3 flex-1">
-          <FilterPill
-            filter={filter}
-            height={34}
-            openWidth={300}
-            inputRef={barInputRef}
-            placeholder={t("playlist.filterPlaceholder")}
-          />
-        </div>
+        <FilterPill
+          filter={filter}
+          height={34}
+          openWidth={300}
+          inputRef={barInputRef}
+          placeholder={t("playlist.filterPlaceholder")}
+          className="ml-auto"
+        />
         <motion.button
           whileHover={{ filter: "brightness(1.08)" }}
           whileTap={{ scale: 0.9 }}
@@ -226,15 +225,14 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                 >
                   <Icon name="more" size={16} />
                 </button>
-                <div className="relative h-10 min-w-3 flex-1">
-                  <FilterPill
-                    filter={filter}
-                    height={40}
-                    openWidth={318}
-                    inputRef={headerInputRef}
-                    placeholder={t("playlist.filterPlaceholder")}
-                  />
-                </div>
+                <FilterPill
+                  filter={filter}
+                  height={40}
+                  openWidth={318}
+                  inputRef={headerInputRef}
+                  placeholder={t("playlist.filterPlaceholder")}
+                  className="ml-auto"
+                />
               </div>
             </div>
           </div>

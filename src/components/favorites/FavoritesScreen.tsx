@@ -344,15 +344,14 @@ export function FavoritesScreen() {
         </span>
         <span className="hidden whitespace-nowrap text-xs text-tx2 lg:inline">{subtitle}</span>
         <div className="ml-1.5">{renderTabs(true)}</div>
-        <div className="relative h-[34px] min-w-3 flex-1">
-          <FilterPill
-            filter={filter}
-            height={34}
-            openWidth={300}
-            inputRef={barInputRef}
-            placeholder={filterPlaceholder}
-          />
-        </div>
+        <FilterPill
+          filter={filter}
+          height={34}
+          openWidth={300}
+          inputRef={barInputRef}
+          placeholder={filterPlaceholder}
+          className="ml-auto"
+        />
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -408,15 +407,14 @@ export function FavoritesScreen() {
               </DropdownMenu.Root>
 
               {/* 过滤圆钮 */}
-              <div className="relative mr-1.5 size-10 flex-shrink-0">
-                <FilterPill
-                  filter={filter}
-                  height={40}
-                  openWidth={318}
-                  inputRef={headerInputRef}
-                  placeholder={filterPlaceholder}
-                />
-              </div>
+              <FilterPill
+                filter={filter}
+                height={40}
+                openWidth={318}
+                inputRef={headerInputRef}
+                placeholder={filterPlaceholder}
+                className="mr-1.5"
+              />
             </div>
 
             {/* 空态 */}

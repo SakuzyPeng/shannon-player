@@ -124,15 +124,14 @@ export function ArtistsScreen() {
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
-        <div className="relative mr-1.5 size-10 flex-shrink-0">
-          <FilterPill
-            filter={filter}
-            height={40}
-            openWidth={318}
-            inputRef={inputRef}
-            placeholder={t("artists.filterPlaceholder")}
-          />
-        </div>
+        <FilterPill
+          filter={filter}
+          height={40}
+          openWidth={318}
+          inputRef={inputRef}
+          placeholder={t("artists.filterPlaceholder")}
+          className="mr-1.5"
+        />
       </div>
 
       {/* 滚动区 + 自绘滚动条 */}
