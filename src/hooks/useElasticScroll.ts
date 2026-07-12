@@ -36,6 +36,8 @@ export function useElasticScroll() {
     const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
     const progress = Math.max(0, Math.min(el.scrollTop, maxScroll)) / maxScroll;
     const top = (trackH - h) * progress;
+    // 仅过渡 opacity（淡入 / 淡出更柔和），高度与位置随滚动即时跟随不加过渡。
+    th.style.transition = "opacity 0.4s ease";
     th.style.height = h.toFixed(2) + "px";
     th.style.top = (inset + top).toFixed(2) + "px";
     th.style.opacity = "1";

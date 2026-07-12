@@ -200,7 +200,7 @@ export function SearchScreen() {
           onScroll={handleScroll}
           className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
         >
-          <div ref={innerRef} className="mx-auto max-w-[760px]">
+          <div ref={innerRef} className="mx-auto max-w-[760px] will-change-transform">
             {/* 最近搜索 */}
             {showRecent && (
               <>

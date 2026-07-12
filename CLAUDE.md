@@ -37,7 +37,7 @@ pnpm tauri build      # 打包桌面应用
 
 **数据**：`src/data/library.ts` 是曲库种子数据（来自设计稿），后期由 Rust 后端扫描本地曲库替换。
 
-**滚动**：滚动「手感」交还各平台原生（macOS 触控板橡皮筋、Windows/Linux 滚轮惯性各自沿用系统实现），只统一「视觉」。`src/hooks/useElasticScroll.ts`（名称沿用，实为「原生滚动 + 自绘滚动条」）不再拦截 wheel、不再自积分物理，仅：容器用 `.no-scrollbar` 隐藏系统滚动条，并按原生 `scroll` 事件的 scrollTop/scrollHeight 直接映射绘制一份跨平台一致的 6px thumb（静止 0.9s 后淡出，内容未溢出不显示）。返回签名 `{ scrollerRef, innerRef, thumbRef, onScroll }` 不变，`innerRef` 现仅作内容容器。曾有一版自定义速度积分 + 橡皮筋引擎，因难以在各平台/输入设备上都贴合原生肌肉记忆，权衡后回退为原生手感。
+**滚动**：滚动「手感」交还各平台原生（macOS 触控板橡皮筋、Windows/Linux 滚轮惯性各自沿用系统实现），只统一「视觉」。`src/hooks/useElasticScroll.ts`（名称沿用，实为「原生滚动 + 自绘滚动条」）不再拦截 wheel、不再自积分物理，仅：容器用 `.no-scrollbar` 隐藏系统滚动条，并按原生 `scroll` 事件的 scrollTop/scrollHeight 直接映射绘制一份跨平台一致的 6px thumb（静止 0.9s 后淡出，内容未溢出不显示）。返回签名 `{ scrollerRef, innerRef, thumbRef, onScroll }` 不变，`innerRef` 现仅作内容容器，但保留 `will-change:transform`——它把内容提升为一张缓存的合成层，令 superellipse 圆角 + 多重内阴影的封面卡只光栅化一次、滚动时纯合成（去掉会导致专辑网格滚动掉帧）。曾有一版自定义速度积分 + 橡皮筋引擎，因难以在各平台/输入设备上都贴合原生肌肉记忆，权衡后回退为原生手感。
 
 ### 设计来源
 

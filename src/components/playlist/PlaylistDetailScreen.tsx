@@ -154,7 +154,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
         onScroll={handleScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >
-        <div ref={innerRef}>
+        <div ref={innerRef} className="will-change-transform">
           {/* 面包屑返回（兼作窗口拖拽区） */}
           <div data-tauri-drag-region className="flex items-center pt-[22px]">
             <button
