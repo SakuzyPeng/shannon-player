@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import { PageTransition } from "@/components/common/PageTransition";
 import { IconRail } from "@/components/layout/IconRail";
 import { LibraryScreen } from "@/components/library/LibraryScreen";
 import { PlayBar } from "@/components/player/PlayBar";
@@ -88,41 +89,43 @@ export default function App() {
   const lyricsOpen = useUiStore((s) => s.lyricsOpen);
   const onboardingOpen = useUiStore((s) => s.onboardingOpen);
   const nav = useUiStore((s) => s.nav);
-  const content = onboardingOpen ? (
-    <FirstRunScreen />
-  ) : openPlaylistId ? (
-    <PlaylistDetailScreen playlistId={openPlaylistId} />
-  ) : openArtistName ? (
-    <ArtistDetailScreen artistName={openArtistName} />
-  ) : openAlbumId ? (
-    <AlbumDetailScreen albumId={openAlbumId} />
-  ) : nav === "songs" ? (
-    <SongsScreen />
-  ) : nav === "artists" ? (
-    <ArtistsScreen />
-  ) : nav === "search" ? (
-    <SearchScreen />
-  ) : nav === "favorites" ? (
-    <FavoritesScreen />
-  ) : nav === "settings" ? (
-    <SettingsScreen />
-  ) : (
-    <LibraryScreen />
-  );
+  const screen = onboardingOpen
+    ? { key: "onboarding", content: <FirstRunScreen /> }
+    : openPlaylistId
+      ? { key: `playlist-${openPlaylistId}`, content: <PlaylistDetailScreen playlistId={openPlaylistId} /> }
+      : openArtistName
+        ? { key: `artist-${openArtistName}`, content: <ArtistDetailScreen artistName={openArtistName} /> }
+        : openAlbumId
+          ? { key: `album-${openAlbumId}`, content: <AlbumDetailScreen albumId={openAlbumId} /> }
+          : nav === "songs"
+            ? { key: "songs", content: <SongsScreen /> }
+            : nav === "artists"
+              ? { key: "artists", content: <ArtistsScreen /> }
+              : nav === "search"
+                ? { key: "search", content: <SearchScreen /> }
+                : nav === "favorites"
+                  ? { key: "favorites", content: <FavoritesScreen /> }
+                  : nav === "settings"
+                    ? { key: "settings", content: <SettingsScreen /> }
+                    : { key: "albums", content: <LibraryScreen /> };
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg text-tx transition-colors">
       <IconRail />
-      <main className="relative flex min-w-0 flex-1 flex-col">
-        <Suspense fallback={null}>{content}</Suspense>
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <PageTransition pageKey={screen.key}>
+          <Suspense fallback={null}>{screen.content}</Suspense>
+        </PageTransition>
         {/* 首次启动引导期间隐藏播放条（空曲库无播放） */}
         {!onboardingOpen && <PlayBar />}
       </main>
-      {lyricsOpen && (
-        <Suspense fallback={null}>
-          <LyricsScreen />
-        </Suspense>
-      )}
+      <PageTransition pageKey={lyricsOpen ? "lyrics" : null} className="fixed inset-0 z-40">
+        {lyricsOpen && (
+          <Suspense fallback={null}>
+            <LyricsScreen />
+          </Suspense>
+        )}
+      </PageTransition>
     </div>
   );
 }
