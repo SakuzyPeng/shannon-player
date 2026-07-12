@@ -1,6 +1,6 @@
-import { useMemo, type UIEvent } from "react";
+import { useMemo, useRef, type UIEvent } from "react";
 import { motion } from "framer-motion";
-import { Icon } from "@/components/common/Icon";
+import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, albumsOfArtist } from "@/data/library";
 import { useUiStore } from "@/store/ui";
@@ -40,8 +40,9 @@ function ArtistCard({ name }: { name: string }) {
 
 export function ArtistsScreen() {
   const { t } = useT();
-  const setNav = useUiStore((s) => s.setNav);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
+  const { filter, query } = useFilterPill();
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const artists = useMemo(() => {
     const seen = new Set<string>();
@@ -54,6 +55,10 @@ export function ArtistsScreen() {
     }
     return out.sort((x, y) => x.localeCompare(y, "zh"));
   }, []);
+  const filteredArtists = useMemo(
+    () => (query ? artists.filter((name) => name.toLowerCase().includes(query)) : artists),
+    [artists, query],
+  );
 
   const handleScroll = (e: UIEvent<HTMLDivElement>) => onScroll(e);
 
@@ -68,13 +73,15 @@ export function ArtistsScreen() {
           </div>
         </div>
         <div className="flex-1" data-tauri-drag-region />
-        <button
-          onClick={() => setNav("search")}
-          className="flex w-[190px] cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
-        >
-          <Icon name="search" size={14} />
-          {t("action.search")}
-        </button>
+        <div className="relative mr-1.5 size-10 flex-shrink-0">
+          <FilterPill
+            filter={filter}
+            height={40}
+            openWidth={318}
+            inputRef={inputRef}
+            placeholder={t("artists.filterPlaceholder")}
+          />
+        </div>
       </div>
 
       {/* 滚动区 + 自绘滚动条 */}
@@ -85,11 +92,20 @@ export function ArtistsScreen() {
           className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] pt-2 [overscroll-behavior:contain]"
         >
           <div ref={innerRef} className="will-change-transform">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] justify-items-center gap-x-6 gap-y-9">
-              {artists.map((name) => (
-                <ArtistCard key={name} name={name} />
-              ))}
-            </div>
+            {filteredArtists.length > 0 ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] justify-items-center gap-x-6 gap-y-9">
+                {filteredArtists.map((name) => (
+                  <ArtistCard key={name} name={name} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2.5 pb-10 pt-[100px] text-center">
+                <div className="font-serif text-lg font-semibold text-tx">
+                  {t("artists.emptyTitle", { q: filter.q.trim() })}
+                </div>
+                <div className="text-[13px] text-tx2">{t("artists.emptyBody")}</div>
+              </div>
+            )}
           </div>
         </div>
         <div

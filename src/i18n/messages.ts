@@ -93,6 +93,9 @@ export interface Messages {
   "artist.showAllSongs": string; // {n}
   "artist.showAllAlbums": string; // {n}
   "artists.subtitle": string; // {n}
+  "artists.filterPlaceholder": string;
+  "artists.emptyTitle": string; // {q}
+  "artists.emptyBody": string;
 
   "songs.subtitle": string; // {n} {h} {m}
   "songs.sortMenu": string;
@@ -274,6 +277,9 @@ const zhHans: Messages = {
   "artist.showAllSongs": "显示全部 {n} 首",
   "artist.showAllAlbums": "显示全部 {n} 张",
   "artists.subtitle": "{n} 位歌手",
+  "artists.filterPlaceholder": "过滤歌手…",
+  "artists.emptyTitle": "没有找到“{q}”",
+  "artists.emptyBody": "检查拼写，或试试其他歌手名",
 
   "songs.subtitle": "{n} 首 · {h} 小时 {m} 分钟",
   "songs.sortMenu": "排序方式",
@@ -453,6 +459,9 @@ const zhHant: Messages = {
   "artist.showAllSongs": "顯示全部 {n} 首",
   "artist.showAllAlbums": "顯示全部 {n} 張",
   "artists.subtitle": "{n} 位歌手",
+  "artists.filterPlaceholder": "過濾歌手…",
+  "artists.emptyTitle": "沒有找到「{q}」",
+  "artists.emptyBody": "檢查拼寫，或試試其他歌手名",
 
   "songs.subtitle": "{n} 首 · {h} 小時 {m} 分鐘",
   "songs.sortMenu": "排序方式",
@@ -632,6 +641,9 @@ const en: Messages = {
   "artist.showAllSongs": "Show all {n}",
   "artist.showAllAlbums": "Show all {n}",
   "artists.subtitle": "{n} artists",
+  "artists.filterPlaceholder": "Filter artists…",
+  "artists.emptyTitle": "No artists for “{q}”",
+  "artists.emptyBody": "Check the spelling or try another artist name",
 
   "songs.subtitle": "{n} songs · {h} hr {m} min",
   "songs.sortMenu": "Sort by",
@@ -811,6 +823,9 @@ const ja: Messages = {
   "artist.showAllSongs": "全 {n} 曲を表示",
   "artist.showAllAlbums": "全 {n} 枚を表示",
   "artists.subtitle": "{n} 組のアーティスト",
+  "artists.filterPlaceholder": "アーティストを絞り込み…",
+  "artists.emptyTitle": "「{q}」のアーティストは見つかりません",
+  "artists.emptyBody": "スペルを確認するか、別のアーティスト名で試してください",
 
   "songs.subtitle": "{n} 曲 · {h} 時間 {m} 分",
   "songs.sortMenu": "並べ替え",

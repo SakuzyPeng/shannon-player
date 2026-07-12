@@ -37,6 +37,13 @@ const SORT_LABEL: Record<SortMode, MessageKey> = {
   artist: "songs.sortByArtist",
 };
 
+const SORT_MODES: Record<FavTab, readonly SortMode[]> = {
+  songs: ["recent", "title", "artist"],
+  albums: ["recent", "title", "artist"],
+  artists: ["recent", "title"],
+  playlists: ["recent", "title"],
+};
+
 /** 过滤命中高亮：命中段着 --ac。 */
 function Highlight({ text, query }: { text: string; query: string }) {
   if (query) {
@@ -134,28 +141,31 @@ export function FavoritesScreen() {
     return list;
   }, [baseSongs, query, sort]);
 
-  const albumEntries = useMemo(
-    () =>
-      query
-        ? baseAlbums.filter((a) =>
-            `${a.title} ${a.artist}`.toLowerCase().includes(query),
-          )
-        : baseAlbums,
-    [baseAlbums, query],
-  );
-  const artistEntries = useMemo(
-    () => (query ? baseArtists.filter((n) => n.toLowerCase().includes(query)) : baseArtists),
-    [baseArtists, query],
-  );
-  const playlistEntries = useMemo(
-    () =>
-      query
-        ? basePlaylists.filter((p) =>
-            `${p.title} ${p.description}`.toLowerCase().includes(query),
-          )
-        : basePlaylists,
-    [basePlaylists, query],
-  );
+  const albumEntries = useMemo(() => {
+    let list = query
+      ? baseAlbums.filter((a) => `${a.title} ${a.artist}`.toLowerCase().includes(query))
+      : baseAlbums;
+    if (sort === "title") {
+      list = [...list].sort((a, b) => a.title.localeCompare(b.title, "zh"));
+    } else if (sort === "artist") {
+      list = [...list].sort(
+        (a, b) => a.artist.localeCompare(b.artist, "zh") || a.title.localeCompare(b.title, "zh"),
+      );
+    }
+    return list;
+  }, [baseAlbums, query, sort]);
+  const artistEntries = useMemo(() => {
+    let list = query ? baseArtists.filter((n) => n.toLowerCase().includes(query)) : baseArtists;
+    if (sort === "title") list = [...list].sort((a, b) => a.localeCompare(b, "zh"));
+    return list;
+  }, [baseArtists, query, sort]);
+  const playlistEntries = useMemo(() => {
+    let list = query
+      ? basePlaylists.filter((p) => `${p.title} ${p.description}`.toLowerCase().includes(query))
+      : basePlaylists;
+    if (sort === "title") list = [...list].sort((a, b) => a.title.localeCompare(b.title, "zh"));
+    return list;
+  }, [basePlaylists, query, sort]);
 
   const grouped = tab === "songs" && sort === "artist";
   const songGroups = useMemo(() => {
@@ -231,6 +241,10 @@ export function FavoritesScreen() {
   });
 
   const filterPlaceholder = t("favorites.filterPlaceholder");
+  const selectTab = (next: FavTab) => {
+    setTab(next);
+    if (!SORT_MODES[next].includes(sort)) setSort("recent");
+  };
 
   /** 曲目行（扁平与分组共用；列宽不同）。 */
   const renderSongRow = (track: Track, index: number, no: number, group: boolean): ReactNode => {
@@ -297,7 +311,7 @@ export function FavoritesScreen() {
       {TABS.map((tb) => (
         <button
           key={tb.key}
-          onClick={() => setTab(tb.key)}
+          onClick={() => selectTab(tb.key)}
           className={cn(
             "cursor-pointer rounded-full font-semibold transition-colors",
             compact ? "px-[13px] py-1" : "px-4 py-1.5",
@@ -360,43 +374,38 @@ export function FavoritesScreen() {
 
               {renderTabs(false)}
 
-              {/* 排序菜单（仅歌曲分段） */}
-              {tab === "songs" && (
-                <DropdownMenu.Root>
-                  <DropdownMenu.Trigger asChild>
-                    <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
-                      {t(SORT_LABEL[sort])}
-                      <Icon name="chevronDown" size={12} strokeWidth={2} />
-                    </button>
-                  </DropdownMenu.Trigger>
-                  <DropdownMenu.Portal>
-                    <DropdownMenu.Content
-                      align="end"
-                      sideOffset={6}
-                      aria-label={t("songs.sortMenu")}
-                      className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
-                    >
-                      <DropdownMenu.RadioGroup
-                        value={sort}
-                        onValueChange={(v) => setSort(v as SortMode)}
-                      >
-                        {(Object.keys(SORT_LABEL) as SortMode[]).map((mode) => (
-                          <DropdownMenu.RadioItem
-                            key={mode}
-                            value={mode}
-                            className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
-                          >
-                            <span>{t(SORT_LABEL[mode])}</span>
-                            {sort === mode && (
-                              <Icon name="check" size={14} className="text-ac" strokeWidth={2.4} />
-                            )}
-                          </DropdownMenu.RadioItem>
-                        ))}
-                      </DropdownMenu.RadioGroup>
-                    </DropdownMenu.Content>
-                  </DropdownMenu.Portal>
-                </DropdownMenu.Root>
-              )}
+              {/* 排序菜单：各分段仅暴露适用的排序项。 */}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
+                    {t(SORT_LABEL[sort])}
+                    <Icon name="chevronDown" size={12} strokeWidth={2} />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    align="end"
+                    sideOffset={6}
+                    aria-label={t("songs.sortMenu")}
+                    className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
+                  >
+                    <DropdownMenu.RadioGroup value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+                      {SORT_MODES[tab].map((mode) => (
+                        <DropdownMenu.RadioItem
+                          key={mode}
+                          value={mode}
+                          className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
+                        >
+                          <span>{t(SORT_LABEL[mode])}</span>
+                          {sort === mode && (
+                            <Icon name="check" size={14} className="text-ac" strokeWidth={2.4} />
+                          )}
+                        </DropdownMenu.RadioItem>
+                      ))}
+                    </DropdownMenu.RadioGroup>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
 
               {/* 过滤圆钮 */}
               <div className="relative mr-1.5 size-10 flex-shrink-0">
