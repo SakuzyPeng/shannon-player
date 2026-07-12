@@ -18,6 +18,12 @@ const ArtistDetailScreen = lazy(() =>
   })),
 );
 
+const ArtistsScreen = lazy(() =>
+  import("@/components/artist/ArtistsScreen").then((module) => ({
+    default: module.ArtistsScreen,
+  })),
+);
+
 const SongsScreen = lazy(() =>
   import("@/components/songs/SongsScreen").then((module) => ({
     default: module.SongsScreen,
@@ -92,6 +98,8 @@ export default function App() {
     <AlbumDetailScreen albumId={openAlbumId} />
   ) : nav === "songs" ? (
     <SongsScreen />
+  ) : nav === "artists" ? (
+    <ArtistsScreen />
   ) : nav === "search" ? (
     <SearchScreen />
   ) : nav === "favorites" ? (
