@@ -92,7 +92,10 @@ export function FilterPill({ filter, height, openWidth, inputRef, placeholder, c
         transition: "width 0.3s cubic-bezier(0.34,1.3,0.64,1), border-color 0.2s ease",
       }}
     >
-      <span className="flex-shrink-0 text-tx2">
+      <span
+        className="flex-shrink-0 text-tx2"
+        style={!filter.open && height >= 40 ? { transform: "translate(2px, 1px)" } : undefined}
+      >
         <Icon name="search" size={height >= 40 ? 15 : 14} />
       </span>
       <input
