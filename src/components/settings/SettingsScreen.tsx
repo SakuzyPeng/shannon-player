@@ -181,7 +181,7 @@ export function SettingsScreen() {
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[80px] [overscroll-behavior:contain]"
+        className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >
         <div ref={innerRef} className="mx-auto max-w-[680px] will-change-transform">
           <h1
