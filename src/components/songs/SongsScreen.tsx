@@ -17,6 +17,7 @@ import type { Track } from "@/types/player";
 
 /** 吸顶栏出现阈值（设计稿：scrollTop > 100）。 */
 const STICKY_THRESHOLD = 100;
+const STICKY_BAR_HEIGHT = 58;
 
 type SortMode = "title" | "artist" | "recent";
 
@@ -324,7 +325,13 @@ export function SongsScreen() {
               <div className="border-t border-bd">
                 {groups.map((g, gi) => (
                   <div key={g.artist} className={cn(gi > 0 && "mt-[18px] border-t border-bd")}>
-                    <div className="flex items-baseline gap-2.5 px-0.5 pb-1 pt-[22px]">
+                    <div
+                      className="artist-group-sticky sticky z-10 flex items-baseline gap-2.5 border-b border-bd bg-bg px-0.5 pb-1.5 pt-[18px]"
+                      style={{
+                        top: barVisible ? STICKY_BAR_HEIGHT : 0,
+                        transition: "top 0.25s var(--ease-spring)",
+                      }}
+                    >
                       <span className="font-serif text-[22px] font-semibold text-tx">
                         {g.artist}
                       </span>
