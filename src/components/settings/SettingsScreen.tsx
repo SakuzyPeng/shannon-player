@@ -1,11 +1,11 @@
 import { useRef, useState, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Icon } from "@/components/common/Icon";
+import { SegmentedControl } from "@/components/common/SegmentedControl";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { LANGUAGES } from "@/data/library";
 import { useUiStore, type MusicFolder, type SettingKey } from "@/store/ui";
 import { useT } from "@/i18n";
-import { cn } from "@/lib/cn";
 import type { MessageKey } from "@/i18n/messages";
 import type { Language, ThemeMode } from "@/types/player";
 
@@ -231,20 +231,16 @@ export function SettingsScreen() {
               <div className="text-sm font-semibold text-tx">{t("settings.appearance")}</div>
               <div className="mt-[3px] text-[12.5px] text-tx2">{t("settings.appearanceDesc")}</div>
             </div>
-            <div className="flex items-center rounded-full border border-bd bg-sb p-[3px] text-[12.5px]">
-              {THEME_SEG.map((sg) => (
-                <button
-                  key={sg.mode}
-                  onClick={() => setTheme(sg.mode)}
-                  className={cn(
-                    "cursor-pointer rounded-full px-[15px] py-1.5 font-semibold transition-colors",
-                    theme === sg.mode ? "segmented-active-shadow bg-srf text-tx" : "text-tx2",
-                  )}
-                >
-                  {t(sg.labelKey)}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              value={theme}
+              onValueChange={setTheme}
+              options={THEME_SEG.map((segment) => ({
+                value: segment.mode,
+                label: t(segment.labelKey),
+              }))}
+              className="p-[3px] text-[12.5px]"
+              buttonClassName="px-[15px] py-1.5"
+            />
           </div>
           <div className="flex items-center gap-4 border-b border-bd px-0.5 py-[15px]">
             <div className="flex-1">

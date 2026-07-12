@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Icon } from "@/components/common/Icon";
+import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
 import { AlbumGrid } from "@/components/library/AlbumGrid";
 import { AlbumList } from "@/components/library/AlbumList";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -8,7 +9,6 @@ import { NAV_ITEMS } from "@/data/library";
 import { ALBUMS } from "@/data/library";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
-import { cn } from "@/lib/cn";
 import type { MessageKey } from "@/i18n/messages";
 
 type AlbumSort = "recent" | "title" | "artist";
@@ -24,20 +24,16 @@ function Segmented() {
   const view = useUiStore((s) => s.view);
   const setView = useUiStore((s) => s.setView);
   return (
-    <div className="flex items-center rounded-full border border-bd bg-sb p-[3px] text-[12.5px]">
-      {(["grid", "list"] as const).map((v) => (
-        <button
-          key={v}
-          onClick={() => setView(v)}
-          className={cn(
-            "cursor-pointer rounded-full px-4 py-1.5 font-semibold transition-colors",
-            view === v ? "segmented-active-shadow bg-srf text-tx" : "text-tx2",
-          )}
-        >
-          {v === "grid" ? t("view.grid") : t("view.list")}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      value={view}
+      onValueChange={setView}
+      options={[
+        { value: "grid", label: t("view.grid") },
+        { value: "list", label: t("view.list") },
+      ]}
+      className="p-[3px] text-[12.5px]"
+      buttonClassName="px-4 py-1.5"
+    />
   );
 }
 
@@ -130,11 +126,9 @@ export function LibraryScreen() {
         >
           <div ref={innerRef} className="will-change-transform">
             {isAlbums ? (
-              view === "grid" ? (
-                <AlbumGrid albums={albums} />
-              ) : (
-                <AlbumList albums={albums} />
-              )
+              <SegmentedContent value={view}>
+                {view === "grid" ? <AlbumGrid albums={albums} /> : <AlbumList albums={albums} />}
+              </SegmentedContent>
             ) : (
               <div className="flex h-[520px] flex-col items-center justify-center gap-3 text-center text-tx2">
                 <div className="font-serif text-[22px] text-tx">{t("placeholder.title", { name: title })}</div>

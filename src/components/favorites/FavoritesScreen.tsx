@@ -6,6 +6,7 @@ import { EqBars } from "@/components/common/EqBars";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, TRACK_MENU, albumsOfArtist, allTracks, tracksOf } from "@/data/library";
 import { PLAYLISTS, collageOf } from "@/data/playlists";
@@ -302,26 +303,13 @@ export function FavoritesScreen() {
 
   /** 分段切换器（头部与吸顶栏共用，尺寸不同）。 */
   const renderTabs = (compact: boolean) => (
-    <div
-      className={cn(
-        "flex items-center rounded-full border border-bd bg-sb text-[12.5px]",
-        compact ? "p-[2.5px] text-xs" : "p-[3px]",
-      )}
-    >
-      {TABS.map((tb) => (
-        <button
-          key={tb.key}
-          onClick={() => selectTab(tb.key)}
-          className={cn(
-            "cursor-pointer rounded-full font-semibold transition-colors",
-            compact ? "px-[13px] py-1" : "px-4 py-1.5",
-            tab === tb.key ? "segmented-active-shadow bg-srf text-tx" : "text-tx2",
-          )}
-        >
-          {t(tb.labelKey)}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      value={tab}
+      onValueChange={selectTab}
+      options={TABS.map((tb) => ({ value: tb.key, label: t(tb.labelKey) }))}
+      className={cn("text-[12.5px]", compact ? "p-[2.5px] text-xs" : "p-[3px]")}
+      buttonClassName={compact ? "px-[13px] py-1" : "px-4 py-1.5"}
+    />
   );
 
   return (
@@ -417,130 +405,132 @@ export function FavoritesScreen() {
               />
             </div>
 
-            {/* 空态 */}
-            {empty && (
-              <div className="flex flex-col items-center gap-3.5 pb-10 pt-[100px] text-center">
-                <div className="grid size-16 place-items-center rounded-full border border-bd bg-sb text-tx2">
-                  <Icon name="favorites" size={26} strokeWidth={1.7} />
-                </div>
-                <div className="font-serif text-lg font-semibold text-tx">
-                  {filtering
-                    ? t("favorites.emptyFilter", { q: filter.q.trim() })
-                    : t(emptyTitleKey[tab])}
-                </div>
-                {!filtering && (
-                  <div className="max-w-[320px] text-[13px] leading-[1.6] text-tx2">
-                    {t("favorites.emptyHint")}
+            <SegmentedContent value={tab}>
+              {/* 空态 */}
+              {empty && (
+                <div className="flex flex-col items-center gap-3.5 pb-10 pt-[100px] text-center">
+                  <div className="grid size-16 place-items-center rounded-full border border-bd bg-sb text-tx2">
+                    <Icon name="favorites" size={26} strokeWidth={1.7} />
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* 歌曲 · 分组 */}
-            {tab === "songs" && !empty && grouped && (
-              <div className="border-t border-bd">
-                {songGroups.map((g, gi) => (
-                  <div key={g.artist} className={cn(gi > 0 && "mt-[18px] border-t border-bd")}>
-                    <div className="flex items-baseline gap-2.5 px-0.5 pb-1 pt-[22px]">
-                      <span className="font-serif text-[22px] font-semibold text-tx">
-                        {g.artist}
-                      </span>
-                      <span className="text-xs text-tx2">
-                        {t("songs.groupMeta", { albums: g.albums.length, n: g.count })}
-                      </span>
+                  <div className="font-serif text-lg font-semibold text-tx">
+                    {filtering
+                      ? t("favorites.emptyFilter", { q: filter.q.trim() })
+                      : t(emptyTitleKey[tab])}
+                  </div>
+                  {!filtering && (
+                    <div className="max-w-[320px] text-[13px] leading-[1.6] text-tx2">
+                      {t("favorites.emptyHint")}
                     </div>
-                    {g.albums.map((ab) => {
-                      const album = ALBUMS.find((a) => a.id === ab.albumId);
-                      return (
-                        <div key={`${g.artist}-${ab.title}`}>
-                          <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">
-                            {album && (
-                              <div
-                                className="cover-corners cover-gradient cover-thumb-material grid size-[26px] place-items-center rounded-md"
-                                style={coverGradientStyle(album.cover)}
-                              >
-                                <span className="cover-initial font-serif text-[11px]">
-                                  {album.cover.initial}
-                                </span>
-                              </div>
-                            )}
-                            <span className="whitespace-nowrap font-serif text-sm font-semibold text-tx2">
-                              {ab.title}
-                            </span>
-                            <div className="ml-1.5 h-px flex-1 bg-bd" />
-                          </div>
-                          {ab.rows.map(([tk, idx], n) => renderSongRow(tk, idx, n + 1, true))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 歌曲 · 扁平 */}
-            {tab === "songs" && !empty && !grouped && (
-              <>
-                <div
-                  className={`grid ${SONG_COLS} items-center gap-3 border-b border-bd px-3.5 pb-2 pt-1.5 text-[11px] font-semibold tracking-[0.08em] text-tx2`}
-                >
-                  <span>#</span>
-                  <span>{t("nav.songs")}</span>
-                  <span>{t("songs.colArtist")}</span>
-                  <span>{t("list.album")}</span>
-                  <span />
-                  <span className="text-right">{t("list.duration")}</span>
+                  )}
                 </div>
-                {songEntries.map((tk, i) => renderSongRow(tk, i, i + 1, false))}
-              </>
-            )}
+              )}
 
-            {/* 专辑 */}
-            {tab === "albums" && !empty && (
-              <div className="grid grid-cols-4 gap-x-7 gap-y-8 pt-2">
-                {albumEntries.map((album) => (
-                  <FavAlbumCard
-                    key={album.id}
-                    album={album}
-                    query={query}
-                    onOpen={() => openAlbum(album.id)}
-                    onPlay={() => playQueue(tracksOf(album))}
-                    onUnfav={() => toggleFavoriteAlbum(album.id)}
-                  />
-                ))}
-              </div>
-            )}
+              {/* 歌曲 · 分组 */}
+              {tab === "songs" && !empty && grouped && (
+                <div className="border-t border-bd">
+                  {songGroups.map((g, gi) => (
+                    <div key={g.artist} className={cn(gi > 0 && "mt-[18px] border-t border-bd")}>
+                      <div className="flex items-baseline gap-2.5 px-0.5 pb-1 pt-[22px]">
+                        <span className="font-serif text-[22px] font-semibold text-tx">
+                          {g.artist}
+                        </span>
+                        <span className="text-xs text-tx2">
+                          {t("songs.groupMeta", { albums: g.albums.length, n: g.count })}
+                        </span>
+                      </div>
+                      {g.albums.map((ab) => {
+                        const album = ALBUMS.find((a) => a.id === ab.albumId);
+                        return (
+                          <div key={`${g.artist}-${ab.title}`}>
+                            <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">
+                              {album && (
+                                <div
+                                  className="cover-corners cover-gradient cover-thumb-material grid size-[26px] place-items-center rounded-md"
+                                  style={coverGradientStyle(album.cover)}
+                                >
+                                  <span className="cover-initial font-serif text-[11px]">
+                                    {album.cover.initial}
+                                  </span>
+                                </div>
+                              )}
+                              <span className="whitespace-nowrap font-serif text-sm font-semibold text-tx2">
+                                {ab.title}
+                              </span>
+                              <div className="ml-1.5 h-px flex-1 bg-bd" />
+                            </div>
+                            {ab.rows.map(([tk, idx], n) => renderSongRow(tk, idx, n + 1, true))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            {/* 歌手 */}
-            {tab === "artists" && !empty && (
-              <div className="flex flex-wrap gap-x-[34px] gap-y-7 pt-3.5">
-                {artistEntries.map((name) => (
-                  <FavArtistCard
-                    key={name}
-                    name={name}
-                    query={query}
-                    meta={t("favorites.artistMeta", { n: albumsOfArtist(name).length })}
-                    onOpen={() => openArtist(name)}
-                    onUnfav={() => toggleFavoriteArtist(name)}
-                  />
-                ))}
-              </div>
-            )}
+              {/* 歌曲 · 扁平 */}
+              {tab === "songs" && !empty && !grouped && (
+                <>
+                  <div
+                    className={`grid ${SONG_COLS} items-center gap-3 border-b border-bd px-3.5 pb-2 pt-1.5 text-[11px] font-semibold tracking-[0.08em] text-tx2`}
+                  >
+                    <span>#</span>
+                    <span>{t("nav.songs")}</span>
+                    <span>{t("songs.colArtist")}</span>
+                    <span>{t("list.album")}</span>
+                    <span />
+                    <span className="text-right">{t("list.duration")}</span>
+                  </div>
+                  {songEntries.map((tk, i) => renderSongRow(tk, i, i + 1, false))}
+                </>
+              )}
 
-            {/* 歌单 */}
-            {tab === "playlists" && !empty && (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-6 gap-y-8 pt-2">
-                {playlistEntries.map((pl) => (
-                  <FavPlaylistCard
-                    key={pl.id}
-                    playlist={pl}
-                    query={query}
-                    onOpen={() => openPlaylist(pl.id)}
-                    onUnfav={() => toggleFavoritePlaylist(pl.id)}
-                  />
-                ))}
-              </div>
-            )}
+              {/* 专辑 */}
+              {tab === "albums" && !empty && (
+                <div className="grid grid-cols-4 gap-x-7 gap-y-8 pt-2">
+                  {albumEntries.map((album) => (
+                    <FavAlbumCard
+                      key={album.id}
+                      album={album}
+                      query={query}
+                      onOpen={() => openAlbum(album.id)}
+                      onPlay={() => playQueue(tracksOf(album))}
+                      onUnfav={() => toggleFavoriteAlbum(album.id)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* 歌手 */}
+              {tab === "artists" && !empty && (
+                <div className="flex flex-wrap gap-x-[34px] gap-y-7 pt-3.5">
+                  {artistEntries.map((name) => (
+                    <FavArtistCard
+                      key={name}
+                      name={name}
+                      query={query}
+                      meta={t("favorites.artistMeta", { n: albumsOfArtist(name).length })}
+                      onOpen={() => openArtist(name)}
+                      onUnfav={() => toggleFavoriteArtist(name)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* 歌单 */}
+              {tab === "playlists" && !empty && (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-6 gap-y-8 pt-2">
+                  {playlistEntries.map((pl) => (
+                    <FavPlaylistCard
+                      key={pl.id}
+                      playlist={pl}
+                      query={query}
+                      onOpen={() => openPlaylist(pl.id)}
+                      onUnfav={() => toggleFavoritePlaylist(pl.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </SegmentedContent>
           </div>
         </div>
 
