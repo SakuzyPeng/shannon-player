@@ -43,6 +43,49 @@ function HighlightTitle({ text, query }: { text: string; query: string }) {
   return <>{text}</>;
 }
 
+function SongSortMenu({
+  sort,
+  onValueChange,
+}: {
+  sort: SortMode;
+  onValueChange: (value: SortMode) => void;
+}) {
+  const { t } = useT();
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
+          {t(SORT_LABEL[sort])}
+          <Icon name="chevronDown" size={12} strokeWidth={2} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={6}
+          aria-label={t("songs.sortMenu")}
+          className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
+        >
+          <DropdownMenu.RadioGroup value={sort} onValueChange={(value) => onValueChange(value as SortMode)}>
+            {(Object.keys(SORT_LABEL) as SortMode[]).map((mode) => (
+              <DropdownMenu.RadioItem
+                key={mode}
+                value={mode}
+                className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
+              >
+                <span>{t(SORT_LABEL[mode])}</span>
+                {sort === mode && (
+                  <Icon name="check" size={14} className="text-ac" strokeWidth={2.4} />
+                )}
+              </DropdownMenu.RadioItem>
+            ))}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 export function SongsScreen() {
   const { t } = useT();
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
@@ -216,14 +259,16 @@ export function SongsScreen() {
         </div>
         <span className="font-serif text-[16.5px] font-semibold text-tx">{t("nav.songs")}</span>
         <span className="whitespace-nowrap text-xs text-tx2">{subtitle}</span>
-        <FilterPill
-          filter={filter}
-          height={34}
-          openWidth={300}
-          inputRef={barInputRef}
-          placeholder={t("songs.filterPlaceholder")}
-          className="ml-auto"
-        />
+        <div className="ml-auto flex items-center gap-3">
+          <SongSortMenu sort={sort} onValueChange={setSort} />
+          <FilterPill
+            filter={filter}
+            height={34}
+            openWidth={300}
+            inputRef={barInputRef}
+            placeholder={t("songs.filterPlaceholder")}
+          />
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -243,41 +288,7 @@ export function SongsScreen() {
               </div>
               <div className="flex-1" data-tauri-drag-region />
 
-              {/* 排序菜单 */}
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
-                    {t(SORT_LABEL[sort])}
-                    <Icon name="chevronDown" size={12} strokeWidth={2} />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    align="end"
-                    sideOffset={6}
-                    aria-label={t("songs.sortMenu")}
-                    className="surface-corners animate-menu-pop menu-shadow z-50 w-[170px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
-                  >
-                    <DropdownMenu.RadioGroup
-                      value={sort}
-                      onValueChange={(v) => setSort(v as SortMode)}
-                    >
-                      {(Object.keys(SORT_LABEL) as SortMode[]).map((mode) => (
-                        <DropdownMenu.RadioItem
-                          key={mode}
-                          value={mode}
-                          className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
-                        >
-                          <span>{t(SORT_LABEL[mode])}</span>
-                          {sort === mode && (
-                            <Icon name="check" size={14} className="text-ac" strokeWidth={2.4} />
-                          )}
-                        </DropdownMenu.RadioItem>
-                      ))}
-                    </DropdownMenu.RadioGroup>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
+              <SongSortMenu sort={sort} onValueChange={setSort} />
 
               {/* 过滤圆钮（hover 展开） */}
               <FilterPill

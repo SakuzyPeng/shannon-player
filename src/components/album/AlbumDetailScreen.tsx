@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { EqBars } from "@/components/common/EqBars";
 import { Icon } from "@/components/common/Icon";
@@ -14,11 +14,15 @@ import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Id, Track } from "@/types/player";
 
+/** 专辑标题滚出后显示精简吸顶栏，短专辑也有足够的可见区间。 */
+const STICKY_THRESHOLD = 160;
+
 export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const { t } = useT();
   const closeAlbum = useUiStore((s) => s.closeAlbum);
   const openArtist = useUiStore((s) => s.openArtist);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
+  const [barVisible, setBarVisible] = useState(false);
 
   const playing = usePlayerStore((s) => s.playing);
   const current = usePlayerStore((s) =>
@@ -66,12 +70,52 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
         break;
     }
   };
+  const handleScroll = (e: UIEvent<HTMLDivElement>) => {
+    onScroll(e);
+    const visible = e.currentTarget.scrollTop > STICKY_THRESHOLD;
+    if (visible !== barVisible) setBarVisible(visible);
+  };
 
   return (
     <div className="relative min-h-0 flex-1">
+      {/* 吸顶栏：保留当前专辑语境与主播放操作。 */}
+      <div
+        className="sticky-bar-shadow absolute inset-x-0 top-0 z-20 flex h-[58px] items-center gap-3 border-b border-bd bg-bg px-6"
+        style={{
+          opacity: barVisible ? 1 : 0,
+          transform: `translateY(${barVisible ? 0 : -12}px)`,
+          pointerEvents: barVisible ? "auto" : "none",
+          transition: "opacity 0.25s ease, transform 0.25s var(--ease-spring)",
+        }}
+      >
+        <div
+          className="cover-corners cover-gradient cover-thumb-material grid size-8 flex-shrink-0 place-items-center rounded-[7px]"
+          style={coverGradientStyle(album.cover)}
+        >
+          <span className="cover-initial font-serif text-[14px]">{album.cover.initial}</span>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate font-serif text-[16.5px] font-semibold text-tx">{album.title}</span>
+            {collected && <Icon name="heart" size={10} className="flex-shrink-0 text-ac" />}
+          </div>
+          <div className="truncate text-[11px] text-tx2">{album.artist}</div>
+        </div>
+        <div className="flex-1" />
+        <motion.button
+          whileHover={{ filter: "brightness(1.08)" }}
+          whileTap={{ scale: 0.9 }}
+          aria-label={playingThis ? t("player.pause") : t("player.play")}
+          onClick={onPlayAlbum}
+          className="grid size-[34px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
+        >
+          <Icon name={playingThis ? "pause" : "play"} size={13} style={{ marginLeft: playingThis ? 0 : 1 }} />
+        </motion.button>
+      </div>
+
       <div
         ref={scrollerRef}
-        onScroll={onScroll}
+        onScroll={handleScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >
         <div ref={innerRef} className="will-change-transform">
