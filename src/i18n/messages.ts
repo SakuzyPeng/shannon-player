@@ -92,6 +92,7 @@ export interface Messages {
   "artist.topSongs": string;
   "artist.showAllSongs": string; // {n}
   "artist.showAllAlbums": string; // {n}
+  "artists.subtitle": string; // {n}
 
   "songs.subtitle": string; // {n} {h} {m}
   "songs.sortMenu": string;
@@ -272,6 +273,7 @@ const zhHans: Messages = {
   "artist.topSongs": "热门歌曲",
   "artist.showAllSongs": "显示全部 {n} 首",
   "artist.showAllAlbums": "显示全部 {n} 张",
+  "artists.subtitle": "{n} 位歌手",
 
   "songs.subtitle": "{n} 首 · {h} 小时 {m} 分钟",
   "songs.sortMenu": "排序方式",
@@ -450,6 +452,7 @@ const zhHant: Messages = {
   "artist.topSongs": "熱門歌曲",
   "artist.showAllSongs": "顯示全部 {n} 首",
   "artist.showAllAlbums": "顯示全部 {n} 張",
+  "artists.subtitle": "{n} 位歌手",
 
   "songs.subtitle": "{n} 首 · {h} 小時 {m} 分鐘",
   "songs.sortMenu": "排序方式",
@@ -628,6 +631,7 @@ const en: Messages = {
   "artist.topSongs": "Top Songs",
   "artist.showAllSongs": "Show all {n}",
   "artist.showAllAlbums": "Show all {n}",
+  "artists.subtitle": "{n} artists",
 
   "songs.subtitle": "{n} songs · {h} hr {m} min",
   "songs.sortMenu": "Sort by",
@@ -806,6 +810,7 @@ const ja: Messages = {
   "artist.topSongs": "人気曲",
   "artist.showAllSongs": "全 {n} 曲を表示",
   "artist.showAllAlbums": "全 {n} 枚を表示",
+  "artists.subtitle": "{n} 組のアーティスト",
 
   "songs.subtitle": "{n} 曲 · {h} 時間 {m} 分",
   "songs.sortMenu": "並べ替え",
