@@ -5,6 +5,7 @@ import { Collage } from "@/components/common/Collage";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { PLAYLIST_TRACK_MENU } from "@/data/library";
@@ -140,17 +141,11 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
           className="ml-auto"
         />
         <motion.button
-          whileHover={{ filter: "brightness(1.08)" }}
-          whileTap={{ scale: 0.9 }}
           aria-label={playingThis ? t("player.pause") : t("player.play")}
           onClick={onPlayAll}
-          className="grid size-[34px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
+          className="play-action-material play-action-compact grid size-[34px] cursor-pointer place-items-center rounded-full text-on-ac"
         >
-          <AnimatedIcon
-            name={playingThis ? "pause" : "play"}
-            size={13}
-            style={{ marginLeft: playingThis ? 0 : 1 }}
-          />
+          <PlayPauseIcon playing={playingThis} size={15} />
         </motion.button>
       </div>
 
@@ -214,16 +209,10 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
               <div className="text-[13px] text-tx2">{meta}</div>
               <div className="mt-2 flex items-center gap-3">
                 <motion.button
-                  whileHover={{ filter: "brightness(1.08)" }}
-                  whileTap={{ scale: 0.95 }}
                   onClick={onPlayAll}
-                  className="flex cursor-pointer items-center gap-2 rounded-full bg-ac px-[26px] py-[11px] text-sm font-semibold text-on-ac"
+                  className="play-action-material flex cursor-pointer items-center gap-2 rounded-full px-[26px] py-[11px] text-sm font-semibold text-on-ac"
                 >
-                  <AnimatedIcon
-                    name={playingThis ? "pause" : "play"}
-                    size={14}
-                    style={{ marginLeft: 0 }}
-                  />
+                  <PlayPauseIcon playing={playingThis} size={16} />
                   {playingThis ? t("player.pause") : t("player.play")}
                 </motion.button>
                 <button

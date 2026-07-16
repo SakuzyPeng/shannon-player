@@ -5,6 +5,7 @@ import { LyricPlayer } from "@applemusic-like-lyrics/react";
 import "@applemusic-like-lyrics/core/style.css";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrafficLights } from "@/components/window/TrafficLights";
 import { ALBUMS } from "@/data/library";
 import { lyricsOf } from "@/data/lyrics";
@@ -204,11 +205,9 @@ export function LyricsScreen() {
           <motion.button
             aria-label={playing ? t("player.pause") : t("player.play")}
             onClick={togglePlay}
-            whileTap={{ scale: 0.9 }}
-            whileHover={{ filter: "brightness(1.08)" }}
-            className="grid size-[50px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
+            className="play-action-material grid size-[50px] cursor-pointer place-items-center rounded-full text-on-ac"
           >
-            <AnimatedIcon name={playing ? "pause" : "play"} size={19} />
+            <PlayPauseIcon playing={playing} size={21} />
           </motion.button>
           <button aria-label={t("player.next")} onClick={next} className="grid size-9 cursor-pointer place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
             <Icon name="next" size={18} />

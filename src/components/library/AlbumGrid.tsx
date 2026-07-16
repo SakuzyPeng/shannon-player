@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { ALBUM_MENU, tracksOf } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
@@ -68,15 +68,13 @@ export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
                 >
                   <motion.button
                     aria-label={t("action.playAlbum", { title: album.title })}
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.9 }}
                     onClick={(e) => {
                       e.stopPropagation();
                       usePlayerStore.getState().playQueue(tracksOf(album));
                     }}
-                    className="cover-action-shadow grid size-[38px] place-items-center rounded-full bg-ac text-on-ac"
+                    className="play-action-material play-action-compact grid size-[38px] place-items-center rounded-full text-on-ac"
                   >
-                    <Icon name="play" size={15} />
+                    <PlayPauseIcon playing={false} size={17} />
                   </motion.button>
                 </div>
               </motion.div>

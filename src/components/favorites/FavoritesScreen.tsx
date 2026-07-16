@@ -5,6 +5,7 @@ import { Collage } from "@/components/common/Collage";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -623,15 +624,13 @@ function FavAlbumCard({
           </motion.button>
           <motion.button
             aria-label={t("action.playAlbum", { title: album.title })}
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.9 }}
             onClick={(e) => {
               e.stopPropagation();
               onPlay();
             }}
-            className="cover-action-shadow grid size-[38px] place-items-center rounded-full bg-ac text-on-ac"
+            className="play-action-material play-action-compact grid size-[38px] place-items-center rounded-full text-on-ac"
           >
-            <Icon name="play" size={15} />
+            <PlayPauseIcon playing={false} size={17} />
           </motion.button>
         </div>
       </motion.div>

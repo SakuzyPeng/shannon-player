@@ -101,15 +101,15 @@ export function Icon({ name, size = 20, strokeWidth = 1.7, className, style }: I
       );
     case "play":
       return (
-        <svg {...common} fill="currentColor" style={{ marginLeft: 2, ...style }}>
-          <path d="M8 5v14l11-7z" />
+        <svg {...common} fill="currentColor">
+          <path d="M8.72 5.2c-.74-.46-1.67.07-1.67.94v11.72c0 .87.93 1.4 1.67.94l9.94-5.52a1.5 1.5 0 0 0 0-2.56z" />
         </svg>
       );
     case "pause":
       return (
         <svg {...common} fill="currentColor">
-          <rect x="6" y="5" width="4" height="14" rx="1.2" />
-          <rect x="14" y="5" width="4" height="14" rx="1.2" />
+          <rect x="6.5" y="4.85" width="4.05" height="14.3" rx="1.4" />
+          <rect x="13.45" y="4.85" width="4.05" height="14.3" rx="1.4" />
         </svg>
       );
     case "prev":

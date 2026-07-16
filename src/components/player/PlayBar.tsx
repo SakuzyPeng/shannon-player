@@ -1,6 +1,6 @@
-import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -92,15 +92,13 @@ export function PlayBar() {
           <button aria-label={t("player.previous")} onClick={prev} className="grid size-8 place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
             <Icon name="prev" size={17} />
           </button>
-          <motion.button
+          <button
             aria-label={playing ? t("player.pause") : t("player.play")}
             onClick={togglePlay}
-            whileTap={{ scale: 0.9 }}
-            whileHover={{ filter: "brightness(1.08)" }}
-            className="grid size-11 place-items-center rounded-full bg-ac text-on-ac"
+            className="play-action-material grid size-11 place-items-center rounded-full text-on-ac"
           >
-            <AnimatedIcon name={playing ? "pause" : "play"} size={17} />
-          </motion.button>
+            <PlayPauseIcon playing={playing} size={19} />
+          </button>
           <button aria-label={t("player.next")} onClick={next} className="grid size-8 place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
             <Icon name="next" size={17} />
           </button>

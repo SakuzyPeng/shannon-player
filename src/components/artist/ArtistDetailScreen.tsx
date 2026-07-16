@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { TRACK_MENU, albumsOfArtist, playsOf, topTracksOf, tracksOf } from "@/data/library";
@@ -107,17 +108,11 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
         </div>
         <div className="flex-1" />
         <motion.button
-          whileHover={{ filter: "brightness(1.08)" }}
-          whileTap={{ scale: 0.9 }}
           aria-label={playingThis ? t("player.pause") : t("artist.playAll")}
           onClick={onPlayAll}
-          className="grid size-[34px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
+          className="play-action-material play-action-compact grid size-[34px] cursor-pointer place-items-center rounded-full text-on-ac"
         >
-          <AnimatedIcon
-            name={playingThis ? "pause" : "play"}
-            size={13}
-            style={{ marginLeft: playingThis ? 0 : 1 }}
-          />
+          <PlayPauseIcon playing={playingThis} size={15} />
         </motion.button>
       </div>
 
@@ -186,16 +181,10 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
               </div>
               <div className="mt-2 flex items-center gap-3">
                 <motion.button
-                  whileHover={{ filter: "brightness(1.08)" }}
-                  whileTap={{ scale: 0.95 }}
                   onClick={onPlayAll}
-                  className="flex cursor-pointer items-center gap-2 rounded-full bg-ac px-[26px] py-[11px] text-sm font-semibold text-on-ac"
+                  className="play-action-material flex cursor-pointer items-center gap-2 rounded-full px-[26px] py-[11px] text-sm font-semibold text-on-ac"
                 >
-                  <AnimatedIcon
-                    name={playingThis ? "pause" : "play"}
-                    size={14}
-                    style={{ marginLeft: 0 }}
-                  />
+                  <PlayPauseIcon playing={playingThis} size={16} />
                   {playingThis ? t("player.pause") : t("artist.playAll")}
                 </motion.button>
                 <button
@@ -347,15 +336,14 @@ function ArtistAlbumCard({ album, favorited, onOpen, onPlay, onToggleFavorite }:
             />
           </motion.button>
           <motion.button
-            whileTap={{ scale: 0.9 }}
             aria-label={t("action.playAlbum", { title: album.title })}
             onClick={(e) => {
               e.stopPropagation();
               onPlay();
             }}
-            className="cover-action-shadow grid size-7 place-items-center rounded-full bg-ac text-on-ac"
+            className="play-action-material play-action-compact grid size-7 place-items-center rounded-full text-on-ac"
           >
-            <Icon name="play" size={12} style={{ marginLeft: 1 }} />
+            <PlayPauseIcon playing={false} size={13} />
           </motion.button>
         </div>
       </motion.div>
