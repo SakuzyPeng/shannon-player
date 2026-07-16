@@ -32,8 +32,9 @@ function handleAlbumAction(album: Album, key: MessageKey) {
 export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
   const { t } = useT();
   const openAlbum = useUiStore((s) => s.openAlbum);
+  // auto-fill 随窗口宽度增减列数：1180（设计稿）恰为 4 列，980 下限 3 列，超宽自动加列。
   return (
-    <div className="grid grid-cols-4 gap-x-7 gap-y-8">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-7 gap-y-8">
       {albums.map((album) => (
         <ItemContextMenu
           key={album.id}

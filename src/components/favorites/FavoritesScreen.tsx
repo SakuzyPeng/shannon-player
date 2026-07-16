@@ -486,7 +486,7 @@ export function FavoritesScreen() {
 
               {/* 专辑 */}
               {tab === "albums" && !empty && (
-                <div className="grid grid-cols-4 gap-x-7 gap-y-8 pt-2">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-7 gap-y-8 pt-2">
                   {albumEntries.map((album) => (
                     <FavAlbumCard
                       key={album.id}

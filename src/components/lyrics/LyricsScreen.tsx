@@ -118,10 +118,11 @@ export function LyricsScreen() {
           transition: "width 0.35s cubic-bezier(0.34,1.2,0.64,1)",
         }}
       >
-        <div className="group/cover relative size-[300px]">
+        {/* 封面随视口高度收敛（min 高度 640 时约 230px），保证左栏音量条不贴底 */}
+        <div className="group/cover relative size-[min(300px,36vh)]">
           <div className="lyrics-cover-glow pointer-events-none absolute -inset-5 rounded-[40px]" />
-          <div className="cover-corners lyrics-cover-material cover-gradient relative grid size-[300px] place-items-center rounded-[20px]">
-            <span className="cover-initial font-serif text-8xl font-medium">
+          <div className="cover-corners lyrics-cover-material cover-gradient relative grid size-[min(300px,36vh)] place-items-center rounded-[20px]">
+            <span className="cover-initial font-serif text-[clamp(64px,11vh,96px)] font-medium">
               {track.cover.initial}
             </span>
             <div className="cover-corners lyrics-cover-overlay absolute inset-0 rounded-[20px] opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">

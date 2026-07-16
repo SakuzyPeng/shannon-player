@@ -39,6 +39,8 @@ pnpm tauri build      # 打包桌面应用
 
 **滚动**：滚动「手感」交还各平台原生（macOS 触控板橡皮筋、Windows/Linux 滚轮惯性各自沿用系统实现），只统一「视觉」。`src/hooks/useElasticScroll.ts`（名称沿用，实为「原生滚动 + 自绘滚动条」）不再拦截 wheel、不再自积分物理，仅：容器用 `.no-scrollbar` 隐藏系统滚动条，并按原生 `scroll` 事件的 scrollTop/scrollHeight 直接映射绘制一份跨平台一致的 6px thumb（静止 0.9s 后淡出，内容未溢出不显示）。返回签名 `{ scrollerRef, innerRef, thumbRef, onScroll }` 不变，`innerRef` 现仅作内容容器，但保留 `will-change:transform`——它把内容提升为一张缓存的合成层，令 superellipse 圆角 + 多重内阴影的封面卡只光栅化一次、滚动时纯合成（去掉会导致专辑网格滚动掉帧）。曾有一版自定义速度积分 + 橡皮筋引擎，因难以在各平台/输入设备上都贴合原生肌肉记忆，权衡后回退为原生手感。
 
+**窗口自适应（布局戒律）**：窗口可任意拉伸，需保证的区间是 [980×640, ∞)（下限由 `src-tauri/tauri.conf.json` 的 minWidth/minHeight 兜底，设计稿画板 1180×760 只是默认尺寸）。规则：卡片网格一律 `repeat(auto-fill, minmax(…, 1fr))`，禁止固定列数（`grid-cols-4` 这类会在超宽下把封面撑到失衡）；文本容器一律 `truncate` + `min-w-0`；滚动区一律 `absolute inset-0 overflow-auto` 套 `min-h-0 flex-1`（高度变矮只增加滚动，不裁内容）；长文页面用 `max-w` 居中；对高度敏感的固定尺寸元素（如歌词页封面）用 `min(设计值, Nvh)` 收敛。改动布局后用 Playwright 在 980×640 与 1920×1080 各截一轮，并断言 `document.documentElement.scrollWidth <= clientWidth`（零横向溢出）。
+
 ### 设计来源
 
 UI 逐页复刻 Claude Design 项目「香农播放器设计简报」（10 页 + Token 文档，离线导出见 `docs/design/`），定稿方向「杏色·明快 2a」。当前已实现曲库主界面与专辑详情页，其余页面按路线图（见 README.md）逐页迭代；新页面应复用现有 Token、i18n 与 store 体系。
