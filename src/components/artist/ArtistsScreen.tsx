@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -27,7 +27,10 @@ function ArtistCard({ name }: { name: string }) {
   const albums = albumsOfArtist(name);
   const cover = albums[0]?.cover;
   return (
-    <button
+    <motion.button
+      layout="position"
+      exit={{ opacity: 0, scale: 0.94 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       onClick={() => openArtist(name)}
       className="group flex cursor-pointer flex-col items-center gap-[11px]"
     >
@@ -47,7 +50,7 @@ function ArtistCard({ name }: { name: string }) {
       <div className="-mt-1.5 text-xs text-tx2">
         {t("favorites.artistMeta", { n: albums.length })}
       </div>
-    </button>
+    </motion.button>
   );
 }
 
@@ -190,20 +193,38 @@ export function ArtistsScreen() {
             />
           </div>
 
-          {filteredArtists.length > 0 ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] justify-items-center gap-x-6 gap-y-9 pt-2">
-              {filteredArtists.map((name) => (
-                <ArtistCard key={name} name={name} />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2.5 pb-10 pt-[100px] text-center">
+          <AnimatePresence initial={false} mode="wait">
+            {filteredArtists.length > 0 ? (
+            <motion.div
+              key="artists-grid"
+              className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] justify-items-center gap-x-6 gap-y-9 pt-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
+            >
+              <AnimatePresence initial={false}>
+                {filteredArtists.map((name) => (
+                  <ArtistCard key={name} name={name} />
+                ))}
+              </AnimatePresence>
+            </motion.div>
+            ) : (
+            <motion.div
+              key="artists-empty"
+              className="flex flex-col items-center gap-2.5 pb-10 pt-[100px] text-center"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18 }}
+            >
               <div className="font-serif text-lg font-semibold text-tx">
                 {t("artists.emptyTitle", { q: filter.q.trim() })}
               </div>
               <div className="text-[13px] text-tx2">{t("artists.emptyBody")}</div>
-            </div>
-          )}
+            </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
       <div

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LyricPlayer } from "@applemusic-like-lyrics/react";
 // AMLL 歌词播放器基础样式随歌词页按需加载；主题适配覆盖见 index.css 尾部。
 import "@applemusic-like-lyrics/core/style.css";
+import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
 import { TrafficLights } from "@/components/window/TrafficLights";
 import { ALBUMS } from "@/data/library";
@@ -20,6 +21,7 @@ const IDLE_HIDE_MS = 3000;
 
 export function LyricsScreen() {
   const { t } = useT();
+  const reduceMotion = useReducedMotion();
   const closeLyrics = useUiStore((s) => s.closeLyrics);
 
   const queue = usePlayerStore((s) => s.queue);
@@ -134,7 +136,12 @@ export function LyricsScreen() {
                 onClick={() => toggleFavorite(track.id)}
                 className="collect-shadow absolute right-3.5 top-3.5 grid size-7 cursor-pointer place-items-center rounded-full bg-srf text-ac"
               >
-                <Icon name={liked ? "heart" : "favorites"} size={14} strokeWidth={2} />
+                <AnimatedIcon
+                  name={liked ? "heart" : "favorites"}
+                  size={14}
+                  strokeWidth={2}
+                  variant="pop"
+                />
               </motion.button>
             </div>
           </div>
@@ -145,11 +152,21 @@ export function LyricsScreen() {
             <h1 className="m-0 text-center font-serif text-[29px] font-semibold text-tx">
               {track.title}
             </h1>
-            {liked && (
-              <span title={t("album.collected")} className="absolute -right-[17px] top-0.5 text-ac">
-                <Icon name="heart" size={12} />
-              </span>
-            )}
+            <AnimatePresence initial={false}>
+              {liked && (
+                <motion.span
+                  key="liked"
+                  title={t("album.collected")}
+                  className="absolute -right-[17px] top-0.5 text-ac"
+                  initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.55 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: reduceMotion ? 1 : 1.3 }}
+                  transition={reduceMotion ? { duration: 0.01 } : { type: "spring", stiffness: 520, damping: 24 }}
+                >
+                  <Icon name="heart" size={12} />
+                </motion.span>
+              )}
+            </AnimatePresence>
           </div>
         </div>
         <div className="mt-2 text-center text-[13px] text-tx2">
@@ -160,7 +177,7 @@ export function LyricsScreen() {
         <div className="mt-[34px] flex w-full max-w-[312px] flex-col gap-[7px]">
           <div onClick={onSeek} className="h-1 cursor-pointer overflow-hidden rounded-[2px] bg-bd">
             <div
-              className="h-full rounded-[2px] bg-ac"
+              className="h-full rounded-[2px] bg-ac transition-[width] duration-100 ease-linear"
               style={{ width: `${durationSec ? (positionSec / durationSec) * 100 : 0}%` }}
             />
           </div>
@@ -191,7 +208,7 @@ export function LyricsScreen() {
             whileHover={{ filter: "brightness(1.08)" }}
             className="grid size-[50px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
           >
-            <Icon name={playing ? "pause" : "play"} size={19} />
+            <AnimatedIcon name={playing ? "pause" : "play"} size={19} />
           </motion.button>
           <button aria-label={t("player.next")} onClick={next} className="grid size-9 cursor-pointer place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
             <Icon name="next" size={18} />
@@ -214,7 +231,7 @@ export function LyricsScreen() {
           </span>
           <div onClick={onVol} className="h-1 w-[90px] cursor-pointer rounded-[2px] bg-bd">
             <div
-              className="h-full rounded-[2px] bg-tx2"
+              className="h-full rounded-[2px] bg-tx2 transition-[width] duration-200 ease-out"
               style={{ width: `${(muted ? 0 : volume) * 100}%` }}
             />
           </div>
@@ -222,20 +239,45 @@ export function LyricsScreen() {
       </div>
 
       {/* 右栏：AMLL 歌词 / 空态 */}
-      {lyricsOn && (
-        <div className="relative flex min-w-0 flex-1 flex-col justify-center overflow-hidden">
+      <AnimatePresence initial={false}>
+        {lyricsOn && (
+        <motion.div
+          key="lyrics-panel"
+          className="relative flex min-w-0 flex-1 flex-col justify-center overflow-hidden"
+          initial={{ opacity: 0, x: reduceMotion ? 0 : 18 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: reduceMotion ? 0 : 18 }}
+          transition={reduceMotion ? { duration: 0.01 } : { duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        >
           <div className="lyrics-stage-bg pointer-events-none absolute inset-0" />
 
+          <AnimatePresence initial={false} mode="wait">
           {lyrics ? (
-            <LyricPlayer
-              style={{ width: "100%", height: "100%" }}
-              lyricLines={amllLines}
-              currentTime={Math.round(positionSec * 1000)}
-              playing={playing}
-              onLyricLineClick={(e) => seek(e.line.getLine().startTime / 1000)}
-            />
+            <motion.div
+              key="lyrics"
+              className="absolute inset-0"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0.01 : 0.18 }}
+            >
+              <LyricPlayer
+                style={{ width: "100%", height: "100%" }}
+                lyricLines={amllLines}
+                currentTime={Math.round(positionSec * 1000)}
+                playing={playing}
+                onLyricLineClick={(e) => seek(e.line.getLine().startTime / 1000)}
+              />
+            </motion.div>
           ) : (
-            <div className="relative flex flex-col items-center text-center">
+            <motion.div
+              key="lyrics-empty"
+              className="relative flex flex-col items-center text-center"
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+              transition={{ duration: reduceMotion ? 0.01 : 0.18 }}
+            >
               <div className="grid size-16 place-items-center rounded-full border border-bd bg-sb text-tx2">
                 <Icon name="queue" size={26} strokeWidth={1.6} />
               </div>
@@ -261,8 +303,9 @@ export function LyricsScreen() {
               <div className="mt-4 text-[11.5px] text-tx2 opacity-80">
                 {t("lyrics.none.source")}
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
 
           {/* 歌词工具簇（自动隐藏） */}
           <div
@@ -293,8 +336,9 @@ export function LyricsScreen() {
               <Icon name="settings" size={15} strokeWidth={1.8} />
             </button>
           </div>
-        </div>
-      )}
+        </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 右下浮动按钮：歌词开关 + 队列（自动隐藏） */}
       <div
@@ -334,10 +378,19 @@ export function LyricsScreen() {
       </div>
 
       {/* 队列面板（磨砂浮层） */}
-      {queueOpen && (
-        <div
+      <AnimatePresence initial={false}>
+        {queueOpen && (
+        <motion.div
+          key="queue-panel"
           className="surface-corners queue-panel absolute bottom-[78px] right-[30px] z-40 flex max-h-[470px] w-[330px] origin-bottom-right flex-col overflow-hidden rounded-2xl"
-          style={{ animation: "queuePop 0.28s var(--ease-spring)" }}
+          initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.92, y: reduceMotion ? 0 : 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: reduceMotion ? 1 : 0.95, y: reduceMotion ? 0 : 8 }}
+          transition={
+            reduceMotion
+              ? { duration: 0.01 }
+              : { type: "spring", stiffness: 420, damping: 30, mass: 0.75 }
+          }
         >
           <div className="flex gap-2.5 px-4 pt-3.5">
             <button
@@ -378,8 +431,16 @@ export function LyricsScreen() {
           <div className="px-[18px] pb-2.5 text-xs text-tx2">
             {t("queue.from", { name: track.album })}
           </div>
+          <AnimatePresence initial={false} mode="wait">
           {upNext.length > 0 ? (
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2.5">
+            <motion.div
+              key="queue-list"
+              className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2.5"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0.01 : 0.16 }}
+            >
               {upNext.map((item) => {
                 const qLiked = !!favorites[item.track.id];
                 return (
@@ -414,19 +475,33 @@ export function LyricsScreen() {
                         qLiked ? "text-ac" : "text-tx2",
                       )}
                     >
-                      <Icon name={qLiked ? "heart" : "favorites"} size={13} strokeWidth={1.8} />
+                      <AnimatedIcon
+                        name={qLiked ? "heart" : "favorites"}
+                        size={13}
+                        strokeWidth={1.8}
+                        variant="pop"
+                      />
                     </button>
                   </div>
                 );
               })}
-            </div>
+            </motion.div>
           ) : (
-            <div className="px-[18px] pb-8 pt-[26px] text-center text-[13px] text-tx2">
+            <motion.div
+              key="queue-empty"
+              className="px-[18px] pb-8 pt-[26px] text-center text-[13px] text-tx2"
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: reduceMotion ? 0 : -4 }}
+              transition={{ duration: reduceMotion ? 0.01 : 0.16 }}
+            >
               {t("queue.empty")}
-            </div>
+            </motion.div>
           )}
-        </div>
-      )}
+          </AnimatePresence>
+        </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState, type UIEvent } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Collage } from "@/components/common/Collage";
-import { EqBars } from "@/components/common/EqBars";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { PLAYLIST_TRACK_MENU } from "@/data/library";
 import { collageOf, playlistOf } from "@/data/playlists";
@@ -38,6 +39,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const { t } = useT();
+  const reduceMotion = useReducedMotion();
   const setNav = useUiStore((s) => s.setNav);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
@@ -144,7 +146,11 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
           onClick={onPlayAll}
           className="grid size-[34px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
         >
-          <Icon name={playingThis ? "pause" : "play"} size={13} style={{ marginLeft: playingThis ? 0 : 1 }} />
+          <AnimatedIcon
+            name={playingThis ? "pause" : "play"}
+            size={13}
+            style={{ marginLeft: playingThis ? 0 : 1 }}
+          />
         </motion.button>
       </div>
 
@@ -178,7 +184,12 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                   onClick={() => toggleFavoritePlaylist(playlist.id)}
                   className="collect-shadow absolute right-3 top-3 grid size-7 cursor-pointer place-items-center rounded-full bg-srf text-ac"
                 >
-                  <Icon name={collected ? "heart" : "favorites"} size={14} strokeWidth={2} />
+                  <AnimatedIcon
+                    name={collected ? "heart" : "favorites"}
+                    size={14}
+                    strokeWidth={2}
+                    variant="pop"
+                  />
                 </motion.button>
               </div>
             </div>
@@ -208,7 +219,11 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                   onClick={onPlayAll}
                   className="flex cursor-pointer items-center gap-2 rounded-full bg-ac px-[26px] py-[11px] text-sm font-semibold text-on-ac"
                 >
-                  <Icon name={playingThis ? "pause" : "play"} size={14} style={{ marginLeft: 0 }} />
+                  <AnimatedIcon
+                    name={playingThis ? "pause" : "play"}
+                    size={14}
+                    style={{ marginLeft: 0 }}
+                  />
                   {playingThis ? t("player.pause") : t("player.play")}
                 </motion.button>
                 <button
@@ -248,8 +263,16 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
               <span className="text-right">{t("list.duration")}</span>
             </div>
 
+            <AnimatePresence initial={false}>
             {entries.length === 0 && (
-              <div className="flex flex-col items-center gap-2.5 py-11 text-center">
+              <motion.div
+                key="playlist-empty"
+                className="flex flex-col items-center gap-2.5 py-11 text-center"
+                initial={{ opacity: 0, y: reduceMotion ? 0 : 7 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: reduceMotion ? 0 : -5 }}
+                transition={{ duration: reduceMotion ? 0.01 : 0.18, ease: [0.22, 1, 0.36, 1] }}
+              >
                 <div className="font-serif text-[15px] font-semibold text-tx">
                   {t("playlist.emptyTitle", { q: filter.q.trim() })}
                 </div>
@@ -262,8 +285,9 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                     {t("playlist.emptyGlobalSearch")}
                   </span>
                 </div>
-              </div>
+              </motion.div>
             )}
+            </AnimatePresence>
 
             {entries.map((track, i) => {
               const isCur = current?.id === track.id;
@@ -279,22 +303,15 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                     onClick={() => playQueue(entries, i)}
                     className={`group/row mt-0.5 grid ${COLS} cursor-pointer items-center gap-3 rounded-xl px-3.5 py-2.5 transition-colors hover:bg-hv`}
                   >
-                    {isCur ? (
-                      <EqBars playing={playing} />
-                    ) : (
-                      <span className="grid place-items-center pl-[3px] text-[13px] tabular-nums text-tx2">
-                        {/* hover 时序号变拖拽手柄（静态示意） */}
-                        <span className="col-start-1 row-start-1 group-hover/row:invisible">
-                          {i + 1}
-                        </span>
-                        <span
-                          title={t("playlist.dragToReorder")}
-                          className="invisible col-start-1 row-start-1 cursor-grab text-tx2 group-hover/row:visible"
-                        >
-                          <Icon name="grip" size={13} />
-                        </span>
-                      </span>
-                    )}
+                    <span className="cursor-grab text-[13px] tabular-nums text-tx2">
+                      <TrackIndicator
+                        number={i + 1}
+                        active={isCur}
+                        playing={playing}
+                        showGripOnHover
+                        gripTitle={t("playlist.dragToReorder")}
+                      />
+                    </span>
                     <span
                       className={cn(
                         "truncate font-serif text-[15.5px]",
@@ -312,11 +329,16 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                         toggleFavorite(track.id);
                       }}
                       className={cn(
-                        "grid size-[30px] cursor-pointer place-items-center rounded-full transition-colors hover:bg-ac/12",
+                        "grid size-[30px] cursor-pointer place-items-center rounded-full transition-[transform,background-color,color] hover:bg-ac/12 active:scale-90",
                         liked ? "text-ac" : "text-tx2",
                       )}
                     >
-                      <Icon name={liked ? "heart" : "favorites"} size={15} strokeWidth={1.8} />
+                      <AnimatedIcon
+                        name={liked ? "heart" : "favorites"}
+                        size={15}
+                        strokeWidth={1.8}
+                        variant="pop"
+                      />
                     </button>
                     <span className="text-right text-[13px] tabular-nums text-tx2">
                       {fmtTime(track.durationSec)}

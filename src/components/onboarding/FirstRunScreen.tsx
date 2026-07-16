@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 
@@ -25,6 +25,7 @@ const FILES = [
 
 export function FirstRunScreen() {
   const { t } = useT();
+  const reduceMotion = useReducedMotion();
   const closeOnboarding = useUiStore((s) => s.closeOnboarding);
   const setNav = useUiStore((s) => s.setNav);
   const [phase, setPhase] = useState<Phase>("welcome");
@@ -76,11 +77,14 @@ export function FirstRunScreen() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-10">
+      <AnimatePresence initial={false} mode="wait">
       {phase === "welcome" && (
         <motion.div
+          key="welcome"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
+          exit={{ opacity: 0, y: reduceMotion ? 0 : -10 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.28, ease: "easeOut" }}
           className="flex max-w-[460px] flex-col items-center text-center"
         >
           <div className="grid size-[108px] place-items-center rounded-[28px] border border-bd bg-sb shadow-[0_14px_36px_var(--float-shadow)]">
@@ -109,9 +113,11 @@ export function FirstRunScreen() {
 
       {phase === "scanning" && (
         <motion.div
+          key="scanning"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
+          exit={{ opacity: 0, y: reduceMotion ? 0 : -10 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.28, ease: "easeOut" }}
           className="flex w-full max-w-[520px] flex-col items-center text-center"
         >
           <div
@@ -159,9 +165,11 @@ export function FirstRunScreen() {
 
       {phase === "done" && (
         <motion.div
+          key="done"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
+          exit={{ opacity: 0, y: reduceMotion ? 0 : -10 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.28, ease: "easeOut" }}
           className="flex max-w-[480px] flex-col items-center text-center"
         >
           <div className="flex">
@@ -203,6 +211,7 @@ export function FirstRunScreen() {
           </motion.button>
         </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

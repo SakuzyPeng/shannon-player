@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { ALBUM_MENU, tracksOf } from "@/data/library";
@@ -35,53 +35,62 @@ export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
   // auto-fill 随窗口宽度增减列数：1180（设计稿）恰为 4 列，980 下限 3 列，超宽自动加列。
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-7 gap-y-8">
+      <AnimatePresence initial={false}>
       {albums.map((album) => (
-        <ItemContextMenu
+        <motion.div
           key={album.id}
-          label={`${album.title} — ${album.artist}`}
-          items={ALBUM_MENU}
-          onAction={(key) => handleAlbumAction(album, key)}
+          layout="position"
+          exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div
-            className="relative min-w-0 cursor-pointer hover:z-10"
-            onClick={() => openAlbum(album.id)}
+          <ItemContextMenu
+            label={`${album.title} — ${album.artist}`}
+            items={ALBUM_MENU}
+            onAction={(key) => handleAlbumAction(album, key)}
           >
-            <motion.div
-              whileHover={{ y: -5 }}
-              transition={{ type: "spring", stiffness: 380, damping: 18 }}
-              className="cover-corners cover-gradient cover-material group/cover relative grid aspect-square place-items-center rounded-2xl"
-              style={coverGradientStyle(album.cover)}
+            <div
+              className="relative min-w-0 cursor-pointer hover:z-10"
+              onClick={() => openAlbum(album.id)}
             >
-              <span className="cover-initial font-serif text-[56px] font-medium">
-                {album.cover.initial}
-              </span>
-              {/* hover 浮现播放键（唯一交互入口） */}
-              <div
-                className="cover-corners cover-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100"
+              <motion.div
+                layoutId={`album-cover-${album.id}`}
+                whileHover={{ y: -5 }}
+                transition={{ type: "spring", stiffness: 380, damping: 18 }}
+                className="cover-corners cover-gradient cover-material group/cover relative grid aspect-square place-items-center rounded-2xl"
+                style={coverGradientStyle(album.cover)}
               >
-                <motion.button
-                  aria-label={t("action.playAlbum", { title: album.title })}
-                  whileHover={{ scale: 1.08 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    usePlayerStore.getState().playQueue(tracksOf(album));
-                  }}
-                  className="cover-action-shadow grid size-[38px] place-items-center rounded-full bg-ac text-on-ac"
+                <span className="cover-initial font-serif text-[56px] font-medium">
+                  {album.cover.initial}
+                </span>
+                {/* hover 浮现播放键（唯一交互入口） */}
+                <div
+                  className="cover-corners cover-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100"
                 >
-                  <Icon name="play" size={15} />
-                </motion.button>
+                  <motion.button
+                    aria-label={t("action.playAlbum", { title: album.title })}
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      usePlayerStore.getState().playQueue(tracksOf(album));
+                    }}
+                    className="cover-action-shadow grid size-[38px] place-items-center rounded-full bg-ac text-on-ac"
+                  >
+                    <Icon name="play" size={15} />
+                  </motion.button>
+                </div>
+              </motion.div>
+              <div className="mt-3 truncate font-serif text-[15.5px] font-semibold text-tx">
+                {album.title}
               </div>
-            </motion.div>
-            <div className="mt-3 truncate font-serif text-[15.5px] font-semibold text-tx">
-              {album.title}
+              <div className="mt-[3px] truncate text-[12.5px] text-tx2">
+                {album.artist} · {album.year}
+              </div>
             </div>
-            <div className="mt-[3px] truncate text-[12.5px] text-tx2">
-              {album.artist} · {album.year}
-            </div>
-          </div>
-        </ItemContextMenu>
+          </ItemContextMenu>
+        </motion.div>
       ))}
+      </AnimatePresence>
     </div>
   );
 }

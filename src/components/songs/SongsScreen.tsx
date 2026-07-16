@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { EqBars } from "@/components/common/EqBars";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, TRACK_MENU, allTracks } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
@@ -89,6 +91,7 @@ function SongSortMenu({
 
 export function SongsScreen() {
   const { t } = useT();
+  const reduceMotion = useReducedMotion();
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
 
@@ -180,11 +183,9 @@ export function SongsScreen() {
               : "mt-0.5 grid-cols-[44px_1fr_170px_190px_44px_60px] px-3.5 py-[9px]",
           )}
         >
-          {isCur ? (
-            <EqBars playing={playing} />
-          ) : (
-            <span className="pl-[3px] text-[13px] tabular-nums text-tx2">{no}</span>
-          )}
+          <span className="text-[13px] tabular-nums text-tx2">
+            <TrackIndicator number={no} active={isCur} playing={playing} />
+          </span>
           <span
             className={cn(
               "truncate font-serif",
@@ -204,11 +205,16 @@ export function SongsScreen() {
               toggleFavorite(track.id);
             }}
             className={cn(
-              "grid size-[30px] cursor-pointer place-items-center rounded-full transition-colors hover:bg-ac/12",
+              "grid size-[30px] cursor-pointer place-items-center rounded-full transition-[transform,background-color,color] hover:bg-ac/12 active:scale-90",
               liked ? "text-ac" : "text-tx2",
             )}
           >
-            <Icon name={liked ? "heart" : "favorites"} size={15} strokeWidth={1.8} />
+            <AnimatedIcon
+              name={liked ? "heart" : "favorites"}
+              size={15}
+              strokeWidth={1.8}
+              variant="pop"
+            />
           </button>
           <span className="text-right text-[13px] tabular-nums text-tx2">
             {fmtTime(track.durationSec)}
@@ -303,8 +309,16 @@ export function SongsScreen() {
             </div>
 
             {/* 空态 */}
+            <AnimatePresence initial={false}>
             {entries.length === 0 && (
-              <div className="flex flex-col items-center gap-3.5 px-0 pb-10 pt-[100px] text-center">
+              <motion.div
+                key="songs-empty"
+                className="flex flex-col items-center gap-3.5 px-0 pb-10 pt-[100px] text-center"
+                initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
+                transition={{ duration: reduceMotion ? 0.01 : 0.18, ease: [0.22, 1, 0.36, 1] }}
+              >
                 <div className="grid size-16 place-items-center rounded-full border border-bd bg-sb text-tx2">
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
                     <circle cx="10.5" cy="10.5" r="7" />
@@ -317,8 +331,9 @@ export function SongsScreen() {
                 <div className="max-w-[320px] text-[13px] leading-[1.6] text-tx2">
                   {t("songs.emptyBody")}
                 </div>
-              </div>
+              </motion.div>
             )}
+            </AnimatePresence>
 
             {/* 按歌手分组 */}
             {entries.length > 0 && sort === "artist" && (

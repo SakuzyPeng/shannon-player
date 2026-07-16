@@ -57,7 +57,7 @@ const STROKE: Partial<Record<IconName, string>> = {
   close: "M6 6l12 12 M18 6L6 18",
 };
 
-interface IconProps {
+export interface IconProps {
   name: IconName;
   size?: number;
   strokeWidth?: number;

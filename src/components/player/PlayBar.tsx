@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
@@ -71,7 +72,7 @@ export function PlayBar() {
           onClick={() => toggleFavorite(track.id)}
           className="grid size-[30px] flex-shrink-0 place-items-center rounded-full text-ac transition-transform hover:bg-hv active:scale-90"
         >
-          <Icon name={favorited ? "heart" : "favorites"} size={16} />
+          <AnimatedIcon name={favorited ? "heart" : "favorites"} size={16} variant="pop" />
         </button>
       </div>
 
@@ -98,7 +99,7 @@ export function PlayBar() {
             whileHover={{ filter: "brightness(1.08)" }}
             className="grid size-11 place-items-center rounded-full bg-ac text-on-ac"
           >
-            <Icon name={playing ? "pause" : "play"} size={17} />
+            <AnimatedIcon name={playing ? "pause" : "play"} size={17} />
           </motion.button>
           <button aria-label={t("player.next")} onClick={next} className="grid size-8 place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
             <Icon name="next" size={17} />
@@ -117,7 +118,10 @@ export function PlayBar() {
         <div className="flex items-center gap-2.5">
           <span className="text-[11px] tabular-nums text-tx2">{fmtTime(progress.positionSec)}</span>
           <div onClick={onSeek} className="h-1 flex-1 cursor-pointer overflow-hidden rounded-[2px] bg-bd">
-            <div className="h-full rounded-[2px] bg-ac" style={{ width: `${pct}%` }} />
+            <div
+              className="h-full rounded-[2px] bg-ac transition-[width] duration-100 ease-linear"
+              style={{ width: `${pct}%` }}
+            />
           </div>
           <span className="text-[11px] tabular-nums text-tx2">-{fmtTime(remaining)}</span>
         </div>
@@ -135,7 +139,10 @@ export function PlayBar() {
           <Icon name="volume" size={16} />
         </span>
         <div onClick={onVol} className="h-1 w-[72px] cursor-pointer rounded-[2px] bg-bd">
-          <div className="h-full rounded-[2px] bg-tx2" style={{ width: `${(muted ? 0 : volume) * 100}%` }} />
+          <div
+            className="h-full rounded-[2px] bg-tx2 transition-[width] duration-200 ease-out"
+            style={{ width: `${(muted ? 0 : volume) * 100}%` }}
+          />
         </div>
       </div>
     </div>

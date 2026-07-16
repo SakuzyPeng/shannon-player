@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Collage } from "@/components/common/Collage";
-import { EqBars } from "@/components/common/EqBars";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
+import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, TRACK_MENU, albumsOfArtist, allTracks, tracksOf } from "@/data/library";
 import { PLAYLISTS, collageOf } from "@/data/playlists";
@@ -251,53 +251,58 @@ export function FavoritesScreen() {
   const renderSongRow = (track: Track, index: number, no: number, group: boolean): ReactNode => {
     const isCur = current?.id === track.id;
     return (
-      <ItemContextMenu
+      <motion.div
         key={track.id}
-        label={`${track.title} — ${track.artist}`}
-        items={TRACK_MENU}
-        onAction={(key) => onTrackAction(track, index, key)}
+        layout="position"
+        exit={{ opacity: 0, height: 0, x: -8 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        className="overflow-hidden"
       >
-        <div
-          onClick={() => playQueue(songEntries, index)}
-          className={cn(
-            "library-row-divider grid cursor-pointer items-center gap-3 rounded-xl transition-colors hover:bg-hv",
-            group
-              ? "library-row-divider--grouped mt-px grid-cols-[44px_1fr_44px_60px] py-2 pl-[26px] pr-3.5"
-              : `mt-0.5 ${SONG_COLS} px-3.5 py-[9px]`,
-          )}
+        <ItemContextMenu
+          label={`${track.title} — ${track.artist}`}
+          items={TRACK_MENU}
+          onAction={(key) => onTrackAction(track, index, key)}
         >
-          {isCur ? (
-            <EqBars playing={playing} />
-          ) : (
-            <span className="pl-[3px] text-[13px] tabular-nums text-tx2">{no}</span>
-          )}
-          <span
+          <div
+            onClick={() => playQueue(songEntries, index)}
             className={cn(
-              "truncate font-serif",
-              group ? "text-[15px]" : "text-[15.5px]",
-              isCur ? "font-semibold text-ac" : "font-medium text-tx",
+              "library-row-divider grid cursor-pointer items-center gap-3 rounded-xl transition-colors hover:bg-hv",
+              group
+                ? "library-row-divider--grouped mt-px grid-cols-[44px_1fr_44px_60px] py-2 pl-[26px] pr-3.5"
+                : `mt-0.5 ${SONG_COLS} px-3.5 py-[9px]`,
             )}
           >
-            <Highlight text={track.title} query={query} />
-          </span>
-          {!group && <span className="truncate text-[13px] text-tx2">{track.artist}</span>}
-          {!group && <span className="truncate text-[13px] text-tx2">{track.album}</span>}
-          <button
-            aria-label={t("player.unfavorite")}
-            title={t("player.unfavorite")}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFavorite(track.id);
-            }}
-            className="grid size-[30px] cursor-pointer place-items-center rounded-full text-ac transition-colors hover:bg-ac/12"
-          >
-            <Icon name="heart" size={15} />
-          </button>
-          <span className="text-right text-[13px] tabular-nums text-tx2">
-            {fmtTime(track.durationSec)}
-          </span>
-        </div>
-      </ItemContextMenu>
+            <span className="text-[13px] tabular-nums text-tx2">
+              <TrackIndicator number={no} active={isCur} playing={playing} />
+            </span>
+            <span
+              className={cn(
+                "truncate font-serif",
+                group ? "text-[15px]" : "text-[15.5px]",
+                isCur ? "font-semibold text-ac" : "font-medium text-tx",
+              )}
+            >
+              <Highlight text={track.title} query={query} />
+            </span>
+            {!group && <span className="truncate text-[13px] text-tx2">{track.artist}</span>}
+            {!group && <span className="truncate text-[13px] text-tx2">{track.album}</span>}
+            <button
+              aria-label={t("player.unfavorite")}
+              title={t("player.unfavorite")}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFavorite(track.id);
+              }}
+              className="grid size-[30px] cursor-pointer place-items-center rounded-full text-ac transition-transform hover:bg-ac/12 active:scale-90"
+            >
+              <Icon name="heart" size={15} />
+            </button>
+            <span className="text-right text-[13px] tabular-nums text-tx2">
+              {fmtTime(track.durationSec)}
+            </span>
+          </div>
+        </ItemContextMenu>
+      </motion.div>
     );
   };
 
@@ -407,8 +412,16 @@ export function FavoritesScreen() {
 
             <SegmentedContent value={tab}>
               {/* 空态 */}
+              <AnimatePresence initial={false}>
               {empty && (
-                <div className="flex flex-col items-center gap-3.5 pb-10 pt-[100px] text-center">
+                <motion.div
+                  key={`${tab}-empty`}
+                  className="flex flex-col items-center gap-3.5 pb-10 pt-[100px] text-center"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                >
                   <div className="grid size-16 place-items-center rounded-full border border-bd bg-sb text-tx2">
                     <Icon name="favorites" size={26} strokeWidth={1.7} />
                   </div>
@@ -422,14 +435,21 @@ export function FavoritesScreen() {
                       {t("favorites.emptyHint")}
                     </div>
                   )}
-                </div>
+                </motion.div>
               )}
+              </AnimatePresence>
 
               {/* 歌曲 · 分组 */}
               {tab === "songs" && !empty && grouped && (
                 <div className="border-t border-bd">
+                  <AnimatePresence initial={false}>
                   {songGroups.map((g, gi) => (
-                    <div key={g.artist} className={cn(gi > 0 && "mt-[18px] border-t border-bd")}>
+                    <motion.div
+                      key={g.artist}
+                      layout="position"
+                      exit={{ opacity: 0 }}
+                      className={cn(gi > 0 && "mt-[18px] border-t border-bd")}
+                    >
                       <div className="flex items-baseline gap-2.5 px-0.5 pb-1 pt-[22px]">
                         <span className="font-serif text-[22px] font-semibold text-tx">
                           {g.artist}
@@ -441,7 +461,7 @@ export function FavoritesScreen() {
                       {g.albums.map((ab) => {
                         const album = ALBUMS.find((a) => a.id === ab.albumId);
                         return (
-                          <div key={`${g.artist}-${ab.title}`}>
+                          <motion.div key={`${g.artist}-${ab.title}`} layout="position">
                             <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">
                               {album && (
                                 <div
@@ -458,12 +478,15 @@ export function FavoritesScreen() {
                               </span>
                               <div className="ml-1.5 h-px flex-1 bg-bd" />
                             </div>
-                            {ab.rows.map(([tk, idx], n) => renderSongRow(tk, idx, n + 1, true))}
-                          </div>
+                            <AnimatePresence initial={false}>
+                              {ab.rows.map(([tk, idx], n) => renderSongRow(tk, idx, n + 1, true))}
+                            </AnimatePresence>
+                          </motion.div>
                         );
                       })}
-                    </div>
+                    </motion.div>
                   ))}
+                  </AnimatePresence>
                 </div>
               )}
 
@@ -480,13 +503,16 @@ export function FavoritesScreen() {
                     <span />
                     <span className="text-right">{t("list.duration")}</span>
                   </div>
-                  {songEntries.map((tk, i) => renderSongRow(tk, i, i + 1, false))}
+                  <AnimatePresence initial={false}>
+                    {songEntries.map((tk, i) => renderSongRow(tk, i, i + 1, false))}
+                  </AnimatePresence>
                 </>
               )}
 
               {/* 专辑 */}
               {tab === "albums" && !empty && (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-7 gap-y-8 pt-2">
+                  <AnimatePresence initial={false}>
                   {albumEntries.map((album) => (
                     <FavAlbumCard
                       key={album.id}
@@ -497,12 +523,14 @@ export function FavoritesScreen() {
                       onUnfav={() => toggleFavoriteAlbum(album.id)}
                     />
                   ))}
+                  </AnimatePresence>
                 </div>
               )}
 
               {/* 歌手 */}
               {tab === "artists" && !empty && (
-                <div className="flex flex-wrap gap-x-[34px] gap-y-7 pt-3.5">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-[34px] gap-y-7 pt-3.5">
+                  <AnimatePresence initial={false}>
                   {artistEntries.map((name) => (
                     <FavArtistCard
                       key={name}
@@ -513,12 +541,14 @@ export function FavoritesScreen() {
                       onUnfav={() => toggleFavoriteArtist(name)}
                     />
                   ))}
+                  </AnimatePresence>
                 </div>
               )}
 
               {/* 歌单 */}
               {tab === "playlists" && !empty && (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-x-6 gap-y-8 pt-2">
+                  <AnimatePresence initial={false}>
                   {playlistEntries.map((pl) => (
                     <FavPlaylistCard
                       key={pl.id}
@@ -528,6 +558,7 @@ export function FavoritesScreen() {
                       onUnfav={() => toggleFavoritePlaylist(pl.id)}
                     />
                   ))}
+                  </AnimatePresence>
                 </div>
               )}
             </SegmentedContent>
@@ -559,8 +590,15 @@ function FavAlbumCard({
 }) {
   const { t } = useT();
   return (
-    <div className="relative min-w-0 cursor-pointer hover:z-10" onClick={onOpen}>
+    <motion.div
+      layout="position"
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      className="relative min-w-0 cursor-pointer hover:z-10"
+      onClick={onOpen}
+    >
       <motion.div
+        layoutId={`album-cover-${album.id}`}
         whileHover={{ y: -5 }}
         transition={{ type: "spring", stiffness: 380, damping: 18 }}
         className="cover-corners cover-gradient cover-material group/cover relative grid aspect-square place-items-center rounded-2xl"
@@ -609,7 +647,7 @@ function FavAlbumCard({
       <div className="mt-[3px] truncate text-[12.5px] text-tx2">
         {album.artist} · {album.year}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -630,9 +668,12 @@ function FavArtistCard({
   const { t } = useT();
   const cover = albumsOfArtist(name)[0]?.cover;
   return (
-    <div
+    <motion.div
+      layout="position"
+      exit={{ opacity: 0, scale: 0.94 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       onClick={onOpen}
-      className="flex w-[150px] cursor-pointer flex-col items-center gap-[11px]"
+      className="flex min-w-0 cursor-pointer flex-col items-center gap-[11px]"
     >
       <motion.div
         whileHover={{ y: -4 }}
@@ -668,7 +709,7 @@ function FavArtistCard({
         </span>
       </div>
       <div className="-mt-1.5 text-xs text-tx2">{meta}</div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -686,7 +727,10 @@ function FavPlaylistCard({
 }) {
   const { t } = useT();
   return (
-    <div
+    <motion.div
+      layout="position"
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       onClick={onOpen}
       className="group relative flex cursor-pointer flex-col items-start gap-3 rounded-2xl text-left hover:z-10"
     >
@@ -726,6 +770,6 @@ function FavPlaylistCard({
           })}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -1,5 +1,6 @@
 import { useRef, useState, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { AnimatePresence, motion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { SegmentedControl } from "@/components/common/SegmentedControl";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -84,7 +85,12 @@ function FolderRow({ folder }: { folder: MusicFolder }) {
   const removeMusicFolder = useUiStore((s) => s.removeMusicFolder);
   const status = folder.watching ? t("settings.statusWatching") : t("settings.statusScanned");
   return (
-    <div className="group/folder flex items-center gap-3 border-b border-bd px-4 py-[11px] transition-colors hover:bg-hv">
+    <motion.div
+      layout="position"
+      exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, borderColor: "transparent" }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      className="group/folder flex items-center gap-3 overflow-hidden border-b border-bd px-4 py-[11px] transition-colors hover:bg-hv"
+    >
       <svg
         width="16"
         height="16"
@@ -112,7 +118,7 @@ function FolderRow({ folder }: { folder: MusicFolder }) {
       >
         <Icon name="close" size={14} strokeWidth={1.8} />
       </button>
-    </div>
+    </motion.div>
   );
 }
 
@@ -195,10 +201,13 @@ export function SettingsScreen() {
           <SectionTitle labelKey="settings.secLibrary" refCb={secRef("library")} />
           <div className="pb-1 pt-3 text-[12.5px] text-tx2">{t("settings.musicFolders")}</div>
           <div className="surface-corners flex flex-col overflow-hidden rounded-[13px] border border-bd bg-srf">
-            {folders.map((f) => (
-              <FolderRow key={f.path} folder={f} />
-            ))}
-            <button
+            <AnimatePresence initial={false}>
+              {folders.map((f) => (
+                <FolderRow key={f.path} folder={f} />
+              ))}
+            </AnimatePresence>
+            <motion.button
+              layout="position"
               onClick={() => useUiStore.getState().openOnboarding()}
               className="flex cursor-pointer items-center gap-2.5 px-4 py-[11px] text-[13px] font-semibold text-ac transition-colors hover:bg-hv"
             >
@@ -206,7 +215,7 @@ export function SettingsScreen() {
                 <path d="M12 5v14 M5 12h14" />
               </svg>
               {t("settings.addFolder")}
-            </button>
+            </motion.button>
           </div>
           {LIB_TOGGLES.map((tg) => (
             <ToggleRow key={tg.key} labelKey={tg.labelKey} descKey={tg.descKey} settingKey={tg.key} />

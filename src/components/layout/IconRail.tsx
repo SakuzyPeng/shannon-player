@@ -1,5 +1,6 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { TrafficLights } from "@/components/window/TrafficLights";
+import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { LANGUAGES, NAV_ITEMS } from "@/data/library";
 import { useUiStore } from "@/store/ui";
@@ -46,14 +47,14 @@ export function IconRail() {
           >
             <span
               className={cn(
-                "grid size-[46px] place-items-center rounded-[13px] transition-transform duration-[180ms] ease-spring active:scale-90",
+                "grid size-[46px] place-items-center rounded-[13px] transition-[transform,background-color,color] duration-[180ms] ease-spring active:scale-90",
                 active ? "bg-hv text-ac" : "text-tx2 hover:bg-hv",
               )}
               style={{ height: 44 }}
             >
               <Icon name={item.icon} size={20} />
             </span>
-            <span className={cn("text-[10px]", active ? "font-semibold text-ac" : "text-tx2")}>
+            <span className={cn("text-[10px] transition-colors duration-[180ms]", active ? "font-semibold text-ac" : "text-tx2")}>
               {label}
             </span>
           </button>
@@ -66,7 +67,7 @@ export function IconRail() {
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button aria-label={t("rail.language")} title={t("rail.language")} className="flex cursor-pointer flex-col items-center gap-1">
-            <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-transform duration-[180ms] ease-spring hover:bg-hv active:scale-90 data-[state=open]:bg-hv" style={{ height: 44 }}>
+            <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-[transform,background-color,color] duration-[180ms] ease-spring hover:bg-hv active:scale-90 data-[state=open]:bg-hv" style={{ height: 44 }}>
               <Icon name="globe" size={20} />
             </span>
             <span className="text-[10px] text-tx2">{t("rail.language")}</span>
@@ -99,8 +100,8 @@ export function IconRail() {
         title={t("rail.appearance")}
         className="flex cursor-pointer flex-col items-center gap-1"
       >
-        <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-transform duration-[180ms] ease-spring hover:bg-hv active:scale-90" style={{ height: 44 }}>
-          <Icon name={themeInfo.icon} size={20} />
+        <span className="grid size-[46px] place-items-center rounded-[13px] text-tx2 transition-[transform,background-color,color] duration-[180ms] ease-spring hover:bg-hv active:scale-90" style={{ height: 44 }}>
+          <AnimatedIcon name={themeInfo.icon} size={20} />
         </span>
         <span className="text-[10px] text-tx2">{t(themeInfo.labelKey)}</span>
       </button>

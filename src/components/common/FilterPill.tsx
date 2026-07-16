@@ -1,4 +1,5 @@
 import { useRef, useState, type RefObject } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
@@ -74,6 +75,7 @@ interface Props {
 /** 过滤圆钮：hover 从圆形展开为输入框，聚焦强调圈，命中清空按钮。 */
 export function FilterPill({ filter, height, openWidth, inputRef, placeholder, className }: Props) {
   const { t } = useT();
+  const reduceMotion = useReducedMotion();
   return (
     <div
       onMouseEnter={() => filter.onEnter(inputRef.current)}
@@ -114,8 +116,10 @@ export function FilterPill({ filter, height, openWidth, inputRef, placeholder, c
         className="min-w-0 flex-1 border-none bg-transparent text-[12.5px] text-tx outline-none"
         style={{ opacity: filter.open ? 1 : 0, transition: "opacity 0.2s ease" }}
       />
-      {filter.q.trim().length > 0 && (
-        <button
+      <AnimatePresence initial={false}>
+        {filter.q.trim().length > 0 && (
+        <motion.button
+          key="clear"
           title={t("songs.filterClear")}
           aria-label={t("songs.filterClear")}
           onMouseDown={(e) => e.preventDefault()}
@@ -123,11 +127,16 @@ export function FilterPill({ filter, height, openWidth, inputRef, placeholder, c
             e.stopPropagation();
             filter.onClear();
           }}
-          className="grid size-5 flex-shrink-0 cursor-pointer place-items-center rounded-full bg-hv text-tx2 hover:text-tx"
+          className="grid h-5 flex-shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full bg-hv text-tx2 hover:text-tx"
+          initial={{ opacity: 0, width: 0, scale: reduceMotion ? 1 : 0.65 }}
+          animate={{ opacity: 1, width: 20, scale: 1 }}
+          exit={{ opacity: 0, width: 0, scale: reduceMotion ? 1 : 0.65 }}
+          transition={{ duration: reduceMotion ? 0.01 : 0.16, ease: [0.22, 1, 0.36, 1] }}
         >
           <Icon name="close" size={9} strokeWidth={2.6} />
-        </button>
-      )}
+        </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

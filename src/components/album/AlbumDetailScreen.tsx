@@ -1,8 +1,9 @@
 import { useMemo, useState, type UIEvent } from "react";
 import { motion } from "framer-motion";
-import { EqBars } from "@/components/common/EqBars";
+import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, TRACK_MENU, tracksOf } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
@@ -109,7 +110,11 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
           onClick={onPlayAlbum}
           className="grid size-[34px] cursor-pointer place-items-center rounded-full bg-ac text-on-ac"
         >
-          <Icon name={playingThis ? "pause" : "play"} size={13} style={{ marginLeft: playingThis ? 0 : 1 }} />
+          <AnimatedIcon
+            name={playingThis ? "pause" : "play"}
+            size={13}
+            style={{ marginLeft: playingThis ? 0 : 1 }}
+          />
         </motion.button>
       </div>
 
@@ -132,7 +137,9 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
 
           {/* 专辑头部 */}
           <div className="flex items-center gap-9 pb-[30px] pt-[18px]">
-            <div
+            <motion.div
+              layoutId={`album-cover-${album.id}`}
+              transition={{ type: "spring", stiffness: 360, damping: 34, mass: 0.8 }}
               className="cover-corners cover-gradient cover-hero-material group/cover relative grid size-[232px] flex-shrink-0 place-items-center rounded-2xl"
               style={coverGradientStyle(album.cover)}
             >
@@ -149,10 +156,15 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                   onClick={() => toggleFavoriteAlbum(album.id)}
                   className="collect-shadow absolute right-3 top-3 grid size-7 cursor-pointer place-items-center rounded-full bg-srf text-ac"
                 >
-                  <Icon name={collected ? "heart" : "favorites"} size={14} strokeWidth={2} />
+                  <AnimatedIcon
+                    name={collected ? "heart" : "favorites"}
+                    size={14}
+                    strokeWidth={2}
+                    variant="pop"
+                  />
                 </motion.button>
               </div>
-            </div>
+            </motion.div>
 
             <div className="flex min-w-0 flex-col gap-2.5">
               <div className="text-[11px] font-bold tracking-[0.16em] text-tx2">
@@ -187,7 +199,11 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                   onClick={onPlayAlbum}
                   className="flex cursor-pointer items-center gap-2 rounded-full bg-ac px-[26px] py-[11px] text-sm font-semibold text-on-ac"
                 >
-                  <Icon name={playingThis ? "pause" : "play"} size={14} style={{ marginLeft: 0 }} />
+                  <AnimatedIcon
+                    name={playingThis ? "pause" : "play"}
+                    size={14}
+                    style={{ marginLeft: 0 }}
+                  />
                   {playingThis ? t("player.pause") : t("player.play")}
                 </motion.button>
                 <button
@@ -224,11 +240,9 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                     onClick={() => playQueue(tracks, i)}
                     className="mt-0.5 grid cursor-pointer grid-cols-[44px_1fr_44px_64px] items-center gap-3.5 rounded-xl px-3.5 py-[11px] transition-colors hover:bg-hv"
                   >
-                    {isCur ? (
-                      <EqBars playing={playing} />
-                    ) : (
-                      <span className="pl-[3px] text-[13px] tabular-nums text-tx2">{i + 1}</span>
-                    )}
+                    <span className="text-[13px] tabular-nums text-tx2">
+                      <TrackIndicator number={i + 1} active={isCur} playing={playing} />
+                    </span>
                     <span
                       className={cn(
                         "truncate font-serif text-[15.5px]",
@@ -244,11 +258,16 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                         toggleFavorite(track.id);
                       }}
                       className={cn(
-                        "grid size-[30px] cursor-pointer place-items-center rounded-full transition-colors hover:bg-ac/12",
+                        "grid size-[30px] cursor-pointer place-items-center rounded-full transition-[transform,background-color,color] hover:bg-ac/12 active:scale-90",
                         liked ? "text-ac" : "text-tx2",
                       )}
                     >
-                      <Icon name={liked ? "heart" : "favorites"} size={15} strokeWidth={1.8} />
+                      <AnimatedIcon
+                        name={liked ? "heart" : "favorites"}
+                        size={15}
+                        strokeWidth={1.8}
+                        variant="pop"
+                      />
                     </button>
                     <span className="text-right text-[13px] tabular-nums text-tx2">
                       {fmtTime(track.durationSec)}
