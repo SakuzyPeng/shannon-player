@@ -5,6 +5,13 @@ import { LyricPlayer } from "@applemusic-like-lyrics/react";
 import "@applemusic-like-lyrics/core/style.css";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
+import {
+  RepeatControlIcon,
+  RepeatControlButton,
+  ShuffleControlIcon,
+  ShuffleControlButton,
+  SkipControlButton,
+} from "@/components/common/PlaybackControlButton";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrafficLights } from "@/components/window/TrafficLights";
 import { ALBUMS } from "@/data/library";
@@ -189,19 +196,20 @@ export function LyricsScreen() {
         </div>
 
         <div className="mt-[18px] flex items-center justify-center gap-3.5">
-          <button
-            aria-label={t("player.shuffle")}
+          <ShuffleControlButton
+            active={shuffle}
+            label={t("player.shuffle")}
             onClick={toggleShuffle}
-            className={cn(
-              "grid size-8 cursor-pointer place-items-center rounded-full transition-transform hover:bg-hv active:scale-90",
-              shuffle ? "text-ac" : "text-tx2 hover:text-tx",
-            )}
-          >
-            <Icon name="shuffle" size={15} strokeWidth={1.8} />
-          </button>
-          <button aria-label={t("player.previous")} onClick={prev} className="grid size-9 cursor-pointer place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
-            <Icon name="prev" size={18} />
-          </button>
+            buttonSize={32}
+            iconSize={15}
+          />
+          <SkipControlButton
+            direction="previous"
+            label={t("player.previous")}
+            onClick={prev}
+            buttonSize={36}
+            iconSize={18}
+          />
           <motion.button
             aria-label={playing ? t("player.pause") : t("player.play")}
             onClick={togglePlay}
@@ -209,19 +217,20 @@ export function LyricsScreen() {
           >
             <PlayPauseIcon playing={playing} size={21} />
           </motion.button>
-          <button aria-label={t("player.next")} onClick={next} className="grid size-9 cursor-pointer place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
-            <Icon name="next" size={18} />
-          </button>
-          <button
-            aria-label={`${t("player.repeat")}: ${repeat}`}
+          <SkipControlButton
+            direction="next"
+            label={t("player.next")}
+            onClick={next}
+            buttonSize={36}
+            iconSize={18}
+          />
+          <RepeatControlButton
+            mode={repeat}
+            label={`${t("player.repeat")}: ${repeat}`}
             onClick={cycleRepeat}
-            className={cn(
-              "grid size-8 cursor-pointer place-items-center rounded-full transition-transform hover:bg-hv active:scale-90",
-              repeat !== "off" ? "text-ac" : "text-tx2 hover:text-tx",
-            )}
-          >
-            <Icon name="repeat" size={15} strokeWidth={1.8} />
-          </button>
+            buttonSize={32}
+            iconSize={15}
+          />
         </div>
 
         <div className="mt-[22px] flex items-center gap-3">
@@ -401,7 +410,7 @@ export function LyricsScreen() {
                   : "border-[var(--qpillbd)] bg-[var(--qpill)] text-tx",
               )}
             >
-              <Icon name="shuffle" size={14} strokeWidth={1.8} />
+              <ShuffleControlIcon active={shuffle} size={14} />
               {t("player.shuffle")}
             </button>
             <button
@@ -413,7 +422,7 @@ export function LyricsScreen() {
                   : "border-[var(--qpillbd)] bg-[var(--qpill)] text-tx",
               )}
             >
-              <Icon name="repeat" size={14} strokeWidth={1.8} />
+              <RepeatControlIcon mode={repeat} size={14} />
               {t("player.repeat")}
             </button>
           </div>

@@ -1,10 +1,14 @@
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
+import {
+  RepeatControlButton,
+  ShuffleControlButton,
+  SkipControlButton,
+} from "@/components/common/PlaybackControlButton";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
-import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { fmtTime } from "@/lib/time";
 import type { MouseEvent } from "react";
@@ -79,19 +83,20 @@ export function PlayBar() {
       {/* 中：控制簇 + 进度 */}
       <div className="mx-auto flex max-w-[520px] flex-1 flex-col gap-1.5">
         <div className="flex items-center justify-center gap-[13px]">
-          <button
-            aria-label={t("player.shuffle")}
+          <ShuffleControlButton
+            active={shuffle}
+            label={t("player.shuffle")}
             onClick={toggleShuffle}
-            className={cn(
-              "grid size-[30px] place-items-center rounded-full transition-transform hover:bg-hv active:scale-90",
-              shuffle ? "text-ac" : "text-tx2 hover:text-tx",
-            )}
-          >
-            <Icon name="shuffle" size={15} strokeWidth={1.8} />
-          </button>
-          <button aria-label={t("player.previous")} onClick={prev} className="grid size-8 place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
-            <Icon name="prev" size={17} />
-          </button>
+            buttonSize={30}
+            iconSize={15}
+          />
+          <SkipControlButton
+            direction="previous"
+            label={t("player.previous")}
+            onClick={prev}
+            buttonSize={32}
+            iconSize={17}
+          />
           <button
             aria-label={playing ? t("player.pause") : t("player.play")}
             onClick={togglePlay}
@@ -99,19 +104,20 @@ export function PlayBar() {
           >
             <PlayPauseIcon playing={playing} size={19} />
           </button>
-          <button aria-label={t("player.next")} onClick={next} className="grid size-8 place-items-center rounded-full text-tx transition-transform hover:bg-hv active:scale-90">
-            <Icon name="next" size={17} />
-          </button>
-          <button
-            aria-label={`${t("player.repeat")}: ${repeat}`}
+          <SkipControlButton
+            direction="next"
+            label={t("player.next")}
+            onClick={next}
+            buttonSize={32}
+            iconSize={17}
+          />
+          <RepeatControlButton
+            mode={repeat}
+            label={`${t("player.repeat")}: ${repeat}`}
             onClick={cycleRepeat}
-            className={cn(
-              "grid size-[30px] place-items-center rounded-full transition-transform hover:bg-hv active:scale-90",
-              repeat !== "off" ? "text-ac" : "text-tx2 hover:text-tx",
-            )}
-          >
-            <Icon name="repeat" size={15} strokeWidth={1.8} />
-          </button>
+            buttonSize={30}
+            iconSize={15}
+          />
         </div>
         <div className="flex items-center gap-2.5">
           <span className="text-[11px] tabular-nums text-tx2">{fmtTime(progress.positionSec)}</span>
