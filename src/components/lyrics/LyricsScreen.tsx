@@ -111,7 +111,7 @@ export function LyricsScreen() {
 
       {/* 左栏：封面 + 迷你控制 */}
       <div
-        className="box-border flex flex-shrink-0 flex-col items-center justify-center bg-sb px-14 pb-12 pt-14"
+        className="lyrics-left-panel box-border flex flex-shrink-0 flex-col items-center justify-center bg-sb px-14"
         style={{
           width: lyricsOn ? 424 : "100%",
           borderRight: lyricsOn ? "1px solid var(--bd)" : "none",

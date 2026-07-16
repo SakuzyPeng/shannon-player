@@ -28,11 +28,11 @@ export function IconRail() {
   return (
     <div
       data-tauri-drag-region
-      className="flex w-[84px] flex-shrink-0 flex-col items-center gap-2.5 border-r border-bd bg-sb px-0 py-4 pb-[18px] transition-colors"
+      className="icon-rail flex w-[84px] flex-shrink-0 flex-col items-center border-r border-bd bg-sb px-0 transition-colors"
     >
       <TrafficLights />
 
-      <div className="mb-2 mt-3 font-serif text-[18px] font-semibold text-ac">香</div>
+      <div className="icon-rail-brand font-serif text-[18px] font-semibold text-ac">香</div>
 
       {NAV_ITEMS.map((item) => {
         const active = nav === item.key;
