@@ -188,6 +188,8 @@ export interface Messages {
   "player.queue": string;
   "player.addToPlaylist": string;
   "player.volume": string;
+  "player.mute": string;
+  "player.unmute": string;
 
   "window.close": string;
   "window.minimize": string;
@@ -375,6 +377,8 @@ const zhHans: Messages = {
   "player.queue": "播放队列",
   "player.addToPlaylist": "添加到歌单",
   "player.volume": "音量",
+  "player.mute": "静音",
+  "player.unmute": "恢复音量",
 
   "window.close": "关闭",
   "window.minimize": "最小化",
@@ -560,6 +564,8 @@ const zhHant: Messages = {
   "player.queue": "播放佇列",
   "player.addToPlaylist": "加入播放清單",
   "player.volume": "音量",
+  "player.mute": "靜音",
+  "player.unmute": "恢復音量",
 
   "window.close": "關閉",
   "window.minimize": "最小化",
@@ -745,6 +751,8 @@ const en: Messages = {
   "player.queue": "Queue",
   "player.addToPlaylist": "Add to Playlist",
   "player.volume": "Volume",
+  "player.mute": "Mute",
+  "player.unmute": "Unmute",
 
   "window.close": "Close",
   "window.minimize": "Minimize",
@@ -930,6 +938,8 @@ const ja: Messages = {
   "player.queue": "再生キュー",
   "player.addToPlaylist": "プレイリストに追加",
   "player.volume": "音量",
+  "player.mute": "ミュート",
+  "player.unmute": "ミュート解除",
 
   "window.close": "閉じる",
   "window.minimize": "最小化",

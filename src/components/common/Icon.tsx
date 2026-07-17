@@ -22,6 +22,7 @@ export type IconName =
   | "pause"
   | "heart"
   | "volume"
+  | "volumeMuted"
   | "chevronLeft"
   | "chevronRight"
   | "chevronDown"
@@ -152,6 +153,7 @@ export function Icon({ name, size = 20, strokeWidth = 1.7, className, style }: I
         </svg>
       );
     case "volume":
+    case "volumeMuted":
       return (
         <svg
           {...common}
@@ -162,7 +164,11 @@ export function Icon({ name, size = 20, strokeWidth = 1.7, className, style }: I
           strokeLinejoin="round"
         >
           <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" stroke="none" />
-          <path d="M15.5 9.5a4 4 0 0 1 0 5.5 M18 7a8 8 0 0 1 0 10" />
+          {name === "volumeMuted" ? (
+            <path d="m15.5 9 5.5 6 M21 9l-5.5 6" />
+          ) : (
+            <path d="M15.5 9.5a4 4 0 0 1 0 5.5 M18 7a8 8 0 0 1 0 10" />
+          )}
         </svg>
       );
     default:

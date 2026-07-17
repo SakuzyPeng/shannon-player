@@ -6,6 +6,7 @@ import {
   SkipControlButton,
 } from "@/components/common/PlaybackControlButton";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
+import { VolumeSlider } from "@/components/common/VolumeSlider";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -31,6 +32,7 @@ export function PlayBar() {
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const seek = usePlayerStore((s) => s.seek);
   const setVolume = usePlayerStore((s) => s.setVolume);
+  const toggleMuted = usePlayerStore((s) => s.toggleMuted);
   const { t } = useT();
 
   if (!track) return null;
@@ -44,11 +46,6 @@ export function PlayBar() {
     const rect = e.currentTarget.getBoundingClientRect();
     seek(((e.clientX - rect.left) / rect.width) * progress.durationSec);
   };
-  const onVol = (e: MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setVolume((e.clientX - rect.left) / rect.width);
-  };
-
   return (
     <div className="surface-corners playbar-shadow absolute inset-x-[26px] bottom-[22px] z-30 flex h-[76px] items-center gap-4 rounded-[19px] border border-bd bg-pb px-[18px] transition-colors">
       {/* 左：封面 + 曲目（点击进歌词页）+ 收藏 */}
@@ -139,15 +136,24 @@ export function PlayBar() {
         <button aria-label={t("player.addToPlaylist")} className="grid size-[30px] place-items-center rounded-full text-tx2 transition-colors hover:bg-hv hover:text-tx">
           <Icon name="addPlaylist" size={16} strokeWidth={1.8} />
         </button>
-        <span className="text-tx2">
-          <Icon name="volume" size={16} />
-        </span>
-        <div onClick={onVol} className="h-1 w-[72px] cursor-pointer rounded-[2px] bg-bd">
-          <div
-            className="h-full rounded-[2px] bg-tx2 transition-[width] duration-200 ease-out"
-            style={{ width: `${(muted ? 0 : volume) * 100}%` }}
-          />
-        </div>
+        <button
+          type="button"
+          aria-label={muted ? t("player.unmute") : t("player.mute")}
+          aria-pressed={muted}
+          title={muted ? t("player.unmute") : t("player.mute")}
+          data-state={muted ? "muted" : "audible"}
+          onClick={toggleMuted}
+          className="grid size-7 shrink-0 place-items-center rounded-full text-tx2 transition-[color,background-color,transform] duration-150 hover:bg-hv hover:text-tx active:scale-90 data-[state=muted]:text-ac data-[state=muted]:hover:text-ac"
+        >
+          <Icon name={muted ? "volumeMuted" : "volume"} size={16} />
+        </button>
+        <VolumeSlider
+          value={volume}
+          muted={muted}
+          label={t("player.volume")}
+          onChange={setVolume}
+          className="w-[88px]"
+        />
       </div>
     </div>
   );

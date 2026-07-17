@@ -13,6 +13,7 @@ import {
   SkipControlButton,
 } from "@/components/common/PlaybackControlButton";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
+import { VolumeSlider } from "@/components/common/VolumeSlider";
 import { TrafficLights } from "@/components/window/TrafficLights";
 import { ALBUMS } from "@/data/library";
 import { lyricsOf } from "@/data/lyrics";
@@ -53,6 +54,7 @@ export function LyricsScreen() {
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const seek = usePlayerStore((s) => s.seek);
   const setVolume = usePlayerStore((s) => s.setVolume);
+  const toggleMuted = usePlayerStore((s) => s.toggleMuted);
   const clearUpNext = usePlayerStore((s) => s.clearUpNext);
 
   const [lyricsOn, setLyricsOn] = useState(true);
@@ -92,11 +94,6 @@ export function LyricsScreen() {
     const rect = e.currentTarget.getBoundingClientRect();
     seek(((e.clientX - rect.left) / rect.width) * durationSec);
   };
-  const onVol = (e: MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setVolume((e.clientX - rect.left) / rect.width);
-  };
-
   return (
     <div
       onMouseMove={pokeUi}
@@ -233,16 +230,25 @@ export function LyricsScreen() {
           />
         </div>
 
-        <div className="mt-[22px] flex items-center gap-3">
-          <span className="text-tx2">
-            <Icon name="volume" size={15} />
-          </span>
-          <div onClick={onVol} className="h-1 w-[90px] cursor-pointer rounded-[2px] bg-bd">
-            <div
-              className="h-full rounded-[2px] bg-tx2 transition-[width] duration-200 ease-out"
-              style={{ width: `${(muted ? 0 : volume) * 100}%` }}
-            />
-          </div>
+        <div className="mt-[22px] flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={muted ? t("player.unmute") : t("player.mute")}
+            aria-pressed={muted}
+            title={muted ? t("player.unmute") : t("player.mute")}
+            data-state={muted ? "muted" : "audible"}
+            onClick={toggleMuted}
+            className="grid size-7 shrink-0 place-items-center rounded-full text-tx2 transition-[color,background-color,transform] duration-150 hover:bg-hv hover:text-tx active:scale-90 data-[state=muted]:text-ac data-[state=muted]:hover:text-ac"
+          >
+            <Icon name={muted ? "volumeMuted" : "volume"} size={15} />
+          </button>
+          <VolumeSlider
+            value={volume}
+            muted={muted}
+            label={t("player.volume")}
+            onChange={setVolume}
+            className="w-[104px]"
+          />
         </div>
       </div>
 

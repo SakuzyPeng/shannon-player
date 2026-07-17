@@ -375,6 +375,84 @@ body {
   .library-row-divider--cover::after {
     left: 92px;
   }
+  /* 视觉保持细轨道，实际 24px 高命中区交给原生 range 处理拖动与键盘输入。 */
+  .volume-slider {
+    height: 24px;
+    margin: 0;
+    padding: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    background: transparent;
+  }
+  .volume-slider:focus {
+    outline: none;
+  }
+  .volume-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(
+      to right,
+      var(--tx2) 0 var(--volume-fill),
+      var(--bd) var(--volume-fill) 100%
+    );
+  }
+  .volume-slider::-webkit-slider-thumb {
+    width: 7px;
+    height: 14px;
+    margin-top: -5px;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--srf);
+    border-radius: 3px;
+    background: var(--tx2);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--tx) 20%, transparent);
+    opacity: 0;
+    transform: scale(0.72);
+    transition: opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  }
+  .volume-slider:hover::-webkit-slider-thumb,
+  .volume-slider:active::-webkit-slider-thumb,
+  .volume-slider:focus-visible::-webkit-slider-thumb {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .volume-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow:
+      0 1px 3px color-mix(in srgb, var(--tx) 20%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--ac) 20%, transparent);
+  }
+  .volume-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(
+      to right,
+      var(--tx2) 0 var(--volume-fill),
+      var(--bd) var(--volume-fill) 100%
+    );
+  }
+  .volume-slider::-moz-range-thumb {
+    width: 7px;
+    height: 14px;
+    border: 1px solid var(--srf);
+    border-radius: 3px;
+    background: var(--tx2);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--tx) 20%, transparent);
+    opacity: 0;
+    transform: scale(0.72);
+    transition: opacity 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  }
+  .volume-slider:hover::-moz-range-thumb,
+  .volume-slider:active::-moz-range-thumb,
+  .volume-slider:focus-visible::-moz-range-thumb {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .volume-slider:focus-visible::-moz-range-thumb {
+    box-shadow:
+      0 1px 3px color-mix(in srgb, var(--tx) 20%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--ac) 20%, transparent);
+  }
   .traffic-light {
     box-shadow: inset 0 0 0 0.5px var(--traffic-border);
   }
