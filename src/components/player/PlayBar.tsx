@@ -6,15 +6,18 @@ import {
   SkipControlButton,
 } from "@/components/common/PlaybackControlButton";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
+import { QueuePanel } from "@/components/player/QueuePanel";
 import { VolumeSlider } from "@/components/common/VolumeSlider";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
+import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { fmtTime } from "@/lib/time";
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 
 export function PlayBar() {
+  const [queueOpen, setQueueOpen] = useState(false);
   const track = usePlayerStore((s) => (s.currentIndex >= 0 ? s.queue[s.currentIndex]?.track : null));
   const playing = usePlayerStore((s) => s.playing);
   const progress = usePlayerStore((s) => s.progress);
@@ -130,7 +133,16 @@ export function PlayBar() {
 
       {/* 右：队列 + 添加 + 音量 */}
       <div className="flex w-[236px] items-center justify-end gap-2.5">
-        <button aria-label={t("player.queue")} className="grid size-[30px] place-items-center rounded-full text-tx2 transition-colors hover:bg-hv hover:text-tx">
+        <button
+          aria-label={t("player.queue")}
+          aria-expanded={queueOpen}
+          data-queue-trigger
+          onClick={() => setQueueOpen((v) => !v)}
+          className={cn(
+            "grid size-[30px] cursor-pointer place-items-center rounded-full transition-colors",
+            queueOpen ? "bg-hv text-ac" : "text-tx2 hover:bg-hv hover:text-tx",
+          )}
+        >
           <Icon name="queue" size={16} strokeWidth={1.8} />
         </button>
         <button aria-label={t("player.addToPlaylist")} className="grid size-[30px] place-items-center rounded-full text-tx2 transition-colors hover:bg-hv hover:text-tx">
@@ -155,6 +167,13 @@ export function PlayBar() {
           className="w-[88px]"
         />
       </div>
+
+      {/* 队列面板：从播放条右上方弹出（与歌词页共享组件） */}
+      <QueuePanel
+        open={queueOpen}
+        onDismiss={() => setQueueOpen(false)}
+        className="absolute bottom-[calc(100%+12px)] right-0 origin-bottom-right"
+      />
     </div>
   );
 }
