@@ -50,7 +50,9 @@ const STROKE: Partial<Record<IconName, string>> = {
   shuffle: "M3 6h4l10 11h4 M17 3l4 3-4 3 M3 17h4 M14 8l3-2 M17 21l4-3-4-3",
   repeat: "M4 12a8 8 0 0 1 14-5l2 2 M20 12a8 8 0 0 1-14 5l-2-2 M20 4v5h-5 M4 20v-5h5",
   queue: "M4 6h16 M4 12h16 M4 18h10",
-  addPlaylist: "M12 4v5 M9 6.5 12 4l3 2.5 M8 13a4 4 0 1 0 8 0 4 4 0 0 0-8 0z M4 20h16",
+  // 列表 + 加号：与队列图标（三横线）同基因，符合「加入歌单」的通用隐喻。
+  // 设计稿原稿为「上箭头 + 圆 + 底线」的自造隐喻，可读性差，弃用。
+  addPlaylist: "M4 6h16 M4 12h16 M4 18h8 M17 14.5v7 M13.5 18h7",
   check: "M5 12l5 5 9-10",
   chevronLeft: "M15 6l-6 6 6 6",
   chevronRight: "M9 6l6 6-6 6",
