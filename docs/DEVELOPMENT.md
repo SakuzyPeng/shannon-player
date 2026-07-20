@@ -56,7 +56,8 @@ docs/                    开发文档
 ## 音频后端架构与研究
 
 真实音频后端尚未接入主程序。目标分层、实时播放零子进程约束、解码后端优先级与链接导入边界
-见 [音频后端架构约束](AUDIO_BACKEND_ARCHITECTURE.md)。
+见 [音频后端架构约束](AUDIO_BACKEND_ARCHITECTURE.md)；工程结构、线程模型、队列交接、
+测试策略与实施阶段见 [音频后端实现设计](AUDIO_BACKEND_IMPLEMENTATION_PLAN.md)。
 
 已有两份 Windows 概念验证记录，作为后续领域建模、能力探测与验收指标的依据，不代表当前版本
 已经提供对应播放能力：
