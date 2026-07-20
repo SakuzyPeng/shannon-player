@@ -19,6 +19,17 @@ import { PLAYLISTS } from "@/data/playlists";
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
 const nextUid = (): Id => `q-${uidSeq++}`;
+let playlistSeq = 0;
+const nextPlaylistId = (): Id => `pl-user-${Date.now()}-${playlistSeq++}`;
+
+/** 保留首次出现的曲目，并把已有 ID 视为占用。 */
+function uniqueTracksById(tracks: Track[], seen = new Set<Id>()): Track[] {
+  return tracks.filter((track) => {
+    if (seen.has(track.id)) return false;
+    seen.add(track.id);
+    return true;
+  });
+}
 
 interface PlayerState {
   /** ---- 播放队列 ---- */
@@ -68,7 +79,7 @@ interface PlayerState {
   toggleFavoritePlaylist: (id: Id) => void;
   /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）；更新时间标记清空 = 「今天更新」。 */
   addToPlaylist: (playlistId: Id, tracks: Track[]) => void;
-  /** 新建歌单并加入曲目；名称默认「新歌单」，重名自动加序号。返回新歌单 ID。 */
+  /** 新建并收藏歌单后加入曲目；名称默认「新歌单」，重名自动加序号。返回新歌单 ID。 */
   createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Id;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
@@ -198,8 +209,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((s) => ({
       playlists: s.playlists.map((p) => {
         if (p.id !== playlistId) return p;
-        const existing = new Set(p.tracks.map((tk) => tk.id));
-        const added = tracks.filter((tk) => !existing.has(tk.id));
+        const added = uniqueTracksById(tracks, new Set(p.tracks.map((tk) => tk.id)));
         if (added.length === 0) return p;
         // updatedLabel 置空 → 展示端回退为「今天更新」
         return { ...p, tracks: [...p.tracks, ...added], updatedLabel: "" };
@@ -207,14 +217,24 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     })),
 
   createPlaylistWithTracks: (baseName, tracks) => {
-    const id: Id = `pl-user-${Date.now()}`;
+    const id = nextPlaylistId();
     set((s) => {
       // 重名自动加序号：新歌单 / 新歌单 2 / 新歌单 3 …
       const names = new Set(s.playlists.map((p) => p.title));
       let title = baseName;
       for (let n = 2; names.has(title); n++) title = `${baseName} ${n}`;
-      const playlist: Playlist = { id, title, description: "", updatedLabel: "", tracks: [...tracks] };
-      return { playlists: [...s.playlists, playlist] };
+      const playlist: Playlist = {
+        id,
+        title,
+        description: "",
+        updatedLabel: "",
+        tracks: uniqueTracksById(tracks),
+      };
+      return {
+        playlists: [...s.playlists, playlist],
+        // 当前没有独立歌单总览页；新建后先加入收藏页，确保用户能立即找到。
+        favoritePlaylists: { ...s.favoritePlaylists, [id]: true },
+      };
     });
     return id;
   },

@@ -4,7 +4,8 @@
    后期由 Rust 后端 / 用户数据替换。
    ============================================================ */
 
-import type { Cover, Id, Playlist } from "@/types/player";
+import { ALBUMS, DEMO_TRACK, allTracks } from "@/data/library";
+import type { Cover, Id, Playlist, Track } from "@/types/player";
 
 /** 专辑封面素材（标题 → [c1, c2, 首字]），来自设计稿 ALB_ART。 */
 const ALB_ART: Record<string, [string, string, string]> = {
@@ -40,20 +41,41 @@ const NIGHT_DRIVE: ReadonlyArray<readonly [string, string, string, number]> = [
   ["公路之光", "新裤子", "生活因你而火热", 259],
 ];
 
+const LIBRARY_TRACKS = [DEMO_TRACK, ...allTracks()];
+
+/** 优先复用曲库规范 ID，避免同一曲目因歌单种子 ID 不同而绕过去重。 */
+function nightDriveTrack(
+  [title, artist, album, durationSec]: (typeof NIGHT_DRIVE)[number],
+  index: number,
+): Track {
+  const libraryTrack = LIBRARY_TRACKS.find(
+    (track) =>
+      track.title === title &&
+      track.artist === artist &&
+      track.album === album &&
+      track.durationSec === durationSec,
+  );
+  if (libraryTrack) return libraryTrack;
+
+  const albumId = ALBUMS.find((item) => item.title === album && item.artist === artist)?.id;
+  return {
+    id: `pl-nightdrive-t${index}`,
+    title,
+    artist,
+    album,
+    albumId,
+    cover: coverOf(album),
+    durationSec,
+  };
+}
+
 export const PLAYLISTS: Playlist[] = [
   {
     id: "pl-nightdrive",
     title: "深夜驾驶",
     description: "环线空了，音量开大一点。适合凌晨一点以后的城市快速路。",
     updatedLabel: "上周更新",
-    tracks: NIGHT_DRIVE.map(([title, artist, album, durationSec], i) => ({
-      id: `pl-nightdrive-t${i}`,
-      title,
-      artist,
-      album,
-      cover: coverOf(album),
-      durationSec,
-    })),
+    tracks: NIGHT_DRIVE.map(nightDriveTrack),
   },
 ];
 
