@@ -53,6 +53,20 @@ docs/                    开发文档
 - **国际化**：所有界面文案必须加入 `src/i18n/messages.ts` 的 `Messages` 接口并经 `useT()` 渲染，禁止硬编码；专辑、歌手等**内容**不进 i18n。漏键会在编译期报错。
 - **状态**：播放器领域状态（队列、进度、歌词时间轴、音频设备）走 `src/types/player.ts` 的强类型模型，不用散装字段。
 
+## 音频后端研究
+
+真实音频后端尚未接入主程序。已有两份 Windows 概念验证记录，作为后续领域建模、能力探测与
+验收指标的依据，不代表当前版本已经提供对应播放能力：
+
+- [Dolby Atmos/JOC 系统解码观测](ATMOS_DECODING_NOTES.md)：比较普通 PCM 与
+  `MFAudioFormat_Float_SpatialObjects` 解码结果，确认系统解码层能够暴露超过 6 路的
+  spatial/object buffer。
+- [固定多声道空间回放研究](WINDOWS_SPATIAL_PLAYBACK_NOTES.md)：整理 7.1.4、9.1.6、22.2
+  的容器识别、布局解析、流式解码、seek、`ISpatialAudioClient` 路由与无听感验证方法。
+
+两类路径必须分开建模：前者关注带对象元数据码流的系统解码输出，后者把固定声道放入静态类型
+或固定坐标槽位。借用动态对象 API 的固定坐标槽位不表示输入文件含有动态对象元数据。
+
 ## 设计来源
 
 Claude Design 项目「香农播放器设计简报」，共 10 个页面 + 设计 Token 文档，定稿方向
