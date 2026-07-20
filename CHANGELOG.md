@@ -14,7 +14,8 @@
 - 音频后端架构约束：实时播放链保持进程内运行，子进程只用于用户安装的 `yt-dlp` 与必要的
   离线导入处理；明确纯 Rust 主解码路径、可选进程内后端和禁止隐藏播放兜底。
 - 音频后端实现设计：定义 cargo workspace 拆分、控制面/数据面线程模型、current/next
-  队列交接、Symphonia 插件式解码、前端引擎适配层、无头测试策略与六个实施阶段。
+  队列交接、异步一致性标识（generation / queueRevision / request_id）、Symphonia
+  插件式解码、前端引擎适配层、无头测试策略与六个实施阶段。
 - Tauri 2 + React 19 + TypeScript + Vite 工程骨架。
 - 设计 Token 层：Tailwind v4 + CSS 变量，浅色 / 深色两套语义配色。
 - 曲库主界面（「杏色 · 明快 2a」设计）：

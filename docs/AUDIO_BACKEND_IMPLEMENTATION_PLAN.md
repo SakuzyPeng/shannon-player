@@ -37,25 +37,35 @@ Tauri command ──PlayerCmd──> 控制线程（状态机唯一所有者）
                                  |  管理 current / next 两个源
                                  v
               解码工作线程 ──> 无锁 SPSC 环形缓冲 ──> 输出回调
-                                 |
-       事件回流：Progress / TrackChanged / StateChanged / Error / DeviceListChanged
+                                                        |
+              控制线程 <── 无锁事件队列（切歌边界、欠载等标记）
+                 |
+                 v
+       对外事件：Progress / TrackChanged / StateChanged / Error / DeviceListChanged
 ```
 
 - 控制线程是 `Idle / Loading / Playing / Paused / Error` 状态机的唯一所有者，经消息
   通道接收命令。Tauri command 只投递消息并立即返回，结果一律走事件，音频不进入
   Tauri 的 async 运行时。
 - 解码工作线程串联容器读取、解码与 PCM 管线，向环形缓冲推入帧。
-- 输出回调只从环形缓冲消费。
+- 输出回调只从环形缓冲消费；越过切歌边界、发生欠载等时刻仅向无锁事件队列压入标记，
+  对外事件统一由控制线程消费标记后发出。
 
 实时纪律清单（细化架构约束实时链路不变量第 3 条）：
 
-- 回调可触碰的共享结构仅限：SPSC 消费端、原子量（音量、静音、generation、欠载计数）。
+- 回调可触碰的共享结构仅限：SPSC 消费端、原子量（音量、静音、generation、欠载计数）、
+  无锁事件队列的生产端。
 - 回调内禁止 Mutex（包括“只锁一瞬”）、文件与网络 I/O、动态分配、格式化日志。
 - 欠载计数为原子累加，经 stats 查询接口暴露，对应架构约束验收条件第 5 条。
 
 seek 与切歌沿用研究笔记的 generation 方案：控制线程递增原子 generation，解码线程丢弃
 在途数据、清空环形缓冲并从新位置重填，达到预缓冲阈值（沿用概念验证的 300 ms）后恢复
 消费。
+
+generation 解决音频数据的新旧，不解决命令与事件的配对：seek 等异步命令另携带自增
+request_id，进度与完成事件回带 generation 与最近 request_id，前端据此丢弃过期回报，
+避免连续拖动进度条时旧回报把界面拉回旧位置。队列侧的对应机制是 queueRevision，见
+「队列归属与切歌交接」。
 
 ## 播放位置与进度事件
 
@@ -67,16 +77,25 @@ seek 与切歌沿用研究笔记的 generation 方案：控制线程递增原子
 
 ## 队列归属与切歌交接
 
-队列权威保留在前端 Zustand store（shuffle、repeat、user/auto 入队优先级逻辑不迁移）；
-引擎只建模 current 与 next 两个槽位：
+队列权威保留在前端 Zustand store，引擎只建模 current 与 next 两个槽位。
 
-- store 在每次队列、循环或随机状态变化时重算下一首，并调用 `player_set_next(uid, path)`。
-- 引擎在边界处帧级精确续播（满足不变量第 7 条的 gapless 要求），并发出
-  `TrackChanged { fromUid, toUid }`；store 收到后推进 currentIndex。
+前置事实：当前 store 的 shuffle 只是布尔开关，`next()` 一律顺序推进，尚不存在真正的
+“下一首”算法。因此“队列逻辑留在前端”不是迁移豁免，而是阶段 0 的实作任务：store 需
+先提供统一的后继计算（shuffle 顺序表、repeat 语义、user/auto 入队优先级归一），
+`set_next` 协议以其输出为输入，本文不假设该逻辑已经存在。
+
+- store 在每次队列、循环或随机状态变化时重算下一首，并调用
+  `player_set_next(uid, path, queueRevision)`。
+- store 每次队列相关变更递增 queueRevision；引擎记录最近收到的值，并在
+  `TrackChanged { fromUid, toUid, queueRevision }` 中回带。store 只接受
+  queueRevision 等于当前值的事件，过期事件直接丢弃——否则快速连续改队列时，
+  会按旧队列的边界错误推进 currentIndex。
+- 引擎在边界处帧级精确续播（满足不变量第 7 条的 gapless 要求）。
 - repeat-one 即 `set_next` 指向当前曲目自身。
-- `TrackChanged` 必须在消费端越过边界帧时发出，而不是解码器切源时——解码可领先播放
+- `TrackChanged` 必须在消费端越过边界帧时判定，而不是解码器切源时——解码可领先播放
   数秒，按解码时机发事件会让界面提前切换曲目信息。实现上在环形缓冲维护
-  (generation, 边界帧号) 标记队列。
+  (generation, 边界帧号) 标记队列；输出回调越界时仅向无锁事件队列压入标记，由控制
+  线程消费后对外发事件，回调自身不做任何事件发送。
 
 后期曲库与队列若整体下沉 Rust，再重估队列归属；当前阶段不做该迁移。
 
@@ -105,8 +124,11 @@ Symphonia 管线加自定义解码器注册：
 
 - gapless 裁剪使用容器与码流提供的 encoder delay/padding（Symphonia 的
   `enable_gapless` 或等价机制）。
-- 音量在引擎内做线性增益，变化带 10–20 ms 斜坡；暂停 = 斜坡到零再停止消费。
-  不做斜坡会产生可闻爆音，斜坡行为纳入验收。
+- 音量在引擎内做线性增益，变化带 10–20 ms 斜坡；不做斜坡会产生可闻爆音，斜坡行为
+  纳入验收。
+- 暂停 = 斜坡到零后回调停止从环形缓冲取帧，但继续向设备写零帧，输出流与设备时钟
+  保持活跃；只有停止播放或设备切换才拆除输出流。直接停掉回调消费会让恢复播放经历
+  设备重启延迟，也让基于消费帧数的位置时钟失去参照。
 - 重采样用 rubato，仅在源采样率不等于设备采样率时启用，并在 stats 中如实标记
   “已重采样”，对应架构约束对 bit-perfect 措辞的限制。
 
@@ -114,7 +136,9 @@ Symphonia 管线加自定义解码器注册：
 
 - `OutputBackend` trait 首版即定（能力协商 / 启动 / 停止 / 能力上报），WASAPI 独占与
   Windows 空间输出后期以新实现插入，不改引擎。
-- 起步实现为 CPAL 共享模式 f32 输出。
+- 起步实现为 CPAL 共享模式。不得假设设备支持 f32：按设备实际支持的配置协商采样格式
+  与采样率；引擎内部全链保持 f32，由输出后端在设备边界完成到协商格式的样本转换，
+  转换在回调内进行且无分配。
 - 增加 `NullOutput`：供无声卡 CI 与集成测试使用，也是前端 Mock 的行为参照。
 - CPAL 的设备热插拔通知跨平台不完整，按架构约束划入平台后端职责，各平台以
   IMMNotificationClient、CoreAudio property listener 等机制补齐。
@@ -170,7 +194,7 @@ Symphonia 管线加自定义解码器注册：
 
 | 阶段 | 内容 | 出口条件 |
 | --- | --- | --- |
-| 0 | workspace 拆分、引擎骨架、CPAL 输出、Symphonia FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
+| 0 | workspace 拆分、引擎骨架、CPAL 输出（设备格式协商）、Symphonia FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine、store 后继算法与 queueRevision | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
 | 1 | gapless、ReplayGain、重采样、设备切换、stats、语料测试 | 验收条件第 5、6 条的无头测试常态化 |
 | 2 | 曲库扫描（lofty + SQLite）替换种子数据 | 前端不再读 `src/data/library.ts` 种子 |
 | 3 | Opus 插件解码、ImportService | 架构约束第一阶段格式表除空间路径外全覆盖 |
