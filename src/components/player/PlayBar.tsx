@@ -6,6 +6,7 @@ import {
   SkipControlButton,
 } from "@/components/common/PlaybackControlButton";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
+import { AddToPlaylistMenu } from "@/components/player/AddToPlaylistMenu";
 import { QueuePanel } from "@/components/player/QueuePanel";
 import { VolumeSlider } from "@/components/common/VolumeSlider";
 import { usePlayerStore } from "@/store/player";
@@ -145,9 +146,7 @@ export function PlayBar() {
         >
           <Icon name="queue" size={16} strokeWidth={1.8} />
         </button>
-        <button aria-label={t("player.addToPlaylist")} className="grid size-[30px] place-items-center rounded-full text-tx2 transition-colors hover:bg-hv hover:text-tx">
-          <Icon name="addPlaylist" size={16} strokeWidth={1.8} />
-        </button>
+        <AddToPlaylistMenu track={track} />
         <button
           type="button"
           aria-label={muted ? t("player.unmute") : t("player.mute")}

@@ -3,6 +3,7 @@ import type {
   AudioDevice,
   Id,
   PlaybackProgress,
+  Playlist,
   QueueItem,
   RepeatMode,
   Track,
@@ -13,6 +14,7 @@ import {
   SEED_FAVORITE_ARTISTS,
   SEED_FAVORITE_TRACKS,
 } from "@/data/library";
+import { PLAYLISTS } from "@/data/playlists";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
@@ -42,6 +44,8 @@ interface PlayerState {
   favoriteArtists: Record<string, boolean>;
   /** 收藏歌单（以歌单 ID 为键）。 */
   favoritePlaylists: Record<Id, boolean>;
+  /** 歌单（用户数据，可变；种子初始化，后期由后端持久化）。 */
+  playlists: Playlist[];
 
   /** ---- 音频设备 ---- */
   devices: AudioDevice[];
@@ -62,6 +66,10 @@ interface PlayerState {
   toggleFavoriteAlbum: (id: Id) => void;
   toggleFavoriteArtist: (name: string) => void;
   toggleFavoritePlaylist: (id: Id) => void;
+  /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）；更新时间标记清空 = 「今天更新」。 */
+  addToPlaylist: (playlistId: Id, tracks: Track[]) => void;
+  /** 新建歌单并加入曲目；名称默认「新歌单」，重名自动加序号。返回新歌单 ID。 */
+  createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Id;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
@@ -113,6 +121,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
   favoriteArtists: { ...SEED_FAVORITE_ARTISTS },
   favoritePlaylists: { "pl-nightdrive": true },
+  playlists: PLAYLISTS.map((p) => ({ ...p, tracks: [...p.tracks] })),
 
   devices: [
     { id: "dev-default", label: "系统默认输出", isDefault: true },
@@ -184,6 +193,31 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   toggleFavoritePlaylist: (id) =>
     set((s) => ({ favoritePlaylists: { ...s.favoritePlaylists, [id]: !s.favoritePlaylists[id] } })),
+
+  addToPlaylist: (playlistId, tracks) =>
+    set((s) => ({
+      playlists: s.playlists.map((p) => {
+        if (p.id !== playlistId) return p;
+        const existing = new Set(p.tracks.map((tk) => tk.id));
+        const added = tracks.filter((tk) => !existing.has(tk.id));
+        if (added.length === 0) return p;
+        // updatedLabel 置空 → 展示端回退为「今天更新」
+        return { ...p, tracks: [...p.tracks, ...added], updatedLabel: "" };
+      }),
+    })),
+
+  createPlaylistWithTracks: (baseName, tracks) => {
+    const id: Id = `pl-user-${Date.now()}`;
+    set((s) => {
+      // 重名自动加序号：新歌单 / 新歌单 2 / 新歌单 3 …
+      const names = new Set(s.playlists.map((p) => p.title));
+      let title = baseName;
+      for (let n = 2; names.has(title); n++) title = `${baseName} ${n}`;
+      const playlist: Playlist = { id, title, description: "", updatedLabel: "", tracks: [...tracks] };
+      return { playlists: [...s.playlists, playlist] };
+    });
+    return id;
+  },
 
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),
