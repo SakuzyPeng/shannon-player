@@ -6,6 +6,7 @@ import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import { addTracksToPlaylistArg } from "@/lib/playlistActions";
 import type { MessageKey } from "@/i18n/messages";
 import type { Album } from "@/types/player";
 
@@ -14,9 +15,13 @@ function enqueueAlbumNext(album: Album) {
   tracksOf(album).slice().reverse().forEach(enqueueNext);
 }
 
-function handleAlbumAction(album: Album, key: MessageKey) {
+function handleAlbumAction(album: Album, key: MessageKey, arg?: string, newPlaylistName?: string) {
   const player = usePlayerStore.getState();
   switch (key) {
+    case "menu.addToPlaylist":
+      // 整张专辑加入（已在歌单中的曲目按 ID 去重）
+      if (arg) addTracksToPlaylistArg(arg, tracksOf(album), newPlaylistName ?? "");
+      break;
     case "menu.play":
       player.playQueue(tracksOf(album));
       break;
@@ -46,7 +51,7 @@ export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
           <ItemContextMenu
             label={`${album.title} — ${album.artist}`}
             items={ALBUM_MENU}
-            onAction={(key) => handleAlbumAction(album, key)}
+            onAction={(key, arg) => handleAlbumAction(album, key, arg, t("playlist.newDefaultName"))}
           >
             <div
               className="relative min-w-0 cursor-pointer hover:z-10"

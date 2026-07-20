@@ -12,6 +12,7 @@ import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import { addTracksToPlaylistArg } from "@/lib/playlistActions";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Album, Track } from "@/types/player";
@@ -57,8 +58,11 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const onShuffle = () => {
     playQueue([...allTracks].sort(() => Math.random() - 0.5), 0);
   };
-  const onTrackAction = (track: Track, index: number, key: MessageKey) => {
+  const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
     switch (key) {
+      case "menu.addToPlaylist":
+        if (arg) addTracksToPlaylistArg(arg, [track], t("playlist.newDefaultName"));
+        break;
       case "menu.play":
         playQueue(topTracks, index);
         break;
@@ -216,7 +220,8 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
                   key={track.id}
                   label={`${track.title} — ${track.album}`}
                   items={TRACK_MENU}
-                  onAction={(key) => onTrackAction(track, i, key)}
+                  onAction={(key, arg) => onTrackAction(track, i, key, arg)}
+                  containsTrackId={track.id}
                 >
                   <div
                     onClick={() => playQueue(topTracks, i)}

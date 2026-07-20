@@ -9,11 +9,12 @@ import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { PLAYLIST_TRACK_MENU } from "@/data/library";
-import { collageOf, playlistOf } from "@/data/playlists";
+import { collageOf } from "@/data/playlists";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
+import { addTracksToPlaylistArg } from "@/lib/playlistActions";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Id, Track } from "@/types/player";
@@ -60,7 +61,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const toggleFavoritePlaylist = usePlayerStore((s) => s.toggleFavoritePlaylist);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
 
-  const playlist = playlistOf(playlistId);
+  const playlist = usePlayerStore((s) => s.playlists.find((p) => p.id === playlistId));
   const covers = useMemo(() => (playlist ? collageOf(playlist) : []), [playlist]);
   const allTracks = playlist?.tracks ?? [];
   const entries = useMemo(
@@ -82,8 +83,11 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
     else playQueue(allTracks, 0);
   };
   const onShuffle = () => playQueue([...allTracks].sort(() => Math.random() - 0.5), 0);
-  const onTrackAction = (track: Track, index: number, key: MessageKey) => {
+  const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
     switch (key) {
+      case "menu.addToPlaylist":
+        if (arg) addTracksToPlaylistArg(arg, [track], t("playlist.newDefaultName"));
+        break;
       case "menu.play":
         playQueue(entries, index);
         break;
@@ -108,7 +112,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const meta = t("playlist.meta", {
     n: allTracks.length,
     m: Math.round(totalSec / 60),
-    updated: playlist.updatedLabel,
+    updated: playlist.updatedLabel || t("playlist.updatedNow"),
   });
 
   return (
@@ -286,7 +290,8 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                   key={track.id}
                   label={`${track.title} — ${track.artist}`}
                   items={PLAYLIST_TRACK_MENU}
-                  onAction={(key) => onTrackAction(track, i, key)}
+                  onAction={(key, arg) => onTrackAction(track, i, key, arg)}
+                  containsTrackId={track.id}
                 >
                   <div
                     onClick={() => playQueue(entries, i)}

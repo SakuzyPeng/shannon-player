@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, albumsOfArtist, allTracks } from "@/data/library";
-import { PLAYLISTS } from "@/data/playlists";
+
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -72,6 +72,7 @@ export function SearchScreen() {
     s.currentIndex >= 0 ? s.queue[s.currentIndex]?.track : null,
   );
   const playQueue = usePlayerStore((s) => s.playQueue);
+  const playlists = usePlayerStore((s) => s.playlists);
   const openAlbum = useUiStore((s) => s.openAlbum);
   const openArtist = useUiStore((s) => s.openArtist);
   const openPlaylist = useUiStore((s) => s.openPlaylist);
@@ -117,9 +118,9 @@ export function SearchScreen() {
 
   const lists = useMemo(() => {
     if (!hasQ || !inScope("playlists")) return [];
-    return PLAYLISTS.filter((p) => p.title.toLowerCase().includes(query)).slice(0, CAP);
+    return playlists.filter((p) => p.title.toLowerCase().includes(query)).slice(0, CAP);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, hasQ, scope]);
+  }, [query, hasQ, scope, playlists]);
 
   const total = songs.length + albums.length + artists.length + lists.length;
   const showRecent = !hasQ;
@@ -451,7 +452,7 @@ export function SearchScreen() {
                         {t("playlist.meta", {
                           n: pl.tracks.length,
                           m: Math.round(pl.tracks.reduce((s, tk) => s + tk.durationSec, 0) / 60),
-                          updated: pl.updatedLabel,
+                          updated: pl.updatedLabel || t("playlist.updatedNow"),
                         })}
                       </div>
                     </div>

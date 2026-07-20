@@ -13,6 +13,7 @@ import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import { addTracksToPlaylistArg } from "@/lib/playlistActions";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Track } from "@/types/player";
@@ -139,8 +140,11 @@ export function SongsScreen() {
     if (v !== barVisible) setBarVisible(v);
   };
 
-  const onTrackAction = (track: Track, index: number, key: MessageKey) => {
+  const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
     switch (key) {
+      case "menu.addToPlaylist":
+        if (arg) addTracksToPlaylistArg(arg, [track], t("playlist.newDefaultName"));
+        break;
       case "menu.play":
         playQueue(entries, index);
         break;
@@ -172,7 +176,8 @@ export function SongsScreen() {
         key={track.id}
         label={`${track.title} — ${track.artist}`}
         items={TRACK_MENU}
-        onAction={(key) => onTrackAction(track, index, key)}
+        onAction={(key, arg) => onTrackAction(track, index, key, arg)}
+        containsTrackId={track.id}
       >
         <div
           onClick={() => playQueue(entries, index)}

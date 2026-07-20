@@ -150,6 +150,9 @@ export interface Messages {
   "menu.play": string;
   "menu.playNext": string;
   "menu.addToPlaylist": string;
+  "menu.newPlaylist": string;
+  "playlist.updatedNow": string;
+  "playlist.newDefaultName": string;
   "menu.favorite": string;
   "menu.editTags": string;
   "menu.showInfo": string;
@@ -339,6 +342,9 @@ const zhHans: Messages = {
   "menu.play": "播放",
   "menu.playNext": "下一首播放",
   "menu.addToPlaylist": "添加到歌单…",
+  "menu.newPlaylist": "新建歌单并加入",
+  "playlist.updatedNow": "今天更新",
+  "playlist.newDefaultName": "新歌单",
   "menu.favorite": "收藏",
   "menu.editTags": "编辑标签…",
   "menu.showInfo": "显示专辑简介",
@@ -526,6 +532,9 @@ const zhHant: Messages = {
   "menu.play": "播放",
   "menu.playNext": "下一首播放",
   "menu.addToPlaylist": "加入播放清單…",
+  "menu.newPlaylist": "新增歌單並加入",
+  "playlist.updatedNow": "今天更新",
+  "playlist.newDefaultName": "新歌單",
   "menu.favorite": "收藏",
   "menu.editTags": "編輯標籤…",
   "menu.showInfo": "顯示專輯簡介",
@@ -713,6 +722,9 @@ const en: Messages = {
   "menu.play": "Play",
   "menu.playNext": "Play Next",
   "menu.addToPlaylist": "Add to Playlist…",
+  "menu.newPlaylist": "New playlist with this",
+  "playlist.updatedNow": "Updated today",
+  "playlist.newDefaultName": "New Playlist",
   "menu.favorite": "Favorite",
   "menu.editTags": "Edit Tags…",
   "menu.showInfo": "Show Album Info",
@@ -900,6 +912,9 @@ const ja: Messages = {
   "menu.play": "再生",
   "menu.playNext": "次に再生",
   "menu.addToPlaylist": "プレイリストに追加…",
+  "menu.newPlaylist": "新規プレイリストに追加",
+  "playlist.updatedNow": "今日更新",
+  "playlist.newDefaultName": "新しいプレイリスト",
   "menu.favorite": "お気に入り",
   "menu.editTags": "タグを編集…",
   "menu.showInfo": "アルバム情報を表示",

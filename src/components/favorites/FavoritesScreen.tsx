@@ -10,12 +10,13 @@ import { SegmentedContent, SegmentedControl } from "@/components/common/Segmente
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, TRACK_MENU, albumsOfArtist, allTracks, tracksOf } from "@/data/library";
-import { PLAYLISTS, collageOf } from "@/data/playlists";
+import { collageOf } from "@/data/playlists";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import { addTracksToPlaylistArg } from "@/lib/playlistActions";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Album, Playlist, Track } from "@/types/player";
@@ -81,6 +82,7 @@ export function FavoritesScreen() {
   const favoriteAlbums = usePlayerStore((s) => s.favoriteAlbums);
   const favoriteArtists = usePlayerStore((s) => s.favoriteArtists);
   const favoritePlaylists = usePlayerStore((s) => s.favoritePlaylists);
+  const playlists = usePlayerStore((s) => s.playlists);
   const playQueue = usePlayerStore((s) => s.playQueue);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const toggleFavoriteAlbum = usePlayerStore((s) => s.toggleFavoriteAlbum);
@@ -112,8 +114,8 @@ export function FavoritesScreen() {
     return out;
   }, [favoriteArtists]);
   const basePlaylists = useMemo(
-    () => PLAYLISTS.filter((p) => favoritePlaylists[p.id]),
-    [favoritePlaylists],
+    () => playlists.filter((p) => favoritePlaylists[p.id]),
+    [playlists, favoritePlaylists],
   );
 
   const baseCount: Record<FavTab, number> = {
@@ -217,8 +219,11 @@ export function FavoritesScreen() {
     if (v !== barVisible) setBarVisible(v);
   };
 
-  const onTrackAction = (track: Track, index: number, key: MessageKey) => {
+  const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
     switch (key) {
+      case "menu.addToPlaylist":
+        if (arg) addTracksToPlaylistArg(arg, [track], t("playlist.newDefaultName"));
+        break;
       case "menu.play":
         playQueue(songEntries, index);
         break;
@@ -262,7 +267,8 @@ export function FavoritesScreen() {
         <ItemContextMenu
           label={`${track.title} — ${track.artist}`}
           items={TRACK_MENU}
-          onAction={(key) => onTrackAction(track, index, key)}
+          onAction={(key, arg) => onTrackAction(track, index, key, arg)}
+          containsTrackId={track.id}
         >
           <div
             onClick={() => playQueue(songEntries, index)}
@@ -765,7 +771,7 @@ function FavPlaylistCard({
           {t("playlist.meta", {
             n: playlist.tracks.length,
             m: Math.round(playlist.tracks.reduce((s, tk) => s + tk.durationSec, 0) / 60),
-            updated: playlist.updatedLabel,
+            updated: playlist.updatedLabel || t("playlist.updatedNow"),
           })}
         </div>
       </div>
