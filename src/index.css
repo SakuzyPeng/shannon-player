@@ -122,9 +122,19 @@ body {
   background: var(--bg);
   color: var(--tx);
   -webkit-font-smoothing: antialiased;
+  /* 桌面应用手感：默认禁止选中界面文本（WKWebView / WebKitGTK 需 -webkit- 前缀）。 */
+  -webkit-user-select: none;
   user-select: none;
   cursor: default;
   overflow: hidden;
+}
+
+/* 输入类控件恢复可选中，保证过滤框能选词 / 粘贴。 */
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* 隐藏原生滚动条（自绘滚动条另行实现） */
