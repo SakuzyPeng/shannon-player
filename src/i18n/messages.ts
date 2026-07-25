@@ -120,6 +120,7 @@ export interface Messages {
   "playlists.sortRecent": string;
   "playlists.sortByTitle": string;
   "playlists.sortBySize": string;
+  "playlists.sortCustom": string;
   "playlists.filterPlaceholder": string;
   "playlists.emptyTitle": string; // {q}
   "playlists.emptyBody": string;
@@ -335,6 +336,7 @@ const zhHans: Messages = {
   "playlists.sortRecent": "最近更新",
   "playlists.sortByTitle": "按标题",
   "playlists.sortBySize": "按曲目数",
+  "playlists.sortCustom": "自定义顺序",
   "playlists.filterPlaceholder": "过滤歌单…",
   "playlists.emptyTitle": "没有找到“{q}”",
   "playlists.emptyBody": "检查拼写，或试试其他歌单名",
@@ -548,6 +550,7 @@ const zhHant: Messages = {
   "playlists.sortRecent": "最近更新",
   "playlists.sortByTitle": "按標題",
   "playlists.sortBySize": "按曲目數",
+  "playlists.sortCustom": "自訂順序",
   "playlists.filterPlaceholder": "過濾歌單…",
   "playlists.emptyTitle": "沒有找到「{q}」",
   "playlists.emptyBody": "檢查拼寫，或試試其他歌單名",
@@ -761,6 +764,7 @@ const en: Messages = {
   "playlists.sortRecent": "Recently updated",
   "playlists.sortByTitle": "By title",
   "playlists.sortBySize": "By track count",
+  "playlists.sortCustom": "Custom order",
   "playlists.filterPlaceholder": "Filter playlists…",
   "playlists.emptyTitle": "No playlists for “{q}”",
   "playlists.emptyBody": "Check the spelling or try another playlist name",
@@ -974,6 +978,7 @@ const ja: Messages = {
   "playlists.sortRecent": "最近の更新順",
   "playlists.sortByTitle": "タイトル順",
   "playlists.sortBySize": "曲数順",
+  "playlists.sortCustom": "カスタム順",
   "playlists.filterPlaceholder": "プレイリストを絞り込む…",
   "playlists.emptyTitle": "「{q}」は見つかりません",
   "playlists.emptyBody": "スペルを確認するか、別のプレイリスト名をお試しください",
