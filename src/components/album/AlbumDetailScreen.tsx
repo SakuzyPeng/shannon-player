@@ -2,11 +2,11 @@ import { useMemo, useState, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
-import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { ItemContextMenu, ItemMoreMenu } from "@/components/common/ItemContextMenu";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
-import { ALBUMS, TRACK_MENU, tracksOf } from "@/data/library";
+import { ALBUM_MENU, ALBUMS, TRACK_MENU, tracksOf } from "@/data/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -55,6 +55,23 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const onShuffleAlbum = () => {
     const shuffled = [...tracks].sort(() => Math.random() - 0.5);
     playQueue(shuffled, 0);
+  };
+  /** 专辑级动作（「…」菜单）：与专辑卡右键菜单一致。 */
+  const onAlbumAction = (key: MessageKey, arg?: string) => {
+    switch (key) {
+      case "menu.addToPlaylist":
+        if (arg) addTracksToPlaylistArg(arg, tracks, t("playlist.newDefaultName"));
+        break;
+      case "menu.play":
+        playQueue(tracks, 0);
+        break;
+      case "menu.playNext":
+        [...tracks].reverse().forEach(enqueueNext);
+        break;
+      case "menu.favorite":
+        toggleFavoriteAlbum(album!.id);
+        break;
+    }
   };
   const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
     switch (key) {
@@ -206,13 +223,20 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                   <Icon name="shuffle" size={15} strokeWidth={1.8} />
                   {t("album.shufflePlay")}
                 </button>
-                <button
-                  aria-label={t("album.more")}
-                  title={t("album.more")}
-                  className="grid size-10 cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx2 transition-colors hover:bg-hv hover:text-tx"
+                {/* 「…」与专辑卡右键菜单同内容：专辑属曲库内容，可做的动作就是这些。 */}
+                <ItemMoreMenu
+                  label={`${album.title} — ${album.artist}`}
+                  items={ALBUM_MENU}
+                  onAction={onAlbumAction}
                 >
-                  <Icon name="more" size={16} />
-                </button>
+                  <button
+                    aria-label={t("album.more")}
+                    title={t("album.more")}
+                    className="grid size-10 cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx2 transition-colors hover:bg-hv hover:text-tx data-[state=open]:bg-hv data-[state=open]:text-ac"
+                  >
+                    <Icon name="more" size={16} />
+                  </button>
+                </ItemMoreMenu>
               </div>
             </div>
           </div>

@@ -87,6 +87,10 @@ interface PlayerState {
   reorderPlaylist: (playlistId: Id, tracks: Track[]) => void;
   /** 用新顺序替换歌单列表本身（歌单页拖拽重排，即「自定义顺序」）。 */
   reorderPlaylists: (playlists: Playlist[]) => void;
+  /** 重命名歌单。 */
+  renamePlaylist: (playlistId: Id, title: string) => void;
+  /** 删除歌单（同时清掉它的收藏标记）。 */
+  deletePlaylist: (playlistId: Id) => void;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
@@ -268,6 +272,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     })),
 
   reorderPlaylists: (playlists) => set({ playlists: [...playlists] }),
+
+  renamePlaylist: (playlistId, title) =>
+    set((s) => ({
+      playlists: s.playlists.map((p) =>
+        p.id === playlistId ? { ...p, title, updatedLabel: "" } : p,
+      ),
+    })),
+
+  deletePlaylist: (playlistId) =>
+    set((s) => {
+      // 收藏标记一并清除，避免留下指向已删歌单的孤立键。
+      const { [playlistId]: _removed, ...favoritePlaylists } = s.favoritePlaylists;
+      return { playlists: s.playlists.filter((p) => p.id !== playlistId), favoritePlaylists };
+    }),
 
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),
