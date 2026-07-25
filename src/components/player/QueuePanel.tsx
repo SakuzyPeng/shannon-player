@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, Reorder, useReducedMotion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
+import { Icon } from "@/components/common/Icon";
 import {
   RepeatControlIcon,
   ShuffleControlIcon,
@@ -36,6 +37,9 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
   const cycleRepeat = usePlayerStore((s) => s.cycleRepeat);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const clearUpNext = usePlayerStore((s) => s.clearUpNext);
+  const reorderUpNext = usePlayerStore((s) => s.reorderUpNext);
+  const playQueueItem = usePlayerStore((s) => s.playQueueItem);
+  const removeQueueItem = usePlayerStore((s) => s.removeQueueItem);
 
   const track = currentIndex >= 0 ? (queue[currentIndex]?.track ?? null) : null;
   const upNext = queue.slice(currentIndex + 1);
@@ -122,7 +126,11 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
           )}
           <AnimatePresence initial={false} mode="wait">
             {upNext.length > 0 ? (
-              <motion.div
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={upNext}
+                onReorder={reorderUpNext}
                 key="queue-list"
                 className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2.5"
                 initial={{ opacity: 0 }}
@@ -133,9 +141,14 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
                 {upNext.map((item) => {
                   const qLiked = !!favorites[item.track.id];
                   return (
-                    <div
+                    // 整行可拖拽重排：面板窄，没有额外空间放拖拽柄；
+                    // framer-motion 需位移超过阈值才判定为拖拽，单击仍会跳转播放。
+                    <Reorder.Item
+                      as="div"
                       key={item.uid}
-                      className="flex cursor-pointer items-center gap-[11px] rounded-[11px] px-2.5 py-[7px] hover:bg-[var(--qhv)]"
+                      value={item}
+                      onClick={() => playQueueItem(item.uid)}
+                      className="group/qrow flex cursor-pointer items-center gap-[11px] rounded-[11px] px-2.5 py-[7px] hover:bg-[var(--qhv)]"
                     >
                       <div
                         className="cover-corners cover-gradient grid size-[38px] flex-shrink-0 place-items-center rounded-lg shadow-[inset_0_0_0_1px_var(--qring)]"
@@ -171,10 +184,21 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
                           variant="pop"
                         />
                       </button>
-                    </div>
+                      <button
+                        aria-label={t("queue.remove")}
+                        title={t("queue.remove")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeQueueItem(item.uid);
+                        }}
+                        className="grid size-[26px] flex-shrink-0 cursor-pointer place-items-center rounded-full text-tx2 opacity-0 transition-opacity hover:bg-[var(--qhv)] hover:text-tx focus-visible:opacity-100 group-hover/qrow:opacity-100"
+                      >
+                        <Icon name="close" size={11} strokeWidth={2.2} />
+                      </button>
+                    </Reorder.Item>
                   );
                 })}
-              </motion.div>
+              </Reorder.Group>
             ) : (
               <motion.div
                 key="queue-empty"

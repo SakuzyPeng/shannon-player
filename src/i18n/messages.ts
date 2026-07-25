@@ -60,6 +60,14 @@ export interface Messages {
   "settings.appearanceDesc": string;
   "settings.language": string;
   "settings.languageDesc": string;
+  "settings.shortcuts": string;
+  "settings.shortcutsDesc": string;
+  "shortcut.playPause": string;
+  "shortcut.seek": string;
+  "shortcut.prevNext": string;
+  "shortcut.volume": string;
+  "shortcut.mute": string;
+  "shortcut.search": string;
   "settings.appName": string;
   "settings.aboutTagline": string;
   "settings.sourceCode": string;
@@ -136,6 +144,7 @@ export interface Messages {
 
   "queue.title": string;
   "queue.clear": string;
+  "queue.remove": string;
   "queue.from": string; // {name}
   "queue.empty": string;
 
@@ -254,6 +263,14 @@ const zhHans: Messages = {
   "settings.appearance": "外观",
   "settings.appearanceDesc": "跟随系统时将自动在日出日落间切换",
   "settings.language": "界面语言",
+  "settings.shortcuts": "键盘快捷键",
+  "settings.shortcutsDesc": "全局生效；焦点在输入框或菜单内时让位给它们",
+  "shortcut.playPause": "播放 / 暂停",
+  "shortcut.seek": "快退 / 快进 5 秒",
+  "shortcut.prevNext": "上一首 / 下一首",
+  "shortcut.volume": "音量增减",
+  "shortcut.mute": "静音开关",
+  "shortcut.search": "唤起搜索",
   "settings.languageDesc": "重启后对全部界面文案生效",
   "settings.appName": "香农播放器",
   "settings.aboutTagline": "永久免费，无付费功能",
@@ -331,6 +348,7 @@ const zhHans: Messages = {
 
   "queue.title": "继续播放",
   "queue.clear": "清除",
+  "queue.remove": "从队列移除",
   "queue.from": "来自：{name}",
   "queue.empty": "队列是空的",
 
@@ -447,6 +465,14 @@ const zhHant: Messages = {
   "settings.appearance": "外觀",
   "settings.appearanceDesc": "跟隨系統時將自動在日出日落間切換",
   "settings.language": "介面語言",
+  "settings.shortcuts": "鍵盤快速鍵",
+  "settings.shortcutsDesc": "全域生效；焦點在輸入框或選單內時讓位給它們",
+  "shortcut.playPause": "播放 / 暫停",
+  "shortcut.seek": "快退 / 快進 5 秒",
+  "shortcut.prevNext": "上一首 / 下一首",
+  "shortcut.volume": "音量增減",
+  "shortcut.mute": "靜音開關",
+  "shortcut.search": "喚起搜尋",
   "settings.languageDesc": "重啟後對全部介面文案生效",
   "settings.appName": "香農播放器",
   "settings.aboutTagline": "永久免費，無付費功能",
@@ -524,6 +550,7 @@ const zhHant: Messages = {
 
   "queue.title": "繼續播放",
   "queue.clear": "清除",
+  "queue.remove": "從佇列移除",
   "queue.from": "來自：{name}",
   "queue.empty": "佇列是空的",
 
@@ -640,6 +667,14 @@ const en: Messages = {
   "settings.appearance": "Appearance",
   "settings.appearanceDesc": "In system mode, switches automatically between sunrise and sunset",
   "settings.language": "Interface language",
+  "settings.shortcuts": "Keyboard shortcuts",
+  "settings.shortcutsDesc": "Global; yields to inputs and menus while they have focus",
+  "shortcut.playPause": "Play / pause",
+  "shortcut.seek": "Back / forward 5s",
+  "shortcut.prevNext": "Previous / next track",
+  "shortcut.volume": "Volume up / down",
+  "shortcut.mute": "Toggle mute",
+  "shortcut.search": "Open search",
   "settings.languageDesc": "Applies to all interface text after a restart",
   "settings.appName": "Shannon Player",
   "settings.aboutTagline": "Free forever, no paid features",
@@ -717,6 +752,7 @@ const en: Messages = {
 
   "queue.title": "Up Next",
   "queue.clear": "Clear",
+  "queue.remove": "Remove from queue",
   "queue.from": "From: {name}",
   "queue.empty": "The queue is empty",
 
@@ -833,6 +869,14 @@ const ja: Messages = {
   "settings.appearance": "外観",
   "settings.appearanceDesc": "システム連動時は日の出・日の入りで自動的に切り替わります",
   "settings.language": "表示言語",
+  "settings.shortcuts": "キーボードショートカット",
+  "settings.shortcutsDesc": "グローバル。入力欄やメニューにフォーカスがある間は無効",
+  "shortcut.playPause": "再生 / 一時停止",
+  "shortcut.seek": "5 秒戻る / 進む",
+  "shortcut.prevNext": "前の曲 / 次の曲",
+  "shortcut.volume": "音量の上下",
+  "shortcut.mute": "ミュート切り替え",
+  "shortcut.search": "検索を開く",
   "settings.languageDesc": "再起動後、すべての UI テキストに反映されます",
   "settings.appName": "シャノンプレーヤー",
   "settings.aboutTagline": "永久無料、有料機能なし",
@@ -910,6 +954,7 @@ const ja: Messages = {
 
   "queue.title": "次に再生",
   "queue.clear": "クリア",
+  "queue.remove": "キューから削除",
   "queue.from": "出典：{name}",
   "queue.empty": "キューは空です",
 

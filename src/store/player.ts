@@ -81,6 +81,10 @@ interface PlayerState {
   addToPlaylist: (playlistId: Id, tracks: Track[]) => void;
   /** 新建并收藏歌单后加入曲目；名称默认「新歌单」，重名自动加序号。返回新歌单 ID。 */
   createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Id;
+  /** 从歌单移除曲目。 */
+  removeFromPlaylist: (playlistId: Id, trackId: Id) => void;
+  /** 用新顺序替换歌单曲目（拖拽重排）。 */
+  reorderPlaylist: (playlistId: Id, tracks: Track[]) => void;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
@@ -93,6 +97,12 @@ interface PlayerState {
   tick: (dtSec: number) => void;
   /** 清空当前曲目之后的队列（歌词页队列面板「清除」）。 */
   clearUpNext: () => void;
+  /** 用新顺序替换「接下来」队列（拖拽重排）。 */
+  reorderUpNext: (items: QueueItem[]) => void;
+  /** 跳到队列中的指定项并播放。 */
+  playQueueItem: (uid: Id) => void;
+  /** 移除队列中的指定项（当前播放项不可移除）。 */
+  removeQueueItem: (uid: Id) => void;
   /** 「下一首播放」：插入到当前项之后。 */
   enqueueNext: (track: Track) => void;
   /** 追加到队尾。 */
@@ -239,6 +249,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     return id;
   },
 
+  removeFromPlaylist: (playlistId, trackId) =>
+    set((s) => ({
+      playlists: s.playlists.map((p) =>
+        p.id === playlistId
+          ? { ...p, tracks: p.tracks.filter((tk) => tk.id !== trackId), updatedLabel: "" }
+          : p,
+      ),
+    })),
+
+  reorderPlaylist: (playlistId, tracks) =>
+    set((s) => ({
+      playlists: s.playlists.map((p) =>
+        p.id === playlistId ? { ...p, tracks: [...tracks], updatedLabel: "" } : p,
+      ),
+    })),
+
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),
 
@@ -270,6 +296,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   clearUpNext: () =>
     set((s) => ({ queue: s.queue.slice(0, s.currentIndex + 1) })),
+
+  reorderUpNext: (items) =>
+    set((s) => ({ queue: [...s.queue.slice(0, s.currentIndex + 1), ...items] })),
+
+  playQueueItem: (uid) =>
+    set((s) => {
+      const idx = s.queue.findIndex((q) => q.uid === uid);
+      if (idx < 0) return s;
+      return { currentIndex: idx, playing: true, progress: freshProgress(s.queue[idx].track) };
+    }),
+
+  removeQueueItem: (uid) =>
+    set((s) => {
+      const idx = s.queue.findIndex((q) => q.uid === uid);
+      // 当前播放项不可移除：移除它等于「跳到下一首」，语义应由 next() 承担。
+      if (idx < 0 || idx === s.currentIndex) return s;
+      const queue = s.queue.filter((q) => q.uid !== uid);
+      return { queue, currentIndex: idx < s.currentIndex ? s.currentIndex - 1 : s.currentIndex };
+    }),
 
   enqueueNext: (track) =>
     set((s) => {
