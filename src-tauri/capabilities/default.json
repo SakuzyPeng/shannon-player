@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "香农播放器 主窗口权限：自绘窗口控制（交通灯）与拖拽",
+  "description": "香农播放器 主窗口权限：自绘窗口控制（交通灯）与拖拽、选择音乐文件夹、读取本地音频文件",
   "windows": [
     "main"
   ],
@@ -13,6 +13,8 @@
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",
     "core:window:allow-close",
-    "core:window:allow-is-maximized"
+    "core:window:allow-is-maximized",
+    "dialog:allow-open",
+    "core:event:default"
   ]
 }

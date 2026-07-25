@@ -10,7 +10,8 @@ import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
-import { ALBUMS, TRACK_MENU, albumsOfArtist, allTracks, tracksOf } from "@/data/library";
+import { TRACK_MENU } from "@/data/library";
+import { albums as libraryAlbums, albumsOfArtist, allTracks, tracksOf } from "@/lib/library";
 import { collageOf } from "@/data/playlists";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
@@ -100,13 +101,13 @@ export function FavoritesScreen() {
     [favorites],
   );
   const baseAlbums = useMemo(
-    () => ALBUMS.filter((a) => favoriteAlbums[a.id]),
+    () => libraryAlbums().filter((a) => favoriteAlbums[a.id]),
     [favoriteAlbums],
   );
   const baseArtists = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const a of ALBUMS) {
+    for (const a of libraryAlbums()) {
       if (favoriteArtists[a.artist] && !seen.has(a.artist)) {
         seen.add(a.artist);
         out.push(a.artist);
@@ -468,7 +469,7 @@ export function FavoritesScreen() {
                         </span>
                       </div>
                       {g.albums.map((ab) => {
-                        const album = ALBUMS.find((a) => a.id === ab.albumId);
+                        const album = libraryAlbums().find((a) => a.id === ab.albumId);
                         return (
                           <motion.div key={`${g.artist}-${ab.title}`} layout="position">
                             <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">

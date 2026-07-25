@@ -141,7 +141,7 @@ function rowsFor(title: string, trackCount: number): Array<readonly [string, num
   return rows.slice(0, trackCount);
 }
 
-export const ALBUMS: Album[] = RAW.map((a, i) => ({
+export const SEED_ALBUMS: Album[] = RAW.map((a, i) => ({
   id: `alb-${i}`,
   title: a.t,
   artist: a.ar,
@@ -152,8 +152,8 @@ export const ALBUMS: Album[] = RAW.map((a, i) => ({
   durationSec: rowsFor(a.t, a.n).reduce((s, [, d]) => s + d, 0),
 }));
 
-/** 专辑曲目列表。后期由后端扫描替换。 */
-export function tracksOf(album: Album): Track[] {
+/** 种子专辑的曲目（由曲名 + 曲目数确定性生成）。真实曲库走 lib/library.ts。 */
+export function seedTracksOf(album: Album): Track[] {
   return rowsFor(album.title, album.trackCount).map(([title, durationSec], i) => ({
     id: `${album.id}-t${i}`,
     title,
@@ -165,74 +165,18 @@ export function tracksOf(album: Album): Track[] {
   }));
 }
 
-/** 全曲库曲目（按「最近添加」序 = 专辑在库中的顺序）。 */
-export function allTracks(): Track[] {
-  return ALBUMS.flatMap(tracksOf);
-}
-
-/** 歌手的专辑（按年份倒序，对齐歌手页设计稿）。 */
-export function albumsOfArtist(artist: string): Album[] {
-  return ALBUMS.filter((a) => a.artist === artist).sort((a, b) => b.year - a.year);
-}
-
-/** 歌手页热门歌曲的种子排序（[专辑, 曲名]，来自设计稿）。 */
-const ARTIST_TOP_SONGS: Record<string, ReadonlyArray<readonly [string, string]>> = {
-  白鲸电台: [
-    ["长夜电波", "午夜环线"],
-    ["长夜电波", "凌晨广播站"],
-    ["空港日记", "空港日记"],
-    ["空港日记", "候机厅的雨"],
-    ["白鲸电台", "白鲸 FM"],
-    ["长夜电波", "无人月台"],
-    ["空港日记", "塔台之歌"],
-    ["夜航", "夜航"],
-    ["长夜电波", "末班车挽歌"],
-    ["白鲸电台", "浅海电台"],
-  ],
-};
-
-/** 歌手热门歌曲（有种子按种子排序，否则取其专辑曲目的前 10 首）。 */
-export function topTracksOf(artist: string): Track[] {
-  const byKey = new Map<string, Track>();
-  const all: Track[] = [];
-  for (const album of albumsOfArtist(artist)) {
-    for (const track of tracksOf(album)) {
-      byKey.set(`${album.title}/${track.title}`, track);
-      all.push(track);
-    }
-  }
-  const seed = ARTIST_TOP_SONGS[artist];
-  if (seed) {
-    return seed
-      .map(([al, ti]) => byKey.get(`${al}/${ti}`))
-      .filter((tk): tk is Track => tk !== undefined);
-  }
-  return all.slice(0, 10);
-}
-
-/** 歌手收听次数（演示统计，后期由后端提供）。 */
-const ARTIST_PLAYS: Record<string, number> = { 白鲸电台: 214 };
-
-export function playsOf(artist: string): number {
-  const seeded = ARTIST_PLAYS[artist];
-  if (seeded !== undefined) return seeded;
-  let h = 0;
-  for (const ch of artist) h = (h * 31 + ch.charCodeAt(0)) % 997;
-  return 40 + (h % 400);
-}
-
 /** 悬浮播放条演示曲目（万能青年旅店《秦皇岛》）。 */
 export const DEMO_TRACK: Track = {
   id: "trk-demo",
   title: "秦皇岛",
   artist: "万能青年旅店",
   album: "万能青年旅店",
-  albumId: ALBUMS.find((a) => a.title === "万能青年旅店")?.id,
+  albumId: SEED_ALBUMS.find((a) => a.title === "万能青年旅店")?.id,
   cover: { initial: "万", gradient: ["#706A58", "#403C2C"] },
   durationSec: 371, // 6:11
 };
 
-const albumIdByTitle = (title: string): string => ALBUMS.find((a) => a.title === title)!.id;
+const albumIdByTitle = (title: string): string => SEED_ALBUMS.find((a) => a.title === title)!.id;
 
 /** 收藏种子（对齐设计稿演示状态）：播放条演示曲目 + 午夜环线 / 出租屋的海 / 候机厅的雨。 */
 export const SEED_FAVORITE_TRACKS: Record<string, boolean> = {

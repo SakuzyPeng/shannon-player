@@ -5,7 +5,7 @@ import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { MetaLine } from "@/components/common/MetaLine";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
-import { ALBUMS, albumsOfArtist } from "@/data/library";
+import { albums as libraryAlbums, albumsOfArtist } from "@/lib/library";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
@@ -110,7 +110,7 @@ export function ArtistsScreen() {
   const artists = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const a of ALBUMS) {
+    for (const a of libraryAlbums()) {
       if (!seen.has(a.artist)) {
         seen.add(a.artist);
         out.push(a.artist);

@@ -1,0 +1,17 @@
+[package]
+name = "shannon-core"
+version = "0.1.0"
+description = "香农播放器核心逻辑：曲库扫描、音频规格探测、稳定 ID。不依赖 Tauri / GUI。"
+license = "AGPL-3.0-only"
+edition = "2021"
+rust-version = "1.77.2"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ts-rs = "10.1.0"
+lofty = "0.22.2"
+walkdir = "2.5.0"
+rayon = "1.10.0"
+blake3 = "1.8.5"
+symphonia = { version = "0.5.5", features = ["all-codecs", "all-formats"] }

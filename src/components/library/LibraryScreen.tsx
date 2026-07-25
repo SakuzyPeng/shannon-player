@@ -9,7 +9,7 @@ import { AlbumGrid } from "@/components/library/AlbumGrid";
 import { AlbumList } from "@/components/library/AlbumList";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { NAV_ITEMS } from "@/data/library";
-import { ALBUMS } from "@/data/library";
+import { albums as libraryAlbums } from "@/lib/library";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import type { MessageKey } from "@/i18n/messages";
@@ -135,7 +135,7 @@ export function LibraryScreen() {
   const title = navItem ? t(navItem.labelKey) : t("nav.albums");
   const isAlbums = nav === "albums";
   const albums = useMemo(() => {
-    const list = [...ALBUMS];
+    const list = [...libraryAlbums()];
     if (sort === "title") return list.sort((a, b) => a.title.localeCompare(b.title, "zh"));
     if (sort === "artist") {
       return list.sort(
@@ -202,7 +202,7 @@ export function LibraryScreen() {
               <MetaLine
                 text={
                   isAlbums
-                    ? t("header.albumSubtitle", { count: ALBUMS.length, sort: t(SORT_LABEL[sort]) })
+                    ? t("header.albumSubtitle", { count: libraryAlbums().length, sort: t(SORT_LABEL[sort]) })
                     : t("placeholder.body")
                 }
                 className="mt-[7px] text-[13px] text-tx2"

@@ -87,6 +87,7 @@ export interface Messages {
   "firstRun.doneTitle": string;
   "firstRun.doneBody": string; // {n} {m} {a}
   "firstRun.startListening": string;
+  "firstRun.scanFailed": string;
 
   "view.grid": string;
   "view.list": string;
@@ -313,6 +314,7 @@ const zhHans: Messages = {
   "firstRun.doneTitle": "曲库整理好了",
   "firstRun.doneBody": "{n} 首歌曲 · {m} 张专辑 · {a} 位歌手\n之后新增的文件会自动加入，无需再次扫描",
   "firstRun.startListening": "开始听歌",
+  "firstRun.scanFailed": "扫描失败",
 
   "view.grid": "网格",
   "view.list": "列表",
@@ -537,6 +539,7 @@ const zhHant: Messages = {
   "firstRun.doneTitle": "曲庫整理好了",
   "firstRun.doneBody": "{n} 首歌曲 · {m} 張專輯 · {a} 位歌手\n之後新增的檔案會自動加入，無需再次掃描",
   "firstRun.startListening": "開始聽歌",
+  "firstRun.scanFailed": "掃描失敗",
 
   "view.grid": "網格",
   "view.list": "清單",
@@ -761,6 +764,7 @@ const en: Messages = {
   "firstRun.doneTitle": "Your library is ready",
   "firstRun.doneBody": "{n} {n|song|songs} · {m} {m|album|albums} · {a} {a|artist|artists}\nNew files are added automatically — no need to scan again",
   "firstRun.startListening": "Start listening",
+  "firstRun.scanFailed": "Scan failed",
 
   "view.grid": "Grid",
   "view.list": "List",
@@ -985,6 +989,7 @@ const ja: Messages = {
   "firstRun.doneTitle": "ライブラリの準備ができました",
   "firstRun.doneBody": "{n} 曲 · {m} アルバム · {a} アーティスト\n新しいファイルは自動で追加され、再スキャンは不要です",
   "firstRun.startListening": "聴き始める",
+  "firstRun.scanFailed": "スキャンに失敗しました",
 
   "view.grid": "グリッド",
   "view.list": "リスト",

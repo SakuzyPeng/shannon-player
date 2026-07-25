@@ -6,7 +6,8 @@ import { ItemContextMenu, ItemMoreMenu } from "@/components/common/ItemContextMe
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
-import { ALBUM_MENU, ALBUMS, TRACK_MENU, tracksOf } from "@/data/library";
+import { ALBUM_MENU, TRACK_MENU } from "@/data/library";
+import { albums as libraryAlbums, tracksOf } from "@/lib/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -39,7 +40,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const toggleFavoriteAlbum = usePlayerStore((s) => s.toggleFavoriteAlbum);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
 
-  const album = ALBUMS.find((a) => a.id === albumId);
+  const album = libraryAlbums().find((a) => a.id === albumId);
   const tracks = useMemo(() => (album ? tracksOf(album) : []), [album]);
   if (!album) return null;
 

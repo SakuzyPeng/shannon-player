@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
-import { ALBUMS, albumsOfArtist, allTracks } from "@/data/library";
+import { albums as libraryAlbums, albumsOfArtist, allTracks } from "@/lib/library";
 
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
@@ -98,7 +98,7 @@ export function SearchScreen() {
 
   const albums = useMemo(() => {
     if (!hasQ || !inScope("albums")) return [];
-    return ALBUMS.filter((a) => a.title.toLowerCase().includes(query)).slice(0, CAP);
+    return libraryAlbums().filter((a) => a.title.toLowerCase().includes(query)).slice(0, CAP);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, hasQ, scope]);
 
@@ -106,7 +106,7 @@ export function SearchScreen() {
     if (!hasQ || !inScope("artists")) return [];
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const a of ALBUMS) {
+    for (const a of libraryAlbums()) {
       if (a.artist.toLowerCase().includes(query) && !seen.has(a.artist)) {
         seen.add(a.artist);
         out.push(a.artist);

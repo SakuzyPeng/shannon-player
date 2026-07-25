@@ -5,7 +5,7 @@
    本地 .ttml / .lrc 导入替换。
    ============================================================ */
 
-import { ALBUMS } from "@/data/library";
+import { SEED_ALBUMS } from "@/data/library";
 import type { Id, LyricLine, Lyrics } from "@/types/player";
 
 /** 造一行逐字歌词：字符在前 fillSec 秒内均匀填充，行持续到下一行开始。 */
@@ -42,7 +42,7 @@ const MIDNIGHT_LOOP_LINES: LyricLine[] = [
   ["黎明还有四站地远", "Dawn is still four stops away"],
 ].map(([t, tr], i) => line(12 + i * 21.5, 12 + i * 21.5 + 20, t, tr));
 
-const nightWaveId = ALBUMS.find((a) => a.title === "长夜电波")?.id;
+const nightWaveId = SEED_ALBUMS.find((a) => a.title === "长夜电波")?.id;
 
 /** 歌词库（按曲目 ID 索引）。无词条的曲目走「暂无歌词」空态。 */
 const LYRICS_BY_TRACK: Record<Id, Lyrics> = nightWaveId

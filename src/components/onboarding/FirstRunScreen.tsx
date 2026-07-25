@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { isTauri, onScanProgress, pickMusicFolder, scanLibrary } from "@/lib/backend";
+import { useLibraryStore } from "@/store/library";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 
 type Phase = "welcome" | "scanning" | "done";
 
-const TOTAL_SONGS = 1847;
-const DONE_ALBUMS = 132;
-const DONE_ARTISTS = 86;
+/** 浏览器 dev 环境（无 Rust 后端）下的模拟规模。 */
+const DEMO_TOTAL_SONGS = 1847;
+const DEMO_ALBUMS = 132;
+const DEMO_ARTISTS = 86;
 
-/** 扫描中滚动展示的当前文件（演示路径，后期由后端回灌真实进度）。 */
+/** 模拟扫描时滚动展示的文件路径（仅无后端时使用；有后端则显示真实路径）。 */
 const FILES = [
   "~/Music/曲库/万能青年旅店/万能青年旅店/01 狗尿馆.flac",
   "~/Music/曲库/周杰伦/范特西/03 双截棍.flac",
@@ -28,13 +31,21 @@ export function FirstRunScreen() {
   const reduceMotion = useReducedMotion();
   const closeOnboarding = useUiStore((s) => s.closeOnboarding);
   const setNav = useUiStore((s) => s.setNav);
+  const setLibrary = useLibraryStore((s) => s.setLibrary);
   const [phase, setPhase] = useState<Phase>("welcome");
   const [pct, setPct] = useState(0);
   const [fileIdx, setFileIdx] = useState(0);
+  /** 真实扫描的实时统计（有后端时替代模拟数字）。 */
+  const [stats, setStats] = useState<{ tracks: number; albums: number; artists: number } | null>(
+    null,
+  );
+  const [currentFile, setCurrentFile] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 无后端（浏览器 dev）时保留模拟时钟，否则界面在此环境下完全没有反馈。
   useEffect(() => {
-    if (phase !== "scanning") return;
+    if (phase !== "scanning" || isTauri()) return;
     timer.current = setInterval(() => {
       setPct((prev) => {
         const next = Math.min(100, prev + 1.6 + Math.random() * 2.2);
@@ -52,10 +63,46 @@ export function FirstRunScreen() {
     };
   }, [phase]);
 
-  const startScan = () => {
+  /** 有后端：选文件夹 → 真实扫描，进度由 Rust 事件回灌。 */
+  const startScan = async () => {
     setPct(0);
     setFileIdx(0);
+    setError(null);
+
+    if (!isTauri()) {
+      setStats(null);
+      setPhase("scanning");
+      return;
+    }
+
+    const folder = await pickMusicFolder();
+    if (!folder) return; // 用户取消选择，留在欢迎页
+    setStats(null);
+    setCurrentFile("");
     setPhase("scanning");
+
+    const unlisten = await onScanProgress((p) => {
+      setPct(p.total > 0 ? (p.done / p.total) * 100 : 0);
+      setCurrentFile(p.current);
+      if (p.tracks > 0 || p.albums > 0) {
+        setStats({ tracks: p.tracks, albums: p.albums, artists: 0 });
+      }
+    });
+    try {
+      const snapshot = await scanLibrary([folder]);
+      if (snapshot) {
+        setLibrary(snapshot);
+        const artists = new Set(snapshot.albums.map((a) => a.artist)).size;
+        setStats({ tracks: snapshot.tracks.length, albums: snapshot.albums.length, artists });
+      }
+      setPct(100);
+      setPhase("done");
+    } catch (e) {
+      setError(String(e));
+      setPhase("welcome");
+    } finally {
+      unlisten();
+    }
   };
   const finishNow = () => {
     if (timer.current) clearInterval(timer.current);
@@ -72,8 +119,11 @@ export function FirstRunScreen() {
     setNav("albums");
   };
 
-  const found = Math.min(TOTAL_SONGS, Math.round((pct / 100) * TOTAL_SONGS));
-  const foundAlbums = Math.max(1, Math.round(found / 14));
+  // 扫描中的「已找到」：有后端用真实统计，否则按进度插值出模拟数字。
+  const found = stats
+    ? stats.tracks
+    : Math.min(DEMO_TOTAL_SONGS, Math.round((pct / 100) * DEMO_TOTAL_SONGS));
+  const foundAlbums = stats ? stats.albums : Math.max(1, Math.round(found / 14));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-10">
@@ -108,6 +158,12 @@ export function FirstRunScreen() {
             {t("firstRun.addFolder")}
           </motion.button>
           <div className="mt-[18px] text-xs text-tx2 opacity-85">{t("firstRun.formats")}</div>
+          {/* 扫描失败要看得见：静默回到欢迎页等于假装什么都没发生。 */}
+          {error && (
+            <div className="mt-3 max-w-[420px] text-xs leading-relaxed text-danger">
+              {t("firstRun.scanFailed")} — {error}
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -144,7 +200,7 @@ export function FirstRunScreen() {
             />
           </div>
           <div className="mt-3 max-w-[420px] truncate font-mono text-[11.5px] text-tx2 opacity-80">
-            {FILES[fileIdx]}
+            {currentFile || FILES[fileIdx]}
           </div>
           <div className="mt-[30px] flex gap-2.5">
             <button
@@ -196,7 +252,11 @@ export function FirstRunScreen() {
             {t("firstRun.doneTitle")}
           </h1>
           <div className="mt-3 whitespace-pre-line text-sm leading-[1.8] text-tx2">
-            {t("firstRun.doneBody", { n: TOTAL_SONGS.toLocaleString(), m: DONE_ALBUMS, a: DONE_ARTISTS })}
+            {t("firstRun.doneBody", {
+              n: (stats?.tracks ?? DEMO_TOTAL_SONGS).toLocaleString(),
+              m: stats?.albums ?? DEMO_ALBUMS,
+              a: stats?.artists ?? DEMO_ARTISTS,
+            })}
           </div>
           <motion.button
             whileHover={{ filter: "brightness(1.07)" }}

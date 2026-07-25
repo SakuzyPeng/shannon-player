@@ -1,5 +1,6 @@
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
-import { ALBUM_MENU, tracksOf } from "@/data/library";
+import { ALBUM_MENU } from "@/data/library";
+import { tracksOf } from "@/lib/library";
 import { useUiStore } from "@/store/ui";
 import { usePlayerStore } from "@/store/player";
 import { useT } from "@/i18n";
