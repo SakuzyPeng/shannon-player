@@ -8,12 +8,10 @@ import { MetaLine } from "@/components/common/MetaLine";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { collageOf } from "@/data/playlists";
 import { usePlayerStore } from "@/store/player";
-import { useUiStore } from "@/store/ui";
+import { useUiStore, type PlaylistSort } from "@/store/ui";
 import { useT } from "@/i18n";
 import type { MessageKey } from "@/i18n/messages";
-import type { Playlist } from "@/types/player";
-
-type PlaylistSort = "recent" | "title" | "size";
+import type { Id, Playlist } from "@/types/player";
 
 /** 与歌手页对齐：主标题基本滚出后显示吸顶栏。 */
 const STICKY_THRESHOLD = 80;
@@ -22,6 +20,7 @@ const SORT_LABEL: Record<PlaylistSort, MessageKey> = {
   recent: "playlists.sortRecent",
   title: "playlists.sortByTitle",
   size: "playlists.sortBySize",
+  custom: "playlists.sortCustom",
 };
 
 /** 过滤命中高亮（与歌单详情页同一实现口径）。 */
@@ -45,7 +44,25 @@ function Highlight({ text, query }: { text: string; query: string }) {
  * 歌单索引卡：2×2 拼贴封面 + 标题 + 元信息，收藏者带角标。
  * 与收藏页的歌单卡同一视觉语言，区别是这里列出全部歌单（含未收藏）。
  */
-function PlaylistCard({ playlist, query }: { playlist: Playlist; query: string }) {
+function PlaylistCard({
+  playlist,
+  query,
+  draggable,
+  dragging,
+  onDragStart,
+  onDrag,
+  onDragEnd,
+  cardRef,
+}: {
+  playlist: Playlist;
+  query: string;
+  draggable: boolean;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDrag: (clientX: number, clientY: number) => void;
+  onDragEnd: () => void;
+  cardRef: (el: HTMLDivElement | null) => void;
+}) {
   const { t } = useT();
   const openPlaylist = useUiStore((s) => s.openPlaylist);
   const collected = usePlayerStore((s) => !!s.favoritePlaylists[playlist.id]);
@@ -55,10 +72,21 @@ function PlaylistCard({ playlist, query }: { playlist: Playlist; query: string }
   );
   return (
     <motion.div
-      layout="position"
+      ref={cardRef}
+      layout
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      onClick={() => openPlaylist(playlist.id)}
+      drag={draggable}
+      dragSnapToOrigin
+      dragElastic={0.12}
+      dragMomentum={false}
+      whileDrag={{ scale: 1.04, zIndex: 30 }}
+      onDragStart={onDragStart}
+      onDrag={(_, info) => onDrag(info.point.x, info.point.y)}
+      onDragEnd={onDragEnd}
+      // 拖拽结束的那一下 click 不应误入歌单详情。
+      onClick={() => !dragging && openPlaylist(playlist.id)}
+      style={{ touchAction: draggable ? "none" : undefined }}
       className="group relative flex cursor-pointer flex-col items-start gap-3 rounded-2xl text-left hover:z-10"
     >
       <div className="relative">
@@ -167,10 +195,13 @@ export function PlaylistsScreen() {
   const { filter, query } = useFilterPill();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const barInputRef = useRef<HTMLInputElement | null>(null);
-  const [sort, setSort] = useState<PlaylistSort>("recent");
+  // 排序模式存 store：自定义顺序必须跨页面导航保留（见 store/ui.ts）。
+  const sort = useUiStore((s) => s.playlistSort);
+  const setSort = useUiStore((s) => s.setPlaylistSort);
   const [barVisible, setBarVisible] = useState(false);
 
   const playlists = usePlayerStore((s) => s.playlists);
+  const reorderPlaylists = usePlayerStore((s) => s.reorderPlaylists);
   const sorted = useMemo(() => {
     const list = [...playlists];
     if (sort === "title") return list.sort((a, b) => a.title.localeCompare(b.title, "zh"));
@@ -179,6 +210,8 @@ export function PlaylistsScreen() {
         (a, b) => b.tracks.length - a.tracks.length || a.title.localeCompare(b.title, "zh"),
       );
     }
+    // 「自定义顺序」直接用 store 里的数组顺序，不再排序。
+    if (sort === "custom") return list;
     // 「最近更新」：新建 / 刚改动的歌单 updatedLabel 为空，排在最前。
     return list.sort((a, b) => Number(!!a.updatedLabel) - Number(!!b.updatedLabel));
   }, [playlists, sort]);
@@ -186,6 +219,42 @@ export function PlaylistsScreen() {
     () => (query ? sorted.filter((p) => p.title.toLowerCase().includes(query)) : sorted),
     [query, sorted],
   );
+
+  /* ---- 拖拽排序（歌单是用户内容，顺序应可自定义；专辑等曲库内容不提供） ----
+     网格会换行，framer-motion 的 Reorder 只处理单轴，这里按指针落点判定目标格位。 */
+  const [draggingId, setDraggingId] = useState<Id | null>(null);
+  const cardEls = useRef(new Map<Id, HTMLDivElement>());
+  /** 过滤中列表是子集，重排语义不明确 —— 此时禁用拖拽。 */
+  const draggable = !query && entries.length > 1;
+
+  const handleDragStart = (id: Id) => {
+    setDraggingId(id);
+    // 从任何排序模式起拖：先把当前可见顺序固化为自定义顺序，拖动才有意义。
+    if (sort !== "custom") {
+      reorderPlaylists(sorted);
+      setSort("custom");
+    }
+  };
+
+  const handleDrag = (id: Id, clientX: number, clientY: number) => {
+    const list = usePlayerStore.getState().playlists;
+    const from = list.findIndex((p) => p.id === id);
+    if (from < 0) return;
+    let to = -1;
+    for (const [otherId, el] of cardEls.current) {
+      if (otherId === id) continue;
+      const r = el.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        to = list.findIndex((p) => p.id === otherId);
+        break;
+      }
+    }
+    if (to < 0 || to === from) return;
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    reorderPlaylists(next);
+  };
 
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     onScroll(e);
@@ -262,7 +331,20 @@ export function PlaylistsScreen() {
               >
                 <AnimatePresence initial={false}>
                   {entries.map((pl) => (
-                    <PlaylistCard key={pl.id} playlist={pl} query={query} />
+                    <PlaylistCard
+                      key={pl.id}
+                      playlist={pl}
+                      query={query}
+                      draggable={draggable}
+                      dragging={draggingId === pl.id}
+                      onDragStart={() => handleDragStart(pl.id)}
+                      onDrag={(x, y) => handleDrag(pl.id, x, y)}
+                      onDragEnd={() => setDraggingId(null)}
+                      cardRef={(el) => {
+                        if (el) cardEls.current.set(pl.id, el);
+                        else cardEls.current.delete(pl.id);
+                      }}
+                    />
                   ))}
                 </AnimatePresence>
               </motion.div>

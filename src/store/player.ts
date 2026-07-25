@@ -74,6 +74,8 @@ interface PlayerState {
   removeFromPlaylist: (playlistId: Id, trackId: Id) => void;
   /** 用新顺序替换歌单曲目（拖拽重排）。 */
   reorderPlaylist: (playlistId: Id, tracks: Track[]) => void;
+  /** 用新顺序替换歌单列表本身（歌单页拖拽重排，即「自定义顺序」）。 */
+  reorderPlaylists: (playlists: Playlist[]) => void;
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
@@ -244,6 +246,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         p.id === playlistId ? { ...p, tracks: [...tracks], updatedLabel: "" } : p,
       ),
     })),
+
+  reorderPlaylists: (playlists) => set({ playlists: [...playlists] }),
 
   setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),

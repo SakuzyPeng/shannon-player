@@ -4,6 +4,9 @@ import type { Id, Language, LibraryView, NavKey, ThemeMode } from "@/types/playe
 /** 设置页开关键（后期由后端持久化）。 */
 export type SettingKey = "watch" | "cloud" | "loudness" | "ttml" | "karaoke";
 
+/** 歌单页排序模式；custom = 用户拖拽出的自定义顺序。 */
+export type PlaylistSort = "recent" | "title" | "size" | "custom";
+
 /** 音乐文件夹（占位数据，后期由 Rust 后端扫描替换）。 */
 export interface MusicFolder {
   path: string;
@@ -29,6 +32,11 @@ interface UiState {
   onboardingOpen: boolean;
   /** 最近搜索词（会话内保存，后期由后端持久化）。 */
   searchRecents: string[];
+  /**
+   * 歌单页排序模式。放在 store 而非组件局部 state：一旦用户拖出自定义顺序，
+   * 离开页面再回来必须仍按该顺序展示，否则手动排列会被静默丢弃。
+   */
+  playlistSort: PlaylistSort;
   /** 设置页开关状态。 */
   settings: Record<SettingKey, boolean>;
   /** 音乐文件夹列表。 */
@@ -41,6 +49,7 @@ interface UiState {
   setView: (v: LibraryView) => void;
   setNav: (n: NavKey) => void;
   setLanguage: (l: Language) => void;
+  setPlaylistSort: (s: PlaylistSort) => void;
   toggleSetting: (key: SettingKey) => void;
   removeMusicFolder: (path: string) => void;
   openAlbum: (id: Id) => void;
@@ -70,6 +79,7 @@ export const useUiStore = create<UiState>((set) => ({
   lyricsOpen: false,
   onboardingOpen: false,
   searchRecents: ["万能青年旅店", "In Rainbows", "陈绮贞"],
+  playlistSort: "recent",
   settings: { watch: true, cloud: true, loudness: false, ttml: true, karaoke: true },
   musicFolders: [
     { path: "/Users/shannon/Music/曲库", tracks: 1532, watching: false },
@@ -105,6 +115,8 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   toggleSetting: (key) =>
     set((s) => ({ settings: { ...s.settings, [key]: !s.settings[key] } })),
+
+  setPlaylistSort: (playlistSort) => set({ playlistSort }),
   removeMusicFolder: (path) =>
     set((s) => ({ musicFolders: s.musicFolders.filter((f) => f.path !== path) })),
 }));
