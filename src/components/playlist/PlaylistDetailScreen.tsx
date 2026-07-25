@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState, type UIEvent } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AnimatePresence, motion, Reorder, useDragControls, useReducedMotion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Collage } from "@/components/common/Collage";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { ConfirmDialog, PromptDialog } from "@/components/common/Modal";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -14,10 +16,10 @@ import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
-import { addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { NEW_PLAYLIST, addTracksToPlaylistArg } from "@/lib/playlistActions";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
-import type { Id, Track } from "@/types/player";
+import type { Id, Playlist, Track } from "@/types/player";
 
 const STICKY_THRESHOLD = 210;
 const COLS = "grid-cols-[44px_1fr_170px_190px_44px_60px]";
@@ -37,6 +39,105 @@ function Highlight({ text, query }: { text: string; query: string }) {
     }
   }
   return <>{text}</>;
+}
+
+const MORE_ITEM =
+  "flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] outline-none data-[highlighted]:bg-hv";
+
+/**
+ * 歌单级「…」菜单：歌单是用户内容，这里放的是它的管理动作
+ * （重命名 / 删除 / 整单插队 / 并入其他歌单）；专辑的「…」则复用其右键菜单。
+ */
+function PlaylistMoreMenu({
+  playlist,
+  onRename,
+  onDelete,
+}: {
+  playlist: Playlist;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useT();
+  const playlists = usePlayerStore((s) => s.playlists);
+  const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  return (
+    // modal={false}：菜单项会打开对话框，两层 modal 叠加时 Radix 的 body
+    // pointer-events 恢复顺序会互相覆盖（菜单先关恢复 ''，对话框后关又写回
+    // 它记下的 'none'），导致关闭后整个界面点不动。让 body 锁定只由对话框管。
+    <DropdownMenu.Root modal={false}>
+      <DropdownMenu.Trigger asChild>
+        <button
+          aria-label={t("album.more")}
+          title={t("album.more")}
+          className="grid size-10 cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx2 transition-colors hover:bg-hv hover:text-tx data-[state=open]:bg-hv data-[state=open]:text-ac"
+        >
+          <Icon name="more" size={16} />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={8}
+          className="surface-corners animate-menu-pop menu-shadow z-50 w-[222px] origin-top-left rounded-[14px] border border-bd bg-srf p-1.5"
+        >
+          <DropdownMenu.Item onSelect={onRename} className={cn(MORE_ITEM, "text-tx")}>
+            <span>{t("playlist.rename")}</span>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            onSelect={() => [...playlist.tracks].reverse().forEach(enqueueNext)}
+            className={cn(MORE_ITEM, "text-tx")}
+          >
+            <span>{t("menu.playNext")}</span>
+          </DropdownMenu.Item>
+          {/* 把本歌单曲目并入另一个歌单（不含自己）。 */}
+          <DropdownMenu.Sub>
+            <DropdownMenu.SubTrigger className={cn(MORE_ITEM, "text-tx")}>
+              <span>{t("playlist.mergeInto")}</span>
+              <Icon name="chevronRight" size={13} className="text-tx2" strokeWidth={2} />
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent
+                sideOffset={6}
+                className="surface-corners animate-menu-pop menu-shadow z-50 w-[210px] origin-top-left rounded-[14px] border border-bd bg-srf p-1.5"
+              >
+                {playlists
+                  .filter((p) => p.id !== playlist.id)
+                  .map((p) => (
+                    <DropdownMenu.Item
+                      key={p.id}
+                      onSelect={() => addTracksToPlaylistArg(p.id, playlist.tracks, "")}
+                      className={cn(MORE_ITEM, "text-tx")}
+                    >
+                      <span className="min-w-0 truncate">{p.title}</span>
+                      <span className="flex-none text-[11px] text-tx2">
+                        {t("unit.tracks", { n: p.tracks.length })}
+                      </span>
+                    </DropdownMenu.Item>
+                  ))}
+                <DropdownMenu.Separator className="mx-2 my-[5px] h-px bg-bd" />
+                <DropdownMenu.Item
+                  onSelect={() =>
+                    addTracksToPlaylistArg(
+                      NEW_PLAYLIST,
+                      playlist.tracks,
+                      t("playlist.newDefaultName"),
+                    )
+                  }
+                  className={cn(MORE_ITEM, "font-semibold text-ac")}
+                >
+                  <span>{t("menu.newPlaylist")}</span>
+                </DropdownMenu.Item>
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
+          <DropdownMenu.Separator className="mx-2 my-[5px] h-px bg-bd" />
+          <DropdownMenu.Item onSelect={onDelete} className={cn(MORE_ITEM, "text-danger")}>
+            <span>{t("playlist.delete")}</span>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
 }
 
 /**
@@ -136,6 +237,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const { t } = useT();
   const reduceMotion = useReducedMotion();
   const setNav = useUiStore((s) => s.setNav);
+  const closePlaylist = useUiStore((s) => s.closePlaylist);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
   const { filter, query } = useFilterPill();
@@ -155,6 +257,10 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
   const reorderPlaylist = usePlayerStore((s) => s.reorderPlaylist);
   const removeFromPlaylist = usePlayerStore((s) => s.removeFromPlaylist);
+  const renamePlaylist = usePlayerStore((s) => s.renamePlaylist);
+  const deletePlaylist = usePlayerStore((s) => s.deletePlaylist);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const playlist = usePlayerStore((s) => s.playlists.find((p) => p.id === playlistId));
   const covers = useMemo(() => (playlist ? collageOf(playlist) : []), [playlist]);
@@ -326,13 +432,11 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                   <Icon name="shuffle" size={15} strokeWidth={1.8} />
                   {t("album.shufflePlay")}
                 </button>
-                <button
-                  aria-label={t("album.more")}
-                  title={t("album.more")}
-                  className="grid size-10 cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx2 transition-colors hover:bg-hv hover:text-tx"
-                >
-                  <Icon name="more" size={16} />
-                </button>
+                <PlaylistMoreMenu
+                  playlist={playlist}
+                  onRename={() => setRenameOpen(true)}
+                  onDelete={() => setDeleteOpen(true)}
+                />
                 <FilterPill
                   filter={filter}
                   height={40}
@@ -430,6 +534,28 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
       <div
         ref={thumbRef}
         className="scroll-thumb pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
+      />
+
+      <PromptDialog
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        title={t("playlist.renameTitle")}
+        label={t("playlist.renameLabel")}
+        initialValue={playlist.title}
+        confirmLabel={t("dialog.save")}
+        onConfirm={(title) => renamePlaylist(playlistId, title)}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t("playlist.deleteTitle")}
+        description={t("playlist.deleteBody", { title: playlist.title })}
+        confirmLabel={t("dialog.delete")}
+        onConfirm={() => {
+          // 先离开详情页再删除，避免渲染指向已不存在的歌单。
+          closePlaylist();
+          deletePlaylist(playlistId);
+        }}
       />
     </div>
   );

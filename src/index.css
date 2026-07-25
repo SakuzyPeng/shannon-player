@@ -505,9 +505,35 @@ textarea,
   animation: menuPopOut 0.16s ease-in forwards;
 }
 
+/* 模态对话框：遮罩淡入 + 面板自中心弹出（与菜单同一 spring 曲线）。 */
+@keyframes dialogFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes dialogFadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes dialogPopIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes dialogPopOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}
+.animate-dialog-overlay[data-state="open"] { animation: dialogFadeIn 0.18s ease-out; }
+.animate-dialog-overlay[data-state="closed"] { animation: dialogFadeOut 0.14s ease-in forwards; }
+.animate-dialog[data-state="open"] { animation: dialogPopIn 0.24s var(--ease-spring); }
+.animate-dialog[data-state="closed"] { animation: dialogPopOut 0.14s ease-in forwards; }
+
 @media (prefers-reduced-motion: reduce) {
   .animate-menu-pop[data-state="open"],
-  .animate-menu-pop[data-state="closed"] {
+  .animate-menu-pop[data-state="closed"],
+  .animate-dialog[data-state="open"],
+  .animate-dialog[data-state="closed"],
+  .animate-dialog-overlay[data-state="open"],
+  .animate-dialog-overlay[data-state="closed"] {
     animation-duration: 0.01ms;
   }
   .play-action-material {

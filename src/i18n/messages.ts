@@ -207,6 +207,16 @@ export interface Messages {
   "playlist.emptyTitle": string; // {q}
   "playlist.emptyTryGlobal": string;
   "playlist.emptyGlobalSearch": string;
+  "playlist.rename": string;
+  "playlist.renameTitle": string;
+  "playlist.renameLabel": string;
+  "playlist.delete": string;
+  "playlist.deleteTitle": string;
+  "playlist.deleteBody": string; // {title}
+  "playlist.mergeInto": string;
+  "dialog.cancel": string;
+  "dialog.save": string;
+  "dialog.delete": string;
 
   "player.favorite": string;
   "player.unfavorite": string;
@@ -423,6 +433,16 @@ const zhHans: Messages = {
   "playlist.emptyTitle": "歌单里没有“{q}”",
   "playlist.emptyTryGlobal": "试试 ",
   "playlist.emptyGlobalSearch": "在整个曲库中搜索",
+  "playlist.rename": "重命名…",
+  "playlist.renameTitle": "重命名歌单",
+  "playlist.renameLabel": "歌单名称",
+  "playlist.delete": "删除歌单",
+  "playlist.deleteTitle": "删除歌单？",
+  "playlist.deleteBody": "「{title}」将被永久删除，此操作无法撤销。歌单内的歌曲不会从曲库中移除。",
+  "playlist.mergeInto": "把本歌单加入…",
+  "dialog.cancel": "取消",
+  "dialog.save": "保存",
+  "dialog.delete": "删除",
 
   "player.favorite": "收藏",
   "player.unfavorite": "取消收藏",
@@ -637,6 +657,16 @@ const zhHant: Messages = {
   "playlist.emptyTitle": "歌單裡沒有「{q}」",
   "playlist.emptyTryGlobal": "試試 ",
   "playlist.emptyGlobalSearch": "在整個曲庫中搜尋",
+  "playlist.rename": "重新命名…",
+  "playlist.renameTitle": "重新命名歌單",
+  "playlist.renameLabel": "歌單名稱",
+  "playlist.delete": "刪除歌單",
+  "playlist.deleteTitle": "刪除歌單？",
+  "playlist.deleteBody": "「{title}」將被永久刪除，此操作無法復原。歌單內的歌曲不會從曲庫中移除。",
+  "playlist.mergeInto": "把本歌單加入…",
+  "dialog.cancel": "取消",
+  "dialog.save": "儲存",
+  "dialog.delete": "刪除",
 
   "player.favorite": "收藏",
   "player.unfavorite": "取消收藏",
@@ -851,6 +881,16 @@ const en: Messages = {
   "playlist.emptyTitle": "No “{q}” in this playlist",
   "playlist.emptyTryGlobal": "Try ",
   "playlist.emptyGlobalSearch": "searching the whole library",
+  "playlist.rename": "Rename…",
+  "playlist.renameTitle": "Rename playlist",
+  "playlist.renameLabel": "Playlist name",
+  "playlist.delete": "Delete playlist",
+  "playlist.deleteTitle": "Delete playlist?",
+  "playlist.deleteBody": "“{title}” will be deleted permanently. This cannot be undone; the songs stay in your library.",
+  "playlist.mergeInto": "Add this playlist to…",
+  "dialog.cancel": "Cancel",
+  "dialog.save": "Save",
+  "dialog.delete": "Delete",
 
   "player.favorite": "Favorite",
   "player.unfavorite": "Unfavorite",
@@ -1065,6 +1105,16 @@ const ja: Messages = {
   "playlist.emptyTitle": "プレイリストに「{q}」はありません",
   "playlist.emptyTryGlobal": "",
   "playlist.emptyGlobalSearch": "ライブラリ全体を検索",
+  "playlist.rename": "名前を変更…",
+  "playlist.renameTitle": "プレイリスト名を変更",
+  "playlist.renameLabel": "プレイリスト名",
+  "playlist.delete": "プレイリストを削除",
+  "playlist.deleteTitle": "プレイリストを削除しますか？",
+  "playlist.deleteBody": "「{title}」を完全に削除します。取り消せません。曲はライブラリに残ります。",
+  "playlist.mergeInto": "このプレイリストを追加…",
+  "dialog.cancel": "キャンセル",
+  "dialog.save": "保存",
+  "dialog.delete": "削除",
 
   "player.favorite": "お気に入り",
   "player.unfavorite": "お気に入り解除",
