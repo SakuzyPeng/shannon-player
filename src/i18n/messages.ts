@@ -17,6 +17,7 @@ export interface Messages {
   "nav.albums": string;
   "nav.songs": string;
   "nav.artists": string;
+  "nav.playlists": string;
   "nav.search": string;
   "nav.favorites": string;
   "nav.settings": string;
@@ -114,6 +115,16 @@ export interface Messages {
   "artists.filterPlaceholder": string;
   "artists.emptyTitle": string; // {q}
   "artists.emptyBody": string;
+
+  "playlists.subtitle": string; // {n}
+  "playlists.sortRecent": string;
+  "playlists.sortByTitle": string;
+  "playlists.sortBySize": string;
+  "playlists.filterPlaceholder": string;
+  "playlists.emptyTitle": string; // {q}
+  "playlists.emptyBody": string;
+  "playlists.noneTitle": string;
+  "playlists.noneBody": string;
 
   "songs.subtitle": string; // {n} {h} {m}
   "songs.sortMenu": string;
@@ -221,6 +232,7 @@ const zhHans: Messages = {
   "nav.albums": "专辑",
   "nav.songs": "歌曲",
   "nav.artists": "歌手",
+  "nav.playlists": "歌单",
   "nav.search": "搜索",
   "nav.favorites": "收藏",
   "nav.settings": "设置",
@@ -318,6 +330,16 @@ const zhHans: Messages = {
   "artists.filterPlaceholder": "过滤歌手…",
   "artists.emptyTitle": "没有找到“{q}”",
   "artists.emptyBody": "检查拼写，或试试其他歌手名",
+
+  "playlists.subtitle": "{n} 个歌单",
+  "playlists.sortRecent": "最近更新",
+  "playlists.sortByTitle": "按标题",
+  "playlists.sortBySize": "按曲目数",
+  "playlists.filterPlaceholder": "过滤歌单…",
+  "playlists.emptyTitle": "没有找到“{q}”",
+  "playlists.emptyBody": "检查拼写，或试试其他歌单名",
+  "playlists.noneTitle": "还没有歌单",
+  "playlists.noneBody": "在任意曲目上右键「加入歌单…」即可新建",
 
   "songs.subtitle": "{n} 首 · {h} 小时 {m} 分钟",
   "songs.sortMenu": "排序方式",
@@ -423,6 +445,7 @@ const zhHant: Messages = {
   "nav.albums": "專輯",
   "nav.songs": "歌曲",
   "nav.artists": "歌手",
+  "nav.playlists": "歌單",
   "nav.search": "搜尋",
   "nav.favorites": "收藏",
   "nav.settings": "設定",
@@ -520,6 +543,16 @@ const zhHant: Messages = {
   "artists.filterPlaceholder": "過濾歌手…",
   "artists.emptyTitle": "沒有找到「{q}」",
   "artists.emptyBody": "檢查拼寫，或試試其他歌手名",
+
+  "playlists.subtitle": "{n} 個歌單",
+  "playlists.sortRecent": "最近更新",
+  "playlists.sortByTitle": "按標題",
+  "playlists.sortBySize": "按曲目數",
+  "playlists.filterPlaceholder": "過濾歌單…",
+  "playlists.emptyTitle": "沒有找到「{q}」",
+  "playlists.emptyBody": "檢查拼寫，或試試其他歌單名",
+  "playlists.noneTitle": "還沒有歌單",
+  "playlists.noneBody": "在任一曲目上按右鍵「加入歌單…」即可新建",
 
   "songs.subtitle": "{n} 首 · {h} 小時 {m} 分鐘",
   "songs.sortMenu": "排序方式",
@@ -625,6 +658,7 @@ const en: Messages = {
   "nav.albums": "Albums",
   "nav.songs": "Songs",
   "nav.artists": "Artists",
+  "nav.playlists": "Playlists",
   "nav.search": "Search",
   "nav.favorites": "Favorites",
   "nav.settings": "Settings",
@@ -722,6 +756,16 @@ const en: Messages = {
   "artists.filterPlaceholder": "Filter artists…",
   "artists.emptyTitle": "No artists for “{q}”",
   "artists.emptyBody": "Check the spelling or try another artist name",
+
+  "playlists.subtitle": "{n} {n|playlist|playlists}",
+  "playlists.sortRecent": "Recently updated",
+  "playlists.sortByTitle": "By title",
+  "playlists.sortBySize": "By track count",
+  "playlists.filterPlaceholder": "Filter playlists…",
+  "playlists.emptyTitle": "No playlists for “{q}”",
+  "playlists.emptyBody": "Check the spelling or try another playlist name",
+  "playlists.noneTitle": "No playlists yet",
+  "playlists.noneBody": "Right-click any track and choose Add to Playlist to create one",
 
   "songs.subtitle": "{n} {n|song|songs} · {h} hr {m} min",
   "songs.sortMenu": "Sort by",
@@ -827,6 +871,7 @@ const ja: Messages = {
   "nav.albums": "アルバム",
   "nav.songs": "曲",
   "nav.artists": "アーティスト",
+  "nav.playlists": "プレイリスト",
   "nav.search": "検索",
   "nav.favorites": "お気に入り",
   "nav.settings": "設定",
@@ -924,6 +969,16 @@ const ja: Messages = {
   "artists.filterPlaceholder": "アーティストを絞り込み…",
   "artists.emptyTitle": "「{q}」のアーティストは見つかりません",
   "artists.emptyBody": "スペルを確認するか、別のアーティスト名で試してください",
+
+  "playlists.subtitle": "{n} 件のプレイリスト",
+  "playlists.sortRecent": "最近の更新順",
+  "playlists.sortByTitle": "タイトル順",
+  "playlists.sortBySize": "曲数順",
+  "playlists.filterPlaceholder": "プレイリストを絞り込む…",
+  "playlists.emptyTitle": "「{q}」は見つかりません",
+  "playlists.emptyBody": "スペルを確認するか、別のプレイリスト名をお試しください",
+  "playlists.noneTitle": "プレイリストがありません",
+  "playlists.noneBody": "曲を右クリックして「プレイリストに追加」から作成できます",
 
   "songs.subtitle": "{n} 曲 · {h} 時間 {m} 分",
   "songs.sortMenu": "並べ替え",
