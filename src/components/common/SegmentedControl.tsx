@@ -32,8 +32,14 @@ export function SegmentedControl<T extends string>({
   const indicatorId = `segmented-${useId()}`;
   const reduceMotion = useReducedMotion();
 
+  // flex-none：分段控件不参与压缩，头部空间不足时由过滤钮让位（见 FilterPill）。
   return (
-    <div className={cn("flex items-center rounded-full border border-bd bg-sb", className)}>
+    <div
+      className={cn(
+        "flex flex-none items-center whitespace-nowrap rounded-full border border-bd bg-sb",
+        className,
+      )}
+    >
       {options.map((option) => {
         const active = option.value === value;
         return (

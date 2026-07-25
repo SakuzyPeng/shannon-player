@@ -1,5 +1,7 @@
-import { useMemo, useState, type UIEvent } from "react";
+import { useMemo, useRef, useState, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { AnimatePresence, motion } from "framer-motion";
+import { FilterPill, useFilterPill, type FilterState } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
 import { AlbumGrid } from "@/components/library/AlbumGrid";
@@ -51,7 +53,7 @@ function AlbumSortMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
+        <button className="flex flex-none cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
           {t(SORT_LABEL[sort])}
           <Icon name="chevronDown" size={12} strokeWidth={2} />
         </button>
@@ -83,27 +85,36 @@ function AlbumSortMenu({
   );
 }
 
+/**
+ * 专辑页工具簇：视图切换 + 排序 + 页内过滤钮。
+ * 过滤逻辑与歌曲页 / 歌手页 / 收藏页 / 歌单页统一（全局搜索仍在图标栏）。
+ */
 function AlbumToolbar({
   sort,
   onSortChange,
-  onSearch,
+  filter,
+  inputRef,
+  compact,
 }: {
   sort: AlbumSort;
   onSortChange: (value: AlbumSort) => void;
-  onSearch: () => void;
+  filter: FilterState;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  compact: boolean;
 }) {
   const { t } = useT();
   return (
     <>
       <Segmented />
       <AlbumSortMenu sort={sort} onValueChange={onSortChange} />
-      <button
-        onClick={onSearch}
-        className="flex w-[190px] cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
-      >
-        <Icon name="search" size={14} />
-        {t("action.search")}
-      </button>
+      <FilterPill
+        filter={filter}
+        height={compact ? 34 : 40}
+        openWidth={compact ? 300 : 318}
+        inputRef={inputRef}
+        placeholder={t("albums.filterPlaceholder")}
+        className={compact ? "ml-auto" : "mr-1.5"}
+      />
     </>
   );
 }
@@ -112,10 +123,12 @@ export function LibraryScreen() {
   const { t } = useT();
   const nav = useUiStore((s) => s.nav);
   const view = useUiStore((s) => s.view);
-  const setNav = useUiStore((s) => s.setNav);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [sort, setSort] = useState<AlbumSort>("recent");
   const [barVisible, setBarVisible] = useState(false);
+  const { filter, query } = useFilterPill();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const barInputRef = useRef<HTMLInputElement>(null);
 
   const navItem = NAV_ITEMS.find((n) => n.key === nav);
   const title = navItem ? t(navItem.labelKey) : t("nav.albums");
@@ -130,6 +143,17 @@ export function LibraryScreen() {
     }
     return list;
   }, [sort]);
+  /** 页内过滤：命中专辑名或歌手名（与歌手页 / 歌曲页一致的匹配口径）。 */
+  const filteredAlbums = useMemo(
+    () =>
+      query
+        ? albums.filter(
+            (a) =>
+              a.title.toLowerCase().includes(query) || a.artist.toLowerCase().includes(query),
+          )
+        : albums,
+    [albums, query],
+  );
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     onScroll(e);
     const visible = e.currentTarget.scrollTop > STICKY_THRESHOLD;
@@ -153,7 +177,13 @@ export function LibraryScreen() {
           </div>
           <span className="font-serif text-[16.5px] font-semibold text-tx">{title}</span>
           <div className="flex-1" />
-          <AlbumToolbar sort={sort} onSortChange={setSort} onSearch={() => setNav("search")} />
+          <AlbumToolbar
+            sort={sort}
+            onSortChange={setSort}
+            filter={filter}
+            inputRef={barInputRef}
+            compact
+          />
         </div>
       )}
 
@@ -175,16 +205,51 @@ export function LibraryScreen() {
             </div>
             <div className="flex-1" data-tauri-drag-region />
             {isAlbums && (
-              <AlbumToolbar sort={sort} onSortChange={setSort} onSearch={() => setNav("search")} />
+              <AlbumToolbar
+                sort={sort}
+                onSortChange={setSort}
+                filter={filter}
+                inputRef={inputRef}
+                compact={false}
+              />
             )}
           </div>
 
           {isAlbums ? (
-            <div className="pt-2">
-              <SegmentedContent value={view}>
-                {view === "grid" ? <AlbumGrid albums={albums} /> : <AlbumList albums={albums} />}
-              </SegmentedContent>
-            </div>
+            <AnimatePresence initial={false} mode="wait">
+              {filteredAlbums.length > 0 ? (
+                <motion.div
+                  key="albums-content"
+                  className="pt-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.16 }}
+                >
+                  <SegmentedContent value={view}>
+                    {view === "grid" ? (
+                      <AlbumGrid albums={filteredAlbums} />
+                    ) : (
+                      <AlbumList albums={filteredAlbums} />
+                    )}
+                  </SegmentedContent>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="albums-empty"
+                  className="flex flex-col items-center gap-2.5 pb-10 pt-[100px] text-center"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18 }}
+                >
+                  <div className="font-serif text-lg font-semibold text-tx">
+                    {t("albums.emptyTitle", { q: filter.q.trim() })}
+                  </div>
+                  <div className="text-[13px] text-tx2">{t("albums.emptyBody")}</div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           ) : (
             <div className="flex h-[520px] flex-col items-center justify-center gap-3 text-center text-tx2">
               <div className="font-serif text-[22px] text-tx">{t("placeholder.title", { name: title })}</div>

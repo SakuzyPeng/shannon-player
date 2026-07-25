@@ -189,7 +189,9 @@ export function SettingsScreen() {
         onScroll={handleScroll}
         className="no-scrollbar absolute inset-0 overflow-auto px-10 pb-[120px] [overscroll-behavior:contain]"
       >
-        <div ref={innerRef} className="mx-auto max-w-[680px] will-change-transform">
+        {/* 内容列 680 + 右侧目录栏 220 组成 900 的版心，整体居中：
+            目录因此在 [980, ∞) 全区间都有固定栏位，不再与正文抢位置。 */}
+        <div ref={innerRef} className="mx-auto max-w-[900px] pr-[220px] will-change-transform">
           <h1
             data-tauri-drag-region
             className="m-0 pb-1.5 pt-[34px] font-serif text-[40px] font-medium text-tx"
@@ -314,25 +316,33 @@ export function SettingsScreen() {
         </div>
       </div>
 
-      {/* 右侧目录（滚动高亮 + 点击跳转） */}
-      <div className="absolute right-9 top-24 z-20 hidden flex-col gap-0.5 xl:flex">
-        {SECTIONS.map((sc) => {
-          const active = activeSec === sc.key;
-          return (
-            <button
-              key={sc.key}
-              onClick={() => jumpTo(sc.key)}
-              className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] transition-colors hover:bg-hv"
-              style={{ color: active ? "var(--tx)" : "var(--tx2)", fontWeight: active ? 600 : 400 }}
-            >
-              <span
-                className="h-3.5 w-[3px] rounded-[1.5px] transition-colors"
-                style={{ background: active ? "var(--ac)" : "transparent" }}
-              />
-              {t(sc.labelKey)}
-            </button>
-          );
-        })}
+      {/* 右侧目录（滚动高亮 + 点击跳转）：与正文共用同一 900 版心并右对齐，
+          因此在任意窗口宽度下都与内容列保持固定间距，不再需要断点隐藏。 */}
+      <div className="pointer-events-none absolute inset-x-0 top-24 z-20 flex justify-center px-10">
+        <div className="flex w-full max-w-[900px] justify-end">
+          <div className="pointer-events-auto flex flex-col gap-0.5">
+            {SECTIONS.map((sc) => {
+              const active = activeSec === sc.key;
+              return (
+                <button
+                  key={sc.key}
+                  onClick={() => jumpTo(sc.key)}
+                  className="flex cursor-pointer items-center gap-2.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[12.5px] transition-colors hover:bg-hv"
+                  style={{
+                    color: active ? "var(--tx)" : "var(--tx2)",
+                    fontWeight: active ? 600 : 400,
+                  }}
+                >
+                  <span
+                    className="h-3.5 w-[3px] rounded-[1.5px] transition-colors"
+                    style={{ background: active ? "var(--ac)" : "transparent" }}
+                  />
+                  {t(sc.labelKey)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div
