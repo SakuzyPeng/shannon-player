@@ -65,7 +65,7 @@ function ArtistSortMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="flex cursor-pointer items-center gap-1.5 rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
+        <button className="flex flex-none cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
           {t(SORT_LABEL[sort])}
           <Icon name="chevronDown" size={12} strokeWidth={2} />
         </button>

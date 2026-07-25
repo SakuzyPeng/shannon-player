@@ -18,6 +18,9 @@ export interface Messages {
   "nav.settings": string;
 
   "header.albumSubtitle": string; // {count} {sort}
+  "albums.filterPlaceholder": string;
+  "albums.emptyTitle": string; // {q}
+  "albums.emptyBody": string;
   "placeholder.title": string; // {name}
   "placeholder.body": string;
 
@@ -210,6 +213,9 @@ const zhHans: Messages = {
   "nav.settings": "设置",
 
   "header.albumSubtitle": "{count} 张专辑，按{sort}排序",
+  "albums.filterPlaceholder": "过滤专辑…",
+  "albums.emptyTitle": "没有找到“{q}”",
+  "albums.emptyBody": "检查拼写，或试试其他专辑名 / 歌手名",
   "placeholder.title": "「{name}」页",
   "placeholder.body": "核心骨架已就位，此页将在后续迭代中实现",
 
@@ -400,6 +406,9 @@ const zhHant: Messages = {
   "nav.settings": "設定",
 
   "header.albumSubtitle": "{count} 張專輯，按{sort}排序",
+  "albums.filterPlaceholder": "過濾專輯…",
+  "albums.emptyTitle": "沒有找到「{q}」",
+  "albums.emptyBody": "檢查拼寫，或試試其他專輯名 / 歌手名",
   "placeholder.title": "「{name}」頁",
   "placeholder.body": "核心骨架已就位，此頁將於後續迭代中實作",
 
@@ -590,6 +599,9 @@ const en: Messages = {
   "nav.settings": "Settings",
 
   "header.albumSubtitle": "{count} albums, sorted by {sort}",
+  "albums.filterPlaceholder": "Filter albums…",
+  "albums.emptyTitle": "No albums for “{q}”",
+  "albums.emptyBody": "Check the spelling or try another album or artist name",
   "placeholder.title": "{name}",
   "placeholder.body": "Core scaffold is in place; this page ships in a later iteration",
 
@@ -780,6 +792,9 @@ const ja: Messages = {
   "nav.settings": "設定",
 
   "header.albumSubtitle": "{count} 枚のアルバム・{sort}",
+  "albums.filterPlaceholder": "アルバムを絞り込む…",
+  "albums.emptyTitle": "「{q}」は見つかりません",
+  "albums.emptyBody": "スペルを確認するか、別のアルバム名 / アーティスト名をお試しください",
   "placeholder.title": "「{name}」ページ",
   "placeholder.body": "コア構造は完成済み。このページは今後の反復で実装します",
 

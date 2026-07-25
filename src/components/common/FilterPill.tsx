@@ -62,6 +62,9 @@ export function useFilterPill() {
   return { filter, query, rawQuery: q };
 }
 
+/** 展开态被压缩时的下限：低于此宽度输入框已不可用，宁可让头部横向留白告急。 */
+const MIN_OPEN_WIDTH = 132;
+
 interface Props {
   filter: FilterState;
   /** 收起时的圆钮尺寸（= 高度）；展开宽度。设计稿：标题栏 40→318、吸顶栏 34→300。 */
@@ -82,13 +85,17 @@ export function FilterPill({ filter, height, openWidth, inputRef, placeholder, c
       onMouseLeave={filter.onLeave}
       onClick={() => filter.onEnter(inputRef.current)}
       className={cn(
-        "box-border flex flex-none items-center gap-2 overflow-hidden rounded-full border bg-srf",
+        "box-border flex items-center gap-2 overflow-hidden rounded-full border bg-srf",
+        // 收起时是固定尺寸的圆钮（压缩会挤成椭圆）；展开后作为头部唯一可收缩项，
+        // 窗口变窄时由它让位，避免排序钮等控件被挤到换行或整行横向溢出。
+        filter.open ? "shrink" : "flex-none",
         filter.focused ? "filter-focus-ring border-ac" : "border-bd",
         className,
       )}
       style={{
         height,
         width: filter.open ? openWidth : height,
+        minWidth: filter.open ? MIN_OPEN_WIDTH : height,
         paddingLeft: 10,
         paddingRight: 7,
         transition: "width 0.3s cubic-bezier(0.34,1.3,0.64,1), border-color 0.2s ease",
