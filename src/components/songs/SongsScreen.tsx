@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
+import { MetaLine } from "@/components/common/MetaLine";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -292,11 +293,12 @@ export function SongsScreen() {
           <div ref={innerRef} className="will-change-transform">
             {/* 标题栏（兼作窗口拖拽区） */}
             <div data-tauri-drag-region className="flex items-end gap-3.5 pb-[18px] pt-[34px]">
-              <div className="flex flex-col gap-[7px]">
+              {/* 标题列不参与压缩：页面身份优先，空间压力由过滤钮吸收。 */}
+              <div className="flex flex-none flex-col gap-[7px]">
                 <h1 className="m-0 font-serif text-[40px] font-medium text-tx">
                   {t("nav.songs")}
                 </h1>
-                <div className="text-[13px] text-tx2">{subtitle}</div>
+                <MetaLine text={subtitle} className="text-[13px] text-tx2" />
               </div>
               <div className="flex-1" data-tauri-drag-region />
 
