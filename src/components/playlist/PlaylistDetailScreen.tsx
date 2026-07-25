@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type UIEvent } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, Reorder, useDragControls, useReducedMotion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Collage } from "@/components/common/Collage";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
@@ -39,6 +39,99 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return <>{text}</>;
 }
 
+/**
+ * 歌单曲目行。定义在模块级（而非渲染函数内）——内联定义会让 React 每次渲染
+ * 都视作新组件类型而重挂载，拖拽状态会在第一帧丢失。
+ */
+function PlaylistRow({
+  track,
+  index,
+  reorderable,
+  isCur,
+  playing,
+  liked,
+  query,
+  onPlay,
+  onToggleFavorite,
+  onAction,
+}: {
+  track: Track;
+  index: number;
+  reorderable: boolean;
+  isCur: boolean;
+  playing: boolean;
+  liked: boolean;
+  query: string;
+  onPlay: () => void;
+  onToggleFavorite: () => void;
+  onAction: (key: MessageKey, arg?: string) => void;
+}) {
+  const { t } = useT();
+  const dragControls = useDragControls();
+
+  const row = (
+    <ItemContextMenu
+      label={`${track.title} — ${track.artist}`}
+      items={PLAYLIST_TRACK_MENU}
+      onAction={onAction}
+      containsTrackId={track.id}
+    >
+      <div
+        onClick={onPlay}
+        className={`group/row mt-0.5 grid ${COLS} cursor-pointer items-center gap-3 rounded-xl px-3.5 py-2.5 transition-colors hover:bg-hv`}
+      >
+        <span
+          className={cn("text-[13px] tabular-nums text-tx2", reorderable && "cursor-grab")}
+          onPointerDown={(e) => reorderable && dragControls.start(e)}
+          // 拖拽柄不是播放入口：按下即进入拖拽，单击不应触发整行的播放。
+          onClick={(e) => reorderable && e.stopPropagation()}
+        >
+          <TrackIndicator
+            number={index + 1}
+            active={isCur}
+            playing={playing}
+            showGripOnHover={reorderable}
+            gripTitle={t("playlist.dragToReorder")}
+          />
+        </span>
+        <span
+          className={cn(
+            "truncate font-serif text-[15.5px]",
+            isCur ? "font-semibold text-ac" : "font-medium text-tx",
+          )}
+        >
+          <Highlight text={track.title} query={query} />
+        </span>
+        <span className="truncate text-[13px] text-tx2">{track.artist}</span>
+        <span className="truncate text-[13px] text-tx2">{track.album}</span>
+        <button
+          aria-label={liked ? t("player.unfavorite") : t("player.favorite")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite();
+          }}
+          className={cn(
+            "grid size-[30px] cursor-pointer place-items-center rounded-full transition-[transform,background-color,color] hover:bg-ac/12 active:scale-90",
+            liked ? "text-ac" : "text-tx2",
+          )}
+        >
+          <AnimatedIcon name={liked ? "heart" : "favorites"} size={15} strokeWidth={1.8} variant="pop" />
+        </button>
+        <span className="text-right text-[13px] tabular-nums text-tx2">
+          {fmtTime(track.durationSec)}
+        </span>
+      </div>
+    </ItemContextMenu>
+  );
+
+  if (!reorderable) return row;
+  return (
+    <Reorder.Item value={track} as="div" dragListener={false} dragControls={dragControls}>
+      {row}
+    </Reorder.Item>
+  );
+}
+
 export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const { t } = useT();
   const reduceMotion = useReducedMotion();
@@ -60,6 +153,8 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const toggleFavoritePlaylist = usePlayerStore((s) => s.toggleFavoritePlaylist);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  const reorderPlaylist = usePlayerStore((s) => s.reorderPlaylist);
+  const removeFromPlaylist = usePlayerStore((s) => s.removeFromPlaylist);
 
   const playlist = usePlayerStore((s) => s.playlists.find((p) => p.id === playlistId));
   const covers = useMemo(() => (playlist ? collageOf(playlist) : []), [playlist]);
@@ -101,8 +196,13 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
         playQueue(entries, index);
         useUiStore.getState().openLyrics();
         break;
+      case "menu.removeFromPlaylist":
+        removeFromPlaylist(playlistId, track.id);
+        break;
     }
   };
+  /** 过滤中列表是子集，重排语义不明确；此时关闭拖拽。 */
+  const reorderable = !query;
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     onScroll(e);
     const v = e.currentTarget.scrollTop > STICKY_THRESHOLD;
@@ -282,65 +382,47 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
             )}
             </AnimatePresence>
 
-            {entries.map((track, i) => {
-              const isCur = current?.id === track.id;
-              const liked = !!favorites[track.id];
-              return (
-                <ItemContextMenu
+            {/* 过滤中显示的是子集，重排语义不明确 —— 此时退回普通列表、不出现拖拽柄。 */}
+            {reorderable ? (
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={entries}
+                onReorder={(next) => reorderPlaylist(playlistId, next)}
+              >
+                {entries.map((track, i) => (
+                  <PlaylistRow
+                    key={track.id}
+                    track={track}
+                    index={i}
+                    reorderable
+                    isCur={current?.id === track.id}
+                    playing={playing}
+                    liked={!!favorites[track.id]}
+                    query={query}
+                    onPlay={() => playQueue(entries, i)}
+                    onToggleFavorite={() => toggleFavorite(track.id)}
+                    onAction={(key, arg) => onTrackAction(track, i, key, arg)}
+                  />
+                ))}
+              </Reorder.Group>
+            ) : (
+              entries.map((track, i) => (
+                <PlaylistRow
                   key={track.id}
-                  label={`${track.title} — ${track.artist}`}
-                  items={PLAYLIST_TRACK_MENU}
+                  track={track}
+                  index={i}
+                  reorderable={false}
+                  isCur={current?.id === track.id}
+                  playing={playing}
+                  liked={!!favorites[track.id]}
+                  query={query}
+                  onPlay={() => playQueue(entries, i)}
+                  onToggleFavorite={() => toggleFavorite(track.id)}
                   onAction={(key, arg) => onTrackAction(track, i, key, arg)}
-                  containsTrackId={track.id}
-                >
-                  <div
-                    onClick={() => playQueue(entries, i)}
-                    className={`group/row mt-0.5 grid ${COLS} cursor-pointer items-center gap-3 rounded-xl px-3.5 py-2.5 transition-colors hover:bg-hv`}
-                  >
-                    <span className="cursor-grab text-[13px] tabular-nums text-tx2">
-                      <TrackIndicator
-                        number={i + 1}
-                        active={isCur}
-                        playing={playing}
-                        showGripOnHover
-                        gripTitle={t("playlist.dragToReorder")}
-                      />
-                    </span>
-                    <span
-                      className={cn(
-                        "truncate font-serif text-[15.5px]",
-                        isCur ? "font-semibold text-ac" : "font-medium text-tx",
-                      )}
-                    >
-                      <Highlight text={track.title} query={query} />
-                    </span>
-                    <span className="truncate text-[13px] text-tx2">{track.artist}</span>
-                    <span className="truncate text-[13px] text-tx2">{track.album}</span>
-                    <button
-                      aria-label={liked ? t("player.unfavorite") : t("player.favorite")}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(track.id);
-                      }}
-                      className={cn(
-                        "grid size-[30px] cursor-pointer place-items-center rounded-full transition-[transform,background-color,color] hover:bg-ac/12 active:scale-90",
-                        liked ? "text-ac" : "text-tx2",
-                      )}
-                    >
-                      <AnimatedIcon
-                        name={liked ? "heart" : "favorites"}
-                        size={15}
-                        strokeWidth={1.8}
-                        variant="pop"
-                      />
-                    </button>
-                    <span className="text-right text-[13px] tabular-nums text-tx2">
-                      {fmtTime(track.durationSec)}
-                    </span>
-                  </div>
-                </ItemContextMenu>
-              );
-            })}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>

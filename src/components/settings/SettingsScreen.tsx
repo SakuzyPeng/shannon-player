@@ -57,6 +57,43 @@ function Toggle({ on, onToggle, label }: { on: boolean; onToggle: () => void; la
 }
 
 /** 开关行（标签 + 描述 + 开关）。 */
+/** 快捷键清单（只读速查表，键位与 hooks/useGlobalHotkeys.ts 一一对应）。 */
+const SHORTCUTS: { labelKey: MessageKey; keys: string[] }[] = [
+  { labelKey: "shortcut.playPause", keys: ["Space"] },
+  { labelKey: "shortcut.seek", keys: ["←", "→"] },
+  { labelKey: "shortcut.prevNext", keys: ["⌘←", "⌘→"] },
+  { labelKey: "shortcut.volume", keys: ["↑", "↓"] },
+  { labelKey: "shortcut.mute", keys: ["M"] },
+  { labelKey: "shortcut.search", keys: ["⌘F"] },
+];
+
+function ShortcutList() {
+  const { t } = useT();
+  return (
+    <div className="border-b border-bd px-0.5 py-[15px]">
+      <div className="text-sm font-semibold text-tx">{t("settings.shortcuts")}</div>
+      <div className="mt-[3px] text-[12.5px] text-tx2">{t("settings.shortcutsDesc")}</div>
+      <div className="mt-3 flex flex-col gap-1.5">
+        {SHORTCUTS.map((sc) => (
+          <div key={sc.labelKey} className="flex items-center justify-between gap-4">
+            <span className="min-w-0 truncate text-[12.5px] text-tx2">{t(sc.labelKey)}</span>
+            <span className="flex flex-none items-center gap-1">
+              {sc.keys.map((k) => (
+                <kbd
+                  key={k}
+                  className="rounded-md border border-bd bg-srf px-1.5 py-0.5 font-ui text-[11px] tabular-nums text-tx"
+                >
+                  {k}
+                </kbd>
+              ))}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ToggleRow({
   labelKey,
   descKey,
@@ -228,6 +265,8 @@ export function SettingsScreen() {
           {PLAY_TOGGLES.map((tg) => (
             <ToggleRow key={tg.key} labelKey={tg.labelKey} descKey={tg.descKey} settingKey={tg.key} />
           ))}
+          <ShortcutList />
+          {/* 快捷键当前为固定映射：自定义键位需要持久化，等后端接入用户数据后再做。 */}
 
           {/* 歌词 */}
           <SectionTitle labelKey="settings.secLyrics" refCb={secRef("lyrics")} />
