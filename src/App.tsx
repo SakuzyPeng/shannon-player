@@ -6,6 +6,7 @@ import { PlayBar } from "@/components/player/PlayBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
+import { useLibraryStore } from "@/store/library";
 import { useUiStore } from "@/store/ui";
 
 const AlbumDetailScreen = lazy(() =>
@@ -85,6 +86,9 @@ export default function App() {
   const lyricsOpen = useUiStore((s) => s.lyricsOpen);
   const onboardingOpen = useUiStore((s) => s.onboardingOpen);
   const nav = useUiStore((s) => s.nav);
+  // 整库替换（扫描完成）时递增：并入页面 key 强制重挂载，
+  // 免得各页 useMemo 还缓存着旧曲库的派生结果。
+  const libraryVersion = useLibraryStore((s) => s.version);
   const screen = onboardingOpen
     ? { key: "onboarding", content: <FirstRunScreen /> }
     : openPlaylistId
@@ -111,7 +115,7 @@ export default function App() {
     <div className="flex h-screen overflow-hidden bg-bg text-tx transition-colors">
       <IconRail />
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <PageTransition pageKey={screen.key}>
+        <PageTransition pageKey={`${screen.key}@${libraryVersion}`}>
           <Suspense fallback={null}>{screen.content}</Suspense>
         </PageTransition>
         {/* 首次启动引导期间隐藏播放条（空曲库无播放） */}

@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
-import { ALBUM_MENU, tracksOf } from "@/data/library";
+import { ALBUM_MENU } from "@/data/library";
+import { tracksOf } from "@/lib/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";

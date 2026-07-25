@@ -8,7 +8,8 @@ import { MetaLine } from "@/components/common/MetaLine";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
-import { ALBUMS, TRACK_MENU, allTracks } from "@/data/library";
+import { TRACK_MENU } from "@/data/library";
+import { albums as libraryAlbums, allTracks } from "@/lib/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -362,7 +363,7 @@ export function SongsScreen() {
                       </span>
                     </div>
                     {g.albums.map((ab) => {
-                      const album = ALBUMS.find((a) => a.id === ab.albumId);
+                      const album = libraryAlbums().find((a) => a.id === ab.albumId);
                       return (
                         <div key={`${g.artist}-${ab.title}`}>
                           <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">

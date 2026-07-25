@@ -14,7 +14,7 @@ import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { QueuePanel } from "@/components/player/QueuePanel";
 import { VolumeSlider } from "@/components/common/VolumeSlider";
 import { TrafficLights } from "@/components/window/TrafficLights";
-import { ALBUMS } from "@/data/library";
+import { albums as libraryAlbums } from "@/lib/library";
 import { lyricsOf } from "@/data/lyrics";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
@@ -83,7 +83,7 @@ export function LyricsScreen() {
 
   if (!track) return null;
 
-  const album = ALBUMS.find((a) => a.id === track.albumId);
+  const album = libraryAlbums().find((a) => a.id === track.albumId);
   const liked = !!favorites[track.id];
   const ctrlShown = queueOpen || uiVisible;
 
