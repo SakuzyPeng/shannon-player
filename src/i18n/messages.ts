@@ -8,7 +8,11 @@
 
 export type Locale = "zh-Hans" | "zh-Hant" | "en" | "ja";
 
-/** 所有可翻译文案键。带 {var} 的为插值文案。 */
+/**
+ * 所有可翻译文案键。带 {var} 的为插值文案。
+ * `{var|one|other}` 为单复数选词（见 i18n/index.ts）：英文用于避免「1 songs」，
+ * 中日文无单复数变化，直接写死名词即可。
+ */
 export interface Messages {
   "nav.albums": string;
   "nav.songs": string;
@@ -359,7 +363,7 @@ const zhHans: Messages = {
   "menu.removeFromLibrary": "从曲库中移除",
   "menu.removeFromPlaylist": "从歌单中移除",
 
-  "favorites.subtitle": "{songs} 首歌曲 · {albums} 张专辑 · {artists} 位歌手 · {playlists} 歌单",
+  "favorites.subtitle": "{songs} 首歌曲 · {albums} 张专辑 · {artists} 位歌手 · {playlists} 个歌单",
   "favorites.playlists": "歌单",
   "favorites.filterPlaceholder": "过滤收藏…",
   "favorites.sortRecent": "最近收藏",
@@ -552,7 +556,7 @@ const zhHant: Messages = {
   "menu.removeFromLibrary": "從曲庫中移除",
   "menu.removeFromPlaylist": "從歌單中移除",
 
-  "favorites.subtitle": "{songs} 首歌曲 · {albums} 張專輯 · {artists} 位歌手 · {playlists} 歌單",
+  "favorites.subtitle": "{songs} 首歌曲 · {albums} 張專輯 · {artists} 位歌手 · {playlists} 個歌單",
   "favorites.playlists": "歌單",
   "favorites.filterPlaceholder": "過濾收藏…",
   "favorites.sortRecent": "最近收藏",
@@ -598,7 +602,7 @@ const en: Messages = {
   "nav.favorites": "Favorites",
   "nav.settings": "Settings",
 
-  "header.albumSubtitle": "{count} albums, sorted by {sort}",
+  "header.albumSubtitle": "{count} {count|album|albums}, sorted by {sort}",
   "albums.filterPlaceholder": "Filter albums…",
   "albums.emptyTitle": "No albums for “{q}”",
   "albums.emptyBody": "Check the spelling or try another album or artist name",
@@ -620,7 +624,7 @@ const en: Messages = {
   "settings.musicFolders": "Music folders",
   "settings.addFolder": "Add folder…",
   "settings.removeFolder": "Remove folder",
-  "settings.folderTracks": "{n} tracks",
+  "settings.folderTracks": "{n} {n|track|tracks}",
   "settings.statusScanned": "Scanned",
   "settings.statusWatching": "Watching",
   "settings.watch": "Watch for file changes",
@@ -649,11 +653,11 @@ const en: Messages = {
   "firstRun.formats": "Supports FLAC · MP3 · AAC · OGG · WAV and more — or just drag a folder in",
   "firstRun.scanningTitle": "Organizing your library",
   "firstRun.foundLabel": "Found",
-  "firstRun.foundUnit": "songs · {m} albums",
+  "firstRun.foundUnit": "songs · {m} {m|album|albums}",
   "firstRun.background": "Continue in background",
   "firstRun.cancel": "Cancel",
   "firstRun.doneTitle": "Your library is ready",
-  "firstRun.doneBody": "{n} songs · {m} albums · {a} artists\nNew files are added automatically — no need to scan again",
+  "firstRun.doneBody": "{n} {n|song|songs} · {m} {m|album|albums} · {a} {a|artist|artists}\nNew files are added automatically — no need to scan again",
   "firstRun.startListening": "Start listening",
 
   "view.grid": "Grid",
@@ -669,14 +673,14 @@ const en: Messages = {
   "album.collected": "Favorited",
 
   "artist.kicker": "Artist",
-  "artist.meta": "{albums} albums · {songs} songs · {plays} plays",
+  "artist.meta": "{albums} {albums|album|albums} · {songs} {songs|song|songs} · {plays} plays",
   "artist.playAll": "Play All",
   "artist.follow": "Favorite artist",
   "artist.unfollow": "Unfavorite artist",
   "artist.topSongs": "Top Songs",
   "artist.showAllSongs": "Show all {n}",
   "artist.showAllAlbums": "Show all {n}",
-  "artists.subtitle": "{n} artists",
+  "artists.subtitle": "{n} {n|artist|artists}",
   "artists.sortMenu": "Sort by",
   "artists.sortByName": "By Name",
   "artists.sortByAlbums": "By Album Count",
@@ -684,7 +688,7 @@ const en: Messages = {
   "artists.emptyTitle": "No artists for “{q}”",
   "artists.emptyBody": "Check the spelling or try another artist name",
 
-  "songs.subtitle": "{n} songs · {h} hr {m} min",
+  "songs.subtitle": "{n} {n|song|songs} · {h} hr {m} min",
   "songs.sortMenu": "Sort by",
   "songs.sortByTitle": "By Title",
   "songs.sortByArtist": "By Artist",
@@ -692,7 +696,7 @@ const en: Messages = {
   "songs.filterPlaceholder": "Filter all songs…",
   "songs.filterClear": "Clear and close",
   "songs.colArtist": "Artist",
-  "songs.groupMeta": "{albums} albums · {n} songs",
+  "songs.groupMeta": "{albums} {albums|album|albums} · {n} {n|song|songs}",
   "songs.emptyTitle": "No results for “{q}”",
   "songs.emptyBody": "Check the spelling, or try an artist or album name",
 
@@ -728,7 +732,7 @@ const en: Messages = {
   "list.tracks": "Tracks",
   "list.duration": "Duration",
 
-  "unit.tracks": "{n} tracks",
+  "unit.tracks": "{n} {n|track|tracks}",
   "unit.minutes": "{n} min",
 
   "menu.play": "Play",
@@ -745,11 +749,11 @@ const en: Messages = {
   "menu.removeFromLibrary": "Remove from Library",
   "menu.removeFromPlaylist": "Remove from Playlist",
 
-  "favorites.subtitle": "{songs} songs · {albums} albums · {artists} artists · {playlists} playlists",
+  "favorites.subtitle": "{songs} {songs|song|songs} · {albums} {albums|album|albums} · {artists} {artists|artist|artists} · {playlists} {playlists|playlist|playlists}",
   "favorites.playlists": "Playlists",
   "favorites.filterPlaceholder": "Filter favorites…",
   "favorites.sortRecent": "Recently favorited",
-  "favorites.artistMeta": "{n} albums",
+  "favorites.artistMeta": "{n} {n|album|albums}",
   "favorites.emptyHint": "Hover any cover or track row and tap the heart to save it here",
   "favorites.emptyFilter": "No results for “{q}”",
   "favorites.emptySongs": "No favorite songs yet",
@@ -757,7 +761,7 @@ const en: Messages = {
   "favorites.emptyArtists": "No favorite artists yet",
   "favorites.emptyPlaylists": "No favorite playlists yet",
   "playlist.kicker": "Playlist",
-  "playlist.meta": "{n} songs · {m} min · {updated}",
+  "playlist.meta": "{n} {n|song|songs} · {m} min · {updated}",
   "playlist.filterPlaceholder": "Filter songs in playlist…",
   "playlist.dragToReorder": "Drag to reorder",
   "playlist.emptyTitle": "No “{q}” in this playlist",

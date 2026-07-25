@@ -3,6 +3,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AnimatePresence, motion } from "framer-motion";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
+import { MetaLine } from "@/components/common/MetaLine";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { ALBUMS, albumsOfArtist } from "@/data/library";
 import { useUiStore } from "@/store/ui";
@@ -175,11 +176,13 @@ export function ArtistsScreen() {
         <div ref={innerRef} className="will-change-transform">
           {/* 标题栏（兼作窗口拖拽区） */}
           <div data-tauri-drag-region className="flex items-end gap-4 pb-5 pt-[34px]">
-            <div data-tauri-drag-region className="flex flex-col">
+            {/* 标题列不参与压缩：页面身份优先，空间压力由过滤钮吸收。 */}
+            <div data-tauri-drag-region className="flex flex-none flex-col">
               <h1 className="m-0 font-serif text-[40px] font-medium text-tx">{t("nav.artists")}</h1>
-              <div className="mt-[7px] text-[13px] text-tx2">
-                {t("artists.subtitle", { n: artists.length })}
-              </div>
+              <MetaLine
+                text={t("artists.subtitle", { n: artists.length })}
+                className="mt-[7px] text-[13px] text-tx2"
+              />
             </div>
             <div className="flex-1" data-tauri-drag-region />
             <ArtistSortMenu sort={sort} onValueChange={setSort} />
