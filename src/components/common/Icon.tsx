@@ -15,6 +15,7 @@ export type IconName =
   | "repeat"
   | "queue"
   | "addPlaylist"
+  | "playlists"
   | "check"
   | "prev"
   | "next"
@@ -53,6 +54,8 @@ const STROKE: Partial<Record<IconName, string>> = {
   // 列表 + 加号：与队列图标（三横线）同基因，符合「加入歌单」的通用隐喻。
   // 设计稿原稿为「上箭头 + 圆 + 底线」的自造隐喻，可读性差，弃用。
   addPlaylist: "M4 6h16 M4 12h16 M4 18h8 M17 14.5v7 M13.5 18h7",
+  // 列表 + 播放三角：与队列 / 加入歌单同基因，作为「歌单」导航项。
+  playlists: "M4 6h16 M4 12h16 M4 18h8 M14.5 15v7l6-3.5z",
   check: "M5 12l5 5 9-10",
   chevronLeft: "M15 6l-6 6 6 6",
   chevronRight: "M9 6l6 6-6 6",

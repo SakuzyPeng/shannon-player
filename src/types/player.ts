@@ -122,7 +122,14 @@ export type Language = "跟随系统" | "简体中文" | "繁體中文" | "Engli
 export type ThemeMode = "light" | "dark" | "system";
 
 /** 主导航目标。 */
-export type NavKey = "albums" | "songs" | "artists" | "search" | "favorites" | "settings";
+export type NavKey =
+  | "albums"
+  | "songs"
+  | "artists"
+  | "playlists"
+  | "search"
+  | "favorites"
+  | "settings";
 
 /** 曲库视图模式。 */
 export type LibraryView = "grid" | "list";
