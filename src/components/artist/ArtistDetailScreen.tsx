@@ -30,6 +30,10 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const openAlbum = useUiStore((s) => s.openAlbum);
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const [barVisible, setBarVisible] = useState(false);
+  // 「显示全部」就地展开：热门歌曲与专辑默认是精选 + 横向滚动，
+  // 展开后换成完整的纵向列表 / 自适应网格，不另开页面。
+  const [allSongsOpen, setAllSongsOpen] = useState(false);
+  const [allAlbumsOpen, setAllAlbumsOpen] = useState(false);
 
   const playing = usePlayerStore((s) => s.playing);
   const current = usePlayerStore((s) =>
@@ -51,6 +55,8 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const allTracks = useMemo(() => albums.flatMap(tracksOf), [albums]);
   if (albums.length === 0) return null;
 
+  // 列表与播放队列都用当前可见的这一组，避免「看到的」与「播的」不一致。
+  const songs = allSongsOpen ? allTracks : topTracks;
   const cover = albums[0].cover; // 头像用最新专辑封面（对齐设计稿「鲸」）
   const songCount = allTracks.length;
   const isThisArtist = current?.artist === artistName;
@@ -222,15 +228,32 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
 
           {/* 热门歌曲 */}
           <div className="flex items-center border-t border-bd pb-2 pt-2.5">
-            <span className="font-serif text-xl font-semibold text-tx">{t("artist.topSongs")}</span>
+            {/* 展开后列出的是全部曲目（按专辑顺序），再叫「热门歌曲」名不副实 */}
+            <span className="font-serif text-xl font-semibold text-tx">
+              {allSongsOpen ? t("nav.songs") : t("artist.topSongs")}
+            </span>
             <div className="flex-1" />
-            <button className="flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-[12.5px] text-tx2 transition-colors hover:bg-hv hover:text-tx">
-              {t("artist.showAllSongs", { n: songCount })}
-              <Icon name="chevronRight" size={12} strokeWidth={2} />
+            <button
+              onClick={() => setAllSongsOpen((v) => !v)}
+              className="flex flex-none cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
+            >
+              {allSongsOpen ? t("artist.showLess") : t("artist.showAllSongs", { n: songCount })}
+              <Icon
+                name={allSongsOpen ? "chevronLeft" : "chevronRight"}
+                size={12}
+                strokeWidth={2}
+              />
             </button>
           </div>
-          <div className="no-scrollbar grid snap-x snap-mandatory auto-cols-[calc(50%-12px)] grid-flow-col grid-rows-[repeat(5,auto)] gap-x-6 overflow-x-auto pb-2">
-            {topTracks.map((track, i) => {
+          <div
+            className={cn(
+              "no-scrollbar pb-2",
+              allSongsOpen
+                ? "flex flex-col"
+                : "grid snap-x snap-mandatory auto-cols-[calc(50%-12px)] grid-flow-col grid-rows-[repeat(5,auto)] gap-x-6 overflow-x-auto",
+            )}
+          >
+            {songs.map((track, i) => {
               const isCur = current?.id === track.id;
               const liked = !!favorites[track.id];
               return (
@@ -242,7 +265,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
                   containsTrackId={track.id}
                 >
                   <div
-                    onClick={() => playQueue(topTracks, i)}
+                    onClick={() => playQueue(songs, i)}
                     className="mt-0.5 grid snap-start cursor-pointer grid-cols-[40px_1fr_150px_40px_56px] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-hv"
                   >
                     <span className="text-[13px] tabular-nums text-tx2">
@@ -288,16 +311,31 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
           <div className="flex items-center pb-3.5 pt-[26px]">
             <span className="font-serif text-xl font-semibold text-tx">{t("nav.albums")}</span>
             <div className="flex-1" />
-            <button className="flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-[12.5px] text-tx2 transition-colors hover:bg-hv hover:text-tx">
-              {t("artist.showAllAlbums", { n: albums.length })}
-              <Icon name="chevronRight" size={12} strokeWidth={2} />
+            <button
+              onClick={() => setAllAlbumsOpen((v) => !v)}
+              className="flex flex-none cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
+            >
+              {allAlbumsOpen ? t("artist.showLess") : t("artist.showAllAlbums", { n: albums.length })}
+              <Icon
+                name={allAlbumsOpen ? "chevronLeft" : "chevronRight"}
+                size={12}
+                strokeWidth={2}
+              />
             </button>
           </div>
-          <div className="no-scrollbar -mx-3 -mb-2 -mt-3.5 flex snap-x snap-mandatory gap-6 overflow-x-auto px-3 pb-6 pt-3.5">
+          <div
+            className={cn(
+              "no-scrollbar -mx-3 -mb-2 -mt-3.5 gap-6 px-3 pb-6 pt-3.5",
+              allAlbumsOpen
+                ? "grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))]"
+                : "flex snap-x snap-mandatory overflow-x-auto",
+            )}
+          >
             {albums.map((album) => (
               <ArtistAlbumCard
                 key={album.id}
                 album={album}
+                fluid={allAlbumsOpen}
                 favorited={!!favoriteAlbums[album.id]}
                 onOpen={() => openAlbum(album.id)}
                 onPlay={() => playQueue(tracksOf(album), 0)}
@@ -320,16 +358,22 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
 interface CardProps {
   album: Album;
   favorited: boolean;
+  /** 网格展开态：宽度随列宽，不再固定 190px。 */
+  fluid?: boolean;
   onOpen: () => void;
   onPlay: () => void;
   onToggleFavorite: () => void;
 }
 
-function ArtistAlbumCard({ album, favorited, onOpen, onPlay, onToggleFavorite }: CardProps) {
+function ArtistAlbumCard({ album, favorited, fluid, onOpen, onPlay, onToggleFavorite }: CardProps) {
   const { t } = useT();
   return (
     <div
-      className="relative w-[190px] min-w-0 flex-none cursor-pointer snap-start hover:z-10"
+      className={cn(
+        "relative min-w-0 cursor-pointer hover:z-10",
+        // 横排时固定宽度并吸附，展开成网格后交给列宽决定
+        fluid ? "w-full" : "w-[190px] flex-none snap-start",
+      )}
       onClick={onOpen}
     >
       <motion.div
