@@ -378,6 +378,11 @@ function ArtistAlbumCard({ album, favorited, fluid, onOpen, onPlay, onToggleFavo
     >
       <motion.div
         layoutId={`album-cover-${album.id}`}
+        // layoutId 会顺带开启 layout 动画，于是「展开 / 收起歌曲」导致下方专辑整体
+        // 位移时，每张封面都会把这段位移做成 spring 动画——damping 18 还会过冲，
+        // 看起来就是一排封面在弹跳。layoutDependency 固定为专辑 ID：位置变化不再
+        // 重新测量，而卡片与详情页大封面之间的共享过渡（靠 layoutId 配对）不受影响。
+        layoutDependency={album.id}
         whileHover={{ y: -5 }}
         transition={{ type: "spring", stiffness: 380, damping: 18 }}
         className="cover-corners cover-gradient cover-material group/card relative grid aspect-square place-items-center rounded-2xl"
