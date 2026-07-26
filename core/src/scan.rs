@@ -879,7 +879,7 @@ mod tests {
         let first = before.tracks.iter().find(|t| t.artist == "甲").unwrap();
         ov.merge(
             &first.id,
-            crate::overrides::TrackOverride {
+            crate::overrides::TrackMetadataPatch {
                 album_artist: Some("甲".into()),
                 ..Default::default()
             },
@@ -1269,7 +1269,7 @@ mod tests {
         for t in &before.tracks {
             ov.merge(
                 &t.id,
-                crate::overrides::TrackOverride {
+                crate::overrides::TrackMetadataPatch {
                     album_artist: Some("Sakuzyo".into()),
                     ..Default::default()
                 },
@@ -1318,7 +1318,7 @@ mod tests {
         let mut ov = Overrides::default();
         ov.merge(
             &id,
-            crate::overrides::TrackOverride { title: Some("新标题".into()), ..Default::default() },
+            crate::overrides::TrackMetadataPatch { title: Some("新标题".into()), ..Default::default() },
         );
         assert_eq!(cache.library(&ov).tracks[0].title, "新标题");
         assert_eq!(cache.library(&Overrides::default()).tracks[0].title, "原标题");
@@ -1335,7 +1335,7 @@ mod tests {
         let mut ov = Overrides::default();
         ov.merge(
             &id,
-            crate::overrides::TrackOverride { title: Some("我改的".into()), ..Default::default() },
+            crate::overrides::TrackMetadataPatch { title: Some("我改的".into()), ..Default::default() },
         );
         let snap = agg(items(), &ov);
         assert_eq!(snap.tracks[0].title, "我改的");

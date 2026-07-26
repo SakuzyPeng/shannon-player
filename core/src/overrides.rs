@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
 
 /// 单曲的元数据覆盖。字段为 `None` 表示沿用扫描结果。
@@ -38,6 +38,40 @@ pub struct TrackOverride {
     pub disc_no: Option<u16>,
     #[ts(optional)]
     pub track_no: Option<u16>,
+}
+
+/// 一次元数据修改请求。
+///
+/// 它与落盘的 [`TrackOverride`] 分开建模：落盘值只需要「有覆盖 / 无覆盖」两态，
+/// 而补丁必须表达「没动 / 撤销 / 改值」三态。文本沿用空字符串表示撤销；数字字段
+/// 使用嵌套 `Option`，经 serde 映射为：字段缺席 = 没动，`null` = 撤销，数字 = 改值。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/overrides.ts")]
+#[serde(rename_all = "camelCase", default)]
+pub struct TrackMetadataPatch {
+    #[ts(optional)]
+    pub title: Option<String>,
+    #[ts(optional)]
+    pub artist: Option<String>,
+    #[ts(optional)]
+    pub album: Option<String>,
+    #[ts(optional)]
+    pub album_artist: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_double_option")]
+    #[ts(optional)]
+    pub disc_no: Option<Option<u16>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_double_option")]
+    #[ts(optional)]
+    pub track_no: Option<Option<u16>>,
+}
+
+/// serde 默认会把「字段缺席」与显式 `null` 都解成外层 `None`；补丁需要区分二者。
+fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 impl TrackOverride {
@@ -89,13 +123,13 @@ impl Overrides {
 
     /// 把补丁合并进已有覆盖，逐字段三态语义：
     ///
-    /// - `None` —— 这个字段没动，保持原样；
-    /// - `Some("")`（或纯空白）—— **撤销**该字段的修改，回到文件里的原值；
-    /// - `Some(值)` —— 改成这个值。
+    /// - 字段缺席 —— 这个字段没动，保持原样；
+    /// - 文本空串 / 数字 `null` —— **撤销**该字段的修改，回到文件里的原值；
+    /// - 非空文本 / 数字 —— 改成这个值。
     ///
     /// 三态是必要的：界面上「没碰这一栏」和「把这一栏清空」是两种不同的意图，
     /// 只有两态的话用户就只能整条还原，没法单独撤销某一个字段。
-    pub fn merge(&mut self, track_id: &str, patch: TrackOverride) {
+    pub fn merge(&mut self, track_id: &str, patch: TrackMetadataPatch) {
         let mut cur = self.tracks.get(track_id).cloned().unwrap_or_default();
         // Some("") 表示撤销 → 落到 None；Some(值) 去掉首尾空白后写入。
         let apply = |slot: &mut Option<String>, patch: Option<String>| {
@@ -107,11 +141,11 @@ impl Overrides {
         apply(&mut cur.artist, patch.artist);
         apply(&mut cur.album, patch.album);
         apply(&mut cur.album_artist, patch.album_artist);
-        if patch.disc_no.is_some() {
-            cur.disc_no = patch.disc_no;
+        if let Some(value) = patch.disc_no {
+            cur.disc_no = value;
         }
-        if patch.track_no.is_some() {
-            cur.track_no = patch.track_no;
+        if let Some(value) = patch.track_no {
+            cur.track_no = value;
         }
         self.set(track_id, cur);
     }
@@ -186,7 +220,7 @@ mod tests {
     fn merge_keeps_untouched_fields() {
         let mut o = Overrides::default();
         o.set("t-1", TrackOverride { artist: Some("白鲸电台".into()), ..Default::default() });
-        o.merge("t-1", TrackOverride { album: Some("长夜电波".into()), ..Default::default() });
+        o.merge("t-1", TrackMetadataPatch { album: Some("长夜电波".into()), ..Default::default() });
         let got = o.get("t-1").unwrap();
         assert_eq!(got.artist.as_deref(), Some("白鲸电台"));
         assert_eq!(got.album.as_deref(), Some("长夜电波"));
@@ -207,18 +241,56 @@ mod tests {
         );
 
         // 只提交 album，artist 不动。
-        o.merge("t-1", TrackOverride { album: Some("再改一次".into()), ..Default::default() });
+        o.merge("t-1", TrackMetadataPatch { album: Some("再改一次".into()), ..Default::default() });
         assert_eq!(o.get("t-1").unwrap().artist.as_deref(), Some("我改的歌手"));
 
         // 提交空串 = 撤销 artist 的修改，其余保留。
-        o.merge("t-1", TrackOverride { artist: Some("".into()), ..Default::default() });
+        o.merge("t-1", TrackMetadataPatch { artist: Some("".into()), ..Default::default() });
         let got = o.get("t-1").unwrap();
         assert_eq!(got.artist, None, "清空该字段应撤销修改");
         assert_eq!(got.album.as_deref(), Some("再改一次"), "其他字段不受影响");
 
         // 所有字段都撤销后，整条记录消失。
-        o.merge("t-1", TrackOverride { album: Some("  ".into()), ..Default::default() });
+        o.merge("t-1", TrackMetadataPatch { album: Some("  ".into()), ..Default::default() });
         assert!(o.get("t-1").is_none());
+    }
+
+    #[test]
+    fn numeric_patch_distinguishes_untouched_cleared_and_set() {
+        let untouched: TrackMetadataPatch = serde_json::from_str("{}").unwrap();
+        let cleared: TrackMetadataPatch =
+            serde_json::from_str(r#"{"discNo":null,"trackNo":null}"#).unwrap();
+        let changed: TrackMetadataPatch =
+            serde_json::from_str(r#"{"discNo":2,"trackNo":7}"#).unwrap();
+
+        assert_eq!(untouched.disc_no, None);
+        assert_eq!(untouched.track_no, None);
+        assert_eq!(cleared.disc_no, Some(None));
+        assert_eq!(cleared.track_no, Some(None));
+        assert_eq!(changed.disc_no, Some(Some(2)));
+        assert_eq!(changed.track_no, Some(Some(7)));
+    }
+
+    #[test]
+    fn merge_can_clear_one_numeric_override_without_touching_the_other() {
+        let mut o = Overrides::default();
+        o.set(
+            "t-1",
+            TrackOverride {
+                disc_no: Some(2),
+                track_no: Some(7),
+                ..Default::default()
+            },
+        );
+
+        o.merge(
+            "t-1",
+            TrackMetadataPatch { disc_no: Some(None), ..Default::default() },
+        );
+
+        let got = o.get("t-1").unwrap();
+        assert_eq!(got.disc_no, None);
+        assert_eq!(got.track_no, Some(7));
     }
 
     #[test]

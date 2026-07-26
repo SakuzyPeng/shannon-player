@@ -74,7 +74,7 @@ window.__shannon.library.getState().setLibrary(snap);
 
 **缺失值的表达**：判不出的字段一律留空而不是填哨兵值——`Album.year` 是 `Option`，因为填 0 会一路漏到界面上显示成「0 年」。界面拼接元信息用 `src/lib/meta.ts` 的 `metaJoin`，它会跳过缺失项，避免出现「白鲸电台 · 」这种孤零零的分隔符。多碟专辑的曲目列表按碟分节、组内用真实音轨号（`AlbumDetailScreen` 的 `discs`）：序号若用列表索引，两张碟拼起来第二碟第一首就会显示成 16。
 
-**元数据覆盖层（`core/src/overrides.rs`）**：只要存在兜底推断就会猜错，就必须让用户能改。三条规矩：① 键用曲目 ID，专辑级编辑写入时展开成逐曲记录；② 只存被改过的字段，`None` = 不覆盖，这样重扫读到更好的标签时用户没碰过的字段仍会更新；③ 字段三态——没动 / `Some("")` 撤销该字段 / `Some(值)` 改值，只有两态用户就只能整条还原。**不写回音频文件**：写标签是破坏性操作，不该是「编辑信息」的副作用。前端对应 `src/components/common/EditMetadataDialog.tsx`（含 `useMetadataEditor` hook，各页菜单接入用它），界面同样**只提交用户真正动过的输入框**，否则等于把「猜的」固化成「用户指定的」。
+**元数据覆盖层（`core/src/overrides.rs`）**：只要存在兜底推断就会猜错，就必须让用户能改。三条规矩：① 键用曲目 ID，专辑级编辑写入时展开成逐曲记录；② 只存被改过的字段，`None` = 不覆盖，这样重扫读到更好的标签时用户没碰过的字段仍会更新；③ 字段三态——没动 / 显式清空（文本空串、数字 `null`）撤销该字段 / 改值，只有两态用户就只能整条还原。**不写回音频文件**：写标签是破坏性操作，不该是「编辑信息」的副作用。前端对应 `src/components/common/EditMetadataDialog.tsx`（含 `useMetadataEditor` hook，各页菜单接入用它），界面同样**只提交用户真正动过的输入框**，否则等于把「猜的」固化成「用户指定的」。
 
 **滚动**：滚动「手感」交还各平台原生（macOS 触控板橡皮筋、Windows/Linux 滚轮惯性各自沿用系统实现），只统一「视觉」。`src/hooks/useElasticScroll.ts`（名称沿用，实为「原生滚动 + 自绘滚动条」）不再拦截 wheel、不再自积分物理，仅：容器用 `.no-scrollbar` 隐藏系统滚动条，并按原生 `scroll` 事件的 scrollTop/scrollHeight 直接映射绘制一份跨平台一致的 6px thumb（静止 0.9s 后淡出，内容未溢出不显示）。返回签名 `{ scrollerRef, innerRef, thumbRef, onScroll }` 不变，`innerRef` 现仅作内容容器，但保留 `will-change:transform`——它把内容提升为一张缓存的合成层，令 superellipse 圆角 + 多重内阴影的封面卡只光栅化一次、滚动时纯合成（去掉会导致专辑网格滚动掉帧）。曾有一版自定义速度积分 + 橡皮筋引擎，因难以在各平台/输入设备上都贴合原生肌肉记忆，权衡后回退为原生手感。
 

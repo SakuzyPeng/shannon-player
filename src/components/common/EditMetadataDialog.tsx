@@ -106,6 +106,9 @@ function Field({
       </div>
       <input
         type={type}
+        min={type === "number" ? 1 : undefined}
+        max={type === "number" ? 65_535 : undefined}
+        step={type === "number" ? 1 : undefined}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={FIELD_CLS}
@@ -158,7 +161,7 @@ export function EditMetadataDialog({ open, onOpenChange, target }: Props) {
   const sources = isTrack ? target.track.sources : undefined;
   const set = (k: keyof typeof form) => (v: string) => setForm({ ...form, [k]: v });
 
-  /** 只收集改动过的字段；清空的字段发空串（后端据此撤销该字段的修改）。 */
+  /** 只收集改动过的字段；清空文本发空串，清空数字发 null，后端据此撤销。 */
   const dirtyPatch = (): MetadataPatch => {
     const patch: MetadataPatch = {};
     const text = (k: "title" | "artist" | "album" | "albumArtist") => {
@@ -170,8 +173,13 @@ export function EditMetadataDialog({ open, onOpenChange, target }: Props) {
     text("albumArtist");
     const num = (k: "discNo" | "trackNo") => {
       if (form[k] === initial[k]) return;
-      const n = Number.parseInt(form[k], 10);
-      patch[k] = Number.isFinite(n) && n > 0 ? n : undefined;
+      const value = form[k].trim();
+      if (value === "") {
+        patch[k] = null;
+        return;
+      }
+      const n = Number(value);
+      if (Number.isInteger(n) && n > 0 && n <= 65_535) patch[k] = n;
     };
     if (isTrack) {
       num("discNo");

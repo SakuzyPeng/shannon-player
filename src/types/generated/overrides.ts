@@ -6,6 +6,15 @@
 export type Overrides = { tracks: { [key in string]?: TrackOverride }, };
 
 /**
+ * 一次元数据修改请求。
+ *
+ * 它与落盘的 [`TrackOverride`] 分开建模：落盘值只需要「有覆盖 / 无覆盖」两态，
+ * 而补丁必须表达「没动 / 撤销 / 改值」三态。文本沿用空字符串表示撤销；数字字段
+ * 使用嵌套 `Option`，经 serde 映射为：字段缺席 = 没动，`null` = 撤销，数字 = 改值。
+ */
+export type TrackMetadataPatch = { title?: string, artist?: string, album?: string, albumArtist?: string, discNo?: number | null, trackNo?: number | null, };
+
+/**
  * 单曲的元数据覆盖。字段为 `None` 表示沿用扫描结果。
  */
 export type TrackOverride = { title?: string, artist?: string, album?: string, 

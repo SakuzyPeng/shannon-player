@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use shannon_core::cache::ScanCache;
 use shannon_core::model::{LibrarySnapshot, ScanProgress};
-use shannon_core::overrides::{Overrides, TrackOverride};
+use shannon_core::overrides::{Overrides, TrackMetadataPatch};
 use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
 
@@ -116,7 +116,7 @@ fn set_track_metadata(
     app: tauri::AppHandle,
     state: State<'_, LibraryState>,
     track_id: String,
-    patch: TrackOverride,
+    patch: TrackMetadataPatch,
 ) -> Result<LibrarySnapshot, String> {
     {
         let mut overrides = state.overrides.lock().map_err(|e| e.to_string())?;
@@ -135,7 +135,7 @@ fn set_album_metadata(
     app: tauri::AppHandle,
     state: State<'_, LibraryState>,
     album_id: String,
-    patch: TrackOverride,
+    patch: TrackMetadataPatch,
 ) -> Result<LibrarySnapshot, String> {
     let ids: Vec<String> = snapshot(&state)?
         .tracks
