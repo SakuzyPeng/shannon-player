@@ -339,7 +339,19 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                       {track.title}
                     </span>
                     {showTrackArtist && (
-                      <span className="min-w-0 truncate text-[13px] text-tx2">{track.artist}</span>
+                      // 合辑里「这首谁唱的，我想听他别的」是很自然的下一步。
+                      // 默认与其他次要信息同色，hover 才提示可点——每行常驻一个强调色
+                      // 会把视线从标题上抢走；stopPropagation 是为了不触发整行的播放。
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openArtist(track.artist);
+                        }}
+                        title={track.artist}
+                        className="min-w-0 cursor-pointer truncate text-left text-[13px] text-tx2 transition-colors hover:text-ac"
+                      >
+                        {track.artist}
+                      </button>
                     )}
                     <button
                       aria-label={liked ? t("player.unfavorite") : t("player.favorite")}

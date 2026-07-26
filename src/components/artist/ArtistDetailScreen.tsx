@@ -11,7 +11,7 @@ import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { TRACK_MENU } from "@/data/library";
-import { albumsOfArtist, playsOf, topTracksOf, tracksOf } from "@/lib/library";
+import { albumsRelatedToArtist, playsOf, topTracksOf, tracksByArtist, tracksOf } from "@/lib/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -77,10 +77,12 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
   const { dialog: editDialog, editTrack } = useMetadataEditor();
 
-  const albums = useMemo(() => albumsOfArtist(artistName), [artistName]);
+  // 「参与过的专辑」与「演唱过的曲目」——只看专辑艺人的话，
+  // 合辑里的客串歌手会得到一个彻底空白的页面。
+  const albums = useMemo(() => albumsRelatedToArtist(artistName), [artistName]);
   const topTracks = useMemo(() => topTracksOf(artistName), [artistName]);
-  const allTracks = useMemo(() => albums.flatMap(tracksOf), [albums]);
-  if (albums.length === 0) return null;
+  const allTracks = useMemo(() => tracksByArtist(artistName), [artistName]);
+  if (albums.length === 0 && allTracks.length === 0) return null;
 
   // 列表与播放队列都用当前可见的这一组，避免「看到的」与「播的」不一致。
   const songs = allSongsOpen ? allTracks : topTracks;
