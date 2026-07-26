@@ -104,7 +104,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
         if (arg) addTracksToPlaylistArg(arg, [track], t("playlist.newDefaultName"));
         break;
       case "menu.play":
-        playQueue(topTracks, index);
+        playQueue(songs, index);
         break;
       case "menu.playNext":
         enqueueNext(track);
@@ -113,7 +113,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
         toggleFavorite(track.id);
         break;
       case "menu.showLyrics":
-        playQueue(topTracks, index);
+        playQueue(songs, index);
         useUiStore.getState().openLyrics();
         break;
       case "menu.editTags":
