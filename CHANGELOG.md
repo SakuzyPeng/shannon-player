@@ -47,6 +47,7 @@
 - 扫描进度事件的曲目数改为实时上报（此前恒为 0，只有收尾那一帧才有真值）。
 - 修复 `src/data/playlists.ts` 引用已改名导出（`ALBUMS` / `allTracks`）导致的类型检查失败。
 - 为 `ts-rs` 启用其官方提供的 `no-serde-warnings` feature：Serde 的 `skip_serializing_if` / `deserialize_with` 仍按原语义工作，TypeScript 可选字段继续由显式 `#[ts(optional)]` 建模，同时不再为这些已知不支持的属性输出误导性构建警告。
+- 生产构建按 React 与 Framer Motion 运行时拆分稳定缓存块，保留歌词引擎原有的页面级懒加载边界；避免把全部依赖合成单一 vendor 包，构建产物不再出现单块超过 500 kB 的警告。
 - 实测：939 个文件的真实曲库，专辑数由 41 张收敛到 28 张（无一张被误拆），曲目折叠重复后为 331 首。
 
 ### 新增（Rust 后端 · 曲库扫描）
