@@ -90,7 +90,7 @@ window.__shannon.library.getState().setLibrary(snap);
 
 **折行戒律（按体裁分类，不要凭感觉）**：① 控件（按钮 / pill / tab / 菜单项）一律不换行——胶囊形状本身是可点击性的视觉暗示，被撑成两行等于换了个组件；写法是 `flex-none` + `whitespace-nowrap`。② 头部元信息副标题（`3 首 · 2 张专辑 · …` 这类一行摘要）也要规避换行：它在 `items-end` 的头部里，换行会顶高整个头部，拖动窗口时标题会跳；做法是标题列 `flex-none`（页面身份优先），并把文案交给 `src/components/common/MetaLine.tsx` 渲染——每个片段包成 `whitespace-nowrap`，极窄时只能断在 ` · ` 处，永不出现「1」与「playlists」被拆开的孤字断行。③ 正文 / 说明 / 空态本来就是多行排版，不用管。**头部空间不足时的让位顺序是固定的**：标题列与控件都不压缩，压力全部由过滤钮（`FilterPill`）吸收——收起态是固定圆钮不参与压缩，展开态可收缩至 132px 下限。
 
-**字体覆盖范围**：`--font-serif` 里 Lora 只覆盖拉丁、Noto Serif SC 补 CJK，**两者都没有数学运算符一类的符号**（实测 `∀` U+2200 不在其中，`document.fonts.check` 直接返回 false）。缺字时浏览器回落到系统默认字体，笔画风格与 Lora 差得很明显——专辑名带这类字符时尤其扎眼。栈里因此插了一层 Times 风格的衬线数学字体（STIXGeneral / Cambria Math），它们不含 CJK，中文会继续落到后面的 Noto Serif SC。诊断缺字的办法：canvas `measureText` 比较「指定字体」与「必然缺失的假字体」的宽度，相同即说明该字体没有这个字形。
+**字体覆盖范围**：`--font-serif` 里 Lora 只覆盖拉丁、Noto Serif SC 补 CJK，**两者都没有数学运算符一类的符号**（实测 `∀` U+2200 不在其中，`document.fonts.check` 直接返回 false）。缺字时浏览器回落到系统默认字体，笔画风格与 Lora 差得很明显——专辑名带这类字符时尤其扎眼。栈里因此插了一层 Times 风格的衬线数学字体，三平台各取所需（macOS 的 STIXGeneral、Windows 的 Cambria Math、Linux 的 FreeSerif / DejaVu Serif）；它们都不含 CJK，中文会继续落到后面的 Noto Serif SC。**只有 macOS 那项经过实测**，换平台开发时应重新验证——各平台自带字体差异很大，Times New Roman、Georgia、Apple Symbols 实测都没有这个字形。诊断缺字的办法：canvas `measureText` 比较「指定字体」与「必然缺失的假字体」的宽度，相同即说明该字体没有这个字形。
 
 **i18n 单复数**：`{var|one|other}` 标记按 `params[var] === 1` 选词（实现见 `src/i18n/index.ts`）。英文凡是「数字 + 名词」都必须用，否则会出现「1 songs」；中日文无单复数变化，直接写死名词。
 
