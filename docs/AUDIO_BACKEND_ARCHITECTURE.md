@@ -3,22 +3,38 @@
 ## 状态
 
 - 决策状态：已接受，等待实现。
-- 决策日期：2026-07-20。
+- 决策日期：2026-07-20；2026-07-26 依据 macOS 侧概念验证修订（见下方修订记录）。
 - 适用范围：本地曲库扫描、音频解码、PCM 处理、设备输出、空间音频与链接导入。
 - 当前版本仍使用前端种子数据和模拟播放状态；本文描述目标架构，不表示对应能力已经交付。
 - 实现级设计（工程结构、线程模型、队列交接、测试策略与实施阶段）见
   [音频后端实现设计](AUDIO_BACKEND_IMPLEMENTATION_PLAN.md)。
+
+### 2026-07-26 修订记录
+
+依据 [macOS 空间音频回放观测笔记](MACOS_SPATIAL_PLAYBACK_NOTES.md) 与 Windows 侧
+既有概念验证，修订四处，均为补充与澄清，不推翻原有决策：
+
+1. 分层与输出后端补入 macOS 空间路径（此前只规划了 Windows）。
+2. 子进程红线由「不得有子进程」澄清为「不得以外部播放器/转码器作为播放兜底」，
+   自身可执行文件的隔离 worker 在有明确崩溃隔离理由时允许。
+3. 解码后端选择明确为运行时能力探测，并记入一条平台例外：macOS 对象音频路径上
+   解码器被锁定为 AVPlayer。
+4. 第一阶段格式范围补入 ALAC 的优先级说明与 APAC 的平台归属。
 
 ## 决策摘要
 
 Shannon Player 的实时播放链必须完全运行在应用进程内。播放、暂停、seek、解码、DSP、重采样、
 音频设备输出和实时分析均不得依赖外部子进程。
 
-子进程只允许出现在边界清晰、非实时的导入任务中：
+这条红线针对的是**外部**播放器与转码器，不是「进程数量」本身。允许的子进程限于：
 
 1. 调用由用户自行安装和维护的 `yt-dlp`。
 2. 下载结果确实无法直接导入时，调用 FFmpeg 完成必要的合并、重封装或转换。
 3. 开发期诊断与离线验证工具，不进入正式播放路径。
+4. **自身可执行文件的隔离 worker**，仅在有明确的崩溃隔离理由时（例如平台 OEM 解码器
+   已知会在 teardown 阶段使整个进程崩溃）。此类 worker 必须：与主程序同一份可执行
+   文件、经共享内存通信、生命周期完全由父进程掌握并带超时强制终止、在代码与文档中
+   记录隔离原因。它不是「不支持格式的兜底」，也不得用于绕开能力错误。
 
 不得把 FFmpeg PCM 管道、mpv/libmpv 或其他外部播放器作为隐藏的播放兜底。遇到不支持的格式时，
 应选择可用的进程内后端，或返回明确的能力错误。
@@ -41,6 +57,8 @@ AudioService
         |     +-- CodecSpecificDecoder
         |     +-- OptionalLibavDecoder
         |     `-- NativeSpatialDecoder
+        |           +-- macOS: AVPlayer + MTAudioProcessingTap
+        |           `-- Windows: MF SpatialObjects / Media Session
         |
         +-- PCM Pipeline
         |     +-- gapless 边界处理
@@ -52,9 +70,11 @@ AudioService
         +-- 有界 PCM 环形缓冲
         |
         `-- OutputBackend
-              +-- CpalOutput
+              +-- CpalOutput                （立体声与普通共享输出）
               +-- PlatformExclusiveOutput
               `-- NativeSpatialOutput
+                    +-- macOS: AVSampleBufferAudioRenderer + AudioChannelLayoutTag
+                    `-- Windows: ISpatialAudioClient
 ```
 
 容器识别、解码、PCM 处理和设备输出分别建模。文件扩展名、编码名称、声道布局和输出端点能力
@@ -65,6 +85,7 @@ AudioService
 | 场景 | 是否允许子进程 | 约束 |
 | --- | --- | --- |
 | 播放、暂停、seek、切歌 | 否 | 全部由进程内播放器状态机驱动 |
+| 已知会崩溃的平台 OEM 解码器 | 条件允许 | 仅限自身可执行文件的隔离 worker，须记录隔离原因（见上文第 4 条） |
 | 实时解码、重采样、DSP、输出 | 否 | 不使用 FFmpeg/mpv 管道 |
 | 曲库扫描、格式探测、标签与封面读取 | 否 | 使用 Rust 库或进程内原生库 |
 | 波形、响度与媒体属性分析 | 否 | 后台线程执行，但仍在应用进程内 |
@@ -78,13 +99,27 @@ AudioService
 
 ## 解码后端选择
 
-后端按输入能力选择，不按“失败后不断尝试外部命令”的方式回退：
+后端按输入能力**在运行时探测后选择**，不按“失败后不断尝试外部命令”的方式回退。
+同一条规则在不同平台会得出不同结果，这是预期行为而非分叉：例如 macOS 的系统解码器
+覆盖 APAC 与 E-AC-3/JOC，而被测 Windows 环境的 Opus MFT 只接受单/双声道，多声道
+一律拒绝，必须改用进程内解码器。
 
 1. 带 Atmos/JOC 等对象元数据且平台提供已验证的空间解码能力时，选择原生空间后端。
 2. 普通常见音频优先使用纯 Rust 解码器，当前首选候选为 Symphonia。
 3. Symphonia 尚未成熟覆盖的编码，优先评估专用的进程内解码器，例如独立 Opus 解码器。
 4. 只有格式覆盖确有必要且专用解码器不合适时，才评估基于 `ffmpeg-next` 的进程内 libav 后端。
 5. 没有满足质量和能力要求的进程内后端时，返回“不支持的编码/容器”错误。
+
+**平台例外（macOS 对象音频）**：系统的杜比全景声标识由**上游解码链路**决定，
+而非交给渲染器的 PCM——同为 12 声道 f32 加同一布局标签，源是 E-AC-3/JOC 时显示
+杜比全景声，源是普通 12 声道 WAV 时显示多声道。因此在 macOS 上要保住该标识，
+对象音频的解码必须走 AVPlayer；换用自建解码器或其他后端，标识随之消失。
+这是一条**能力锁定**而非质量取舍，与上述“按能力自由选择”的一般原则冲突，
+实现时必须显式记录，不得当作可替换后端处理。依据见
+[macOS 空间音频回放观测笔记](MACOS_SPATIAL_PLAYBACK_NOTES.md)。
+
+系统标识只能用于交叉印证，不能作为判据：内容是否为对象音频由码流层面的标记
+（如 `dec3` 中的 JOC 标记）判定，对应验收条件第 7 条。
 
 `OptionalLibavDecoder` 是可选扩展点，不是已确定依赖。是否引入必须同时评估格式收益、包体、
 三平台构建、ABI 升级和与导入工具共享 FFmpeg 组件的可行性。
@@ -95,14 +130,15 @@ AudioService
 
 | 输入 | 计划路径 | 说明 |
 | --- | --- | --- |
-| FLAC | Symphonia | 作为无损主力格式 |
+| ALAC / M4A | Symphonia | **实测曲库占比最高（真实曲库 87.5%），第一阶段的验证主力**；容器级 gapless 需单独验证 |
+| FLAC | Symphonia | 无损主力格式之一，语料充足 |
 | MP3 | Symphonia | 验证 encoder delay/padding 与无缝衔接 |
 | WAV / AIFF / PCM | Symphonia | 保留采样格式、采样率和显式布局 |
 | OGG Vorbis | Symphonia | 验证 chained stream 与 gapless |
 | AAC-LC / M4A | Symphonia | 可解码；不能预先承诺完整 gapless |
-| ALAC / M4A | Symphonia | 可解码；容器级 gapless 需单独验证 |
+| APAC / M4A | macOS 系统解码 | Apple 私有编码，仅 macOS 可解；不实现自有解码器 |
 | Opus / WebM / Matroska | 专用进程内解码器 | 在纳入发布范围前以样本语料验证 |
-| E-AC-3 JOC | Windows 原生空间后端 | 普通 PCM 解码结果不得标记为 Atmos |
+| E-AC-3 JOC | Windows 原生空间后端 / macOS AVPlayer 路径 | 普通 PCM 解码结果不得标记为 Atmos；macOS 上 `AudioConverter` 路径只出 6 声道声床，必须走 AVPlayer 才能保住对象 |
 | 固定 7.1.4 / 9.1.6 / 22.2 | 进程内解码器 + Windows 空间输出 | 布局来源和推断置信度必须保留 |
 | 其他长尾或专有格式 | 待评估 | 不使用播放子进程兜底 |
 
@@ -110,6 +146,7 @@ Atmos/JOC 与固定多声道空间回放的证据、边界和平台限制分别�
 
 - [Windows Dolby Atmos/JOC 系统解码观测笔记](ATMOS_DECODING_NOTES.md)
 - [Windows 固定多声道空间回放研究笔记](WINDOWS_SPATIAL_PLAYBACK_NOTES.md)
+- [macOS 空间音频回放观测笔记](MACOS_SPATIAL_PLAYBACK_NOTES.md)
 
 ## 实时链路不变量
 
@@ -131,7 +168,19 @@ CPAL 已经统一提供，应由平台后端独立实现和探测：
 - 压缩码流直通。
 - Windows Media Foundation Spatial Objects 解码。
 - Windows `ISpatialAudioClient` 空间路由。
+- macOS `AVSampleBufferAudioRenderer` 空间路由。
 - 平台特有的设备热插拔、默认设备角色和错误恢复策略。
+
+**空间输出不走 CPAL**：CPAL 的配置只有声道数，表达不了声道布局，而布局标签正是
+系统判断能否空间化的依据。macOS 上把多声道 PCM 交给 `AVSampleBufferAudioRenderer`
+并附 `AudioChannelLayoutTag`，由系统完成空间化与头部追踪；直接打开裸多声道硬件设备
+则不会触发系统空间音频。应用自行双耳化（如 `AUSpatialMixer` 渲染成 2ch 再输出）
+会使系统空间音频显示为「不可用」，头部追踪也无从谈起——**渲染发生在头动之前**，
+这是产品可见的降级，不只是实现细节。
+
+空间输出后端的缓冲参数与普通输出不是一个量级：`AVSampleBufferAudioRenderer`
+自带深队列且欠载恢复会动态抬高其要求的最小 lead，喂得过浅会被**静默丢弃**
+（不报错、时钟继续走、输出变哑），不能沿用 CPAL 后端的参数。
 
 “解码 PCM 保持原始精度”与“最终设备 bit-perfect”是不同能力。只要发生重采样、DSP、共享混音、
 声道映射或采样格式转换，就不能宣称 bit-perfect。
@@ -183,12 +232,21 @@ CPAL 已经统一提供，应由平台后端独立实现和探测：
 
 ## 待定项
 
-- Symphonia 的最终版本、feature 集与样本兼容性基线。
-- Opus 进程内解码器的选型与多声道映射支持。
+- Symphonia 的 feature 集与样本兼容性基线（版本已定为 0.6，见下）。
 - 是否需要 `ffmpeg-next`，以及触发引入它的最低格式覆盖收益。
-- CPAL 与平台专用输出后端的职责边界。
 - 导入用 FFmpeg/ffprobe 的裁剪清单、共享库策略和三平台打包方式。
-- 项目最低 Rust 版本；采用 Symphonia 0.6 时需从当前 `1.77.2` 提升到至少 `1.85`。
+- macOS 上 A（AVPlayer 直通）与 B（PCM 经应用中转）两条路径的听感等价性。
+
+2026-07-26 落定的原待定项：
+
+- **最低 Rust 版本**：提升至 1.85（Symphonia 0.6 的 MSRV）。
+- **Symphonia 版本**：0.6.0（发布时已正式可用，MSRV 1.85）。注意 `mp3`、`isomp4`、
+  `alac`、`aac` 均不在 default feature 内，需显式开启。
+- **Opus 解码器选型**：`symphonia-adapter-libopus`，即架构设想的「libopus 绑定包装为
+  Symphonia 自定义 Decoder」的现成实现。其 default feature 为 `bundled`（编译 C 源码），
+  三平台构建需实测。
+- **CPAL 与平台后端边界**：共享模式的立体声与普通多声道归 CPAL；独占、直通、
+  空间路由、热插拔归平台实现。空间输出明确不走 CPAL（见「输出后端」）。
 
 以上事项的当前建议汇总见[音频后端实现设计](AUDIO_BACKEND_IMPLEMENTATION_PLAN.md)的
 「对架构约束待定项的建议」。

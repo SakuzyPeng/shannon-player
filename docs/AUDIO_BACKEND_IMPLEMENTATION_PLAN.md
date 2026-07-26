@@ -4,7 +4,7 @@
 
 - 文档性质：实现级设计，配套并细化[音频后端架构约束](AUDIO_BACKEND_ARCHITECTURE.md)，
   不改变其决策；两者冲突时以架构约束为准，且应先修订文档再动代码。
-- 设计日期：2026-07-20。
+- 设计日期：2026-07-20；2026-07-26 依据 macOS 概念验证与依赖现场核实修订。
 - 适用范围：实时播放引擎的工程结构、线程模型、队列交接、解码管线、前端接入、
   测试策略与实施阶段。
 - 本文描述的模块、crate 与阶段均未开始实现；提及的第三方 crate 版本与 API
@@ -12,14 +12,16 @@
 
 ## 工程结构
 
-引擎独立为 cargo workspace 成员，与 Tauri 壳解耦：
+引擎独立为 cargo workspace 成员，与 Tauri 壳解耦。仓库现状是 workspace 成员平铺在
+根目录（`core/`、`src-tauri/`），新成员沿用同一布局，不引入 `crates/` 前缀——
+`core/src/model.rs` 的 ts-rs `export_to` 是相对路径，搬动目录层级会切断前后端契约链路，
+而目录前缀本身不产生工程价值：
 
 ```text
 src-tauri/           Tauri 壳：commands、事件桥、窗口（现状）
-crates/
-  shannon-audio/     播放引擎：解码、PCM 管线、输出后端，零 Tauri 依赖
-  shannon-library/   曲库：扫描、标签、封面、SQLite 持久化（后期）
-  shannon-import/    链接导入 ImportService（后期）
+core/                曲库：扫描、探测、稳定 ID、元数据覆盖（现状，crate 名 shannon-core）
+audio/               播放引擎：解码、PCM 管线、输出后端，零 Tauri 依赖（新增，shannon-audio）
+import/              链接导入 ImportService（后期，shannon-import）
 ```
 
 - `shannon-audio` 不依赖 Tauri，验收条件中的 gapless、seek、欠载压测才能以
@@ -156,13 +158,22 @@ Symphonia 管线加自定义解码器注册：
 ## 输出后端
 
 - `OutputBackend` trait 首版即定（能力协商 / 启动 / 停止 / 能力上报），WASAPI 独占与
-  Windows 空间输出后期以新实现插入，不改引擎。
+  平台空间输出后期以新实现插入，不改引擎。trait 必须能表达**声道布局**而不只是声道数，
+  否则空间后端接不进来（CPAL 的配置只有声道数，正是这个原因不能承担空间输出）。
 - 起步实现为 CPAL 共享模式。不得假设设备支持 f32：按设备实际支持的配置协商采样格式
   与采样率；引擎内部全链保持 f32，由输出后端在设备边界完成到协商格式的样本转换，
   转换在回调内进行且无分配。
 - 增加 `NullOutput`：供无声卡 CI 与集成测试使用，也是前端 Mock 的行为参照。
 - CPAL 的设备热插拔通知跨平台不完整，按架构约束划入平台后端职责，各平台以
   IMMNotificationClient、CoreAudio property listener 等机制补齐。
+- macOS 空间输出为 `AVSampleBufferAudioRenderer`（ASBR），实现要点均为实测踩坑：
+  - 必须用 `requestMediaDataWhenReady` 驱动。不注册它，`isReadyForMoreMediaData`
+    不会转 true，直接 enqueue 等于一帧未送，且不报任何错误。
+  - 送入的 `CMSampleBuffer` 需带 `AudioChannelLayoutTag`；12 声道在 macOS 只对应
+    `Atmos_7_1_4`，不存在歧义。
+  - 队列深度与 CPAL 不同量级（参考约 1 秒，预填约 200 ms）；喂得过浅会被静默丢弃。
+  - 欠载用同步器 `setRate(0/1)` 冻结与恢复，非破坏性；不要 flush + 重新预填，
+    那会丢弃已缓冲音频并可能锯齿状滑向永久静音。
 
 ## 前端接入
 
@@ -207,29 +218,46 @@ Symphonia 管线加自定义解码器注册：
 
 ## 对架构约束待定项的建议
 
-| 待定项 | 建议 |
+2026-07-26 现场核实后，多数已落定（详见架构约束「待定项」一节）：
+
+| 待定项 | 结论 |
 | --- | --- |
-| 最低 Rust 版本 | 立即提升至 1.85 或更高；桌面应用自带二进制、无下游 crate 消费者，成本仅为本地与 CI 工具链，为 Symphonia 0.6 评估扫清前置 |
-| Symphonia 版本与 feature 集 | 以语料测试为基线在 0.5 系与 0.6 间实测选择；自定义解码器注册 API 在 0.6 中需现场核实 |
-| Opus 解码器选型 | libopus 绑定包装为 Symphonia 自定义 Decoder，复用其解复用器（见“解码管线”） |
+| 最低 Rust 版本 | **已定 1.85**（Symphonia 0.6 的 MSRV）。本机工具链 1.96，无成本 |
+| Symphonia 版本与 feature 集 | **已定 0.6.0**。`mp3` / `isomp4` / `alac` / `aac` 均不在 default 内，需显式开启 |
+| Opus 解码器选型 | **已定 `symphonia-adapter-libopus`**，正是本文设想的集成方式的现成实现；default feature `bundled` 需编译 C 源码，三平台构建待实测 |
 | 是否需要 `ffmpeg-next` | 维持架构约束原判：仅当插件式解码仍覆盖不了且格式收益明确时评估 |
-| CPAL 与平台后端边界 | 以 `OutputBackend` trait 为界：共享模式归 CPAL；独占、直通、空间、热插拔归平台实现 |
+| CPAL 与平台后端边界 | 以 `OutputBackend` trait 为界：共享模式的立体声与普通多声道归 CPAL；独占、直通、**空间路由**、热插拔归平台实现 |
 | 导入用 FFmpeg 裁剪与打包 | 维持待定，属 ImportService（阶段 3）前的决策点 |
 
 ## 实施阶段
 
 | 阶段 | 内容 | 出口条件 |
 | --- | --- | --- |
-| 0 | workspace 拆分、引擎骨架、CPAL 输出（设备格式协商）、Symphonia FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine、store 后继算法与 queueRevision | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
-| 1 | gapless、ReplayGain、重采样、设备切换、stats、语料测试 | 验收条件第 5、6 条的无头测试常态化 |
-| 2 | 曲库扫描（lofty + SQLite）替换种子数据 | 前端不再读 `src/data/library.ts` 种子 |
+| 0 | workspace 拆分、引擎骨架、CPAL 输出（设备格式协商）、Symphonia **ALAC/AAC/M4A** + FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine、store 后继算法与 queueRevision；`OutputBackend` trait 与源规格模型自首版即能表达**声道布局与布局来源** | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
+| 1 | gapless、ReplayGain、重采样、设备切换、stats、语料测试；**多声道到立体声的正确下混** | 验收条件第 5、6 条的无头测试常态化 |
+| 2 | 曲库扫描（lofty + SQLite）替换种子数据；补齐布局、采样率、位深与对象音频标记的探测 | 前端不再读 `src/data/library.ts` 种子 |
 | 3 | Opus 插件解码、ImportService | 架构约束第一阶段格式表除空间路径外全覆盖 |
 | 4 | 平台独占输出 | 独占/共享切换走显式状态机 |
-| 5 | Windows 空间后端 | 两份研究笔记的验证方法在产品内可复现 |
+| 5 | 平台空间后端（Windows `ISpatialAudioClient` / macOS ASBR） | 三份研究笔记的验证方法在产品内可复现 |
+
+阶段划分的两处调整依据：
+
+- **阶段 0 的格式主力是 ALAC 而非 FLAC**。实测真实曲库 1362 首中 ALAC 占 87.5%、
+  AAC 占 10%、MP3 占 1.8%，FLAC 为 0；FLAC 语料集中在按格式分类的测试素材里。
+  因此「能放歌」的端到端验证用 ALAC，「解码正确性」的验证用 FLAC 语料。
+  照原表只做 FLAC/MP3/WAV 会出现阶段 0 完成却一首曲库歌曲都放不了的情况。
+- **声道布局不能推迟到阶段 5**。多声道内容在立体声端点上必须正确下混，
+  而下混系数依赖布局；布局与其来源必须自解码起点即进类型（事后补录代价大）。
+  空间**输出**仍在阶段 5，但布局**建模**是阶段 0 的出口条件。
 
 ## 当前未覆盖
 
 - 均衡器等重型 DSP 的具体设计。
 - 曲库数据库 schema 与迁移策略。
-- 空间音频能力在设置界面的具体呈现。
+- 空间音频能力在设置界面的具体呈现（受制于「系统标识不能当作判据」这条，
+  界面措辞需要自有判据支撑）。
 - 导入任务的界面与进度模型细节。
+- macOS 对象音频路径与普通路径之间的切歌交接：前者解码器锁定为 AVPlayer，
+  与走 Symphonia 的普通曲目分属两条链路，队列跨越两者时的交接与 gapless 语义未定。
+- 现有探测器的两处缺口（阶段 2 收拾）：APAC 等编码识别不出时把容器名填进 codec 字段
+  而非留空并记 `probe_notes`；`.ec3` 等扩展名未纳入扫描，与「识别与播放能力解耦」相悖。
