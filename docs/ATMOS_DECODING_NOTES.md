@@ -2,7 +2,9 @@
 
 本文只关注带 Atmos/JOC 元数据的码流在 Windows 系统解码层暴露了什么。已经解码为固定
 `7.1.4`、`9.1.6`、`22.2` 声道后如何进入系统空间音频渲染器，见
-[Windows 固定多声道空间回放研究笔记](WINDOWS_SPATIAL_PLAYBACK_NOTES.md)。
+[Windows 固定多声道空间回放研究笔记](WINDOWS_SPATIAL_PLAYBACK_NOTES.md)。AC-4 MFT 与
+endpoint writer 的私有 metadata 兼容问题，见
+[Windows AC-4 内部空间元数据兼容性笔记](AC4_INTERNAL_METADATA_NOTES.md)。
 
 ## 目标
 

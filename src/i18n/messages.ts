@@ -100,6 +100,7 @@ export interface Messages {
   "album.collect": string;
   "album.uncollect": string;
   "album.collected": string;
+  "album.disc": string; // {n}
 
   "artist.kicker": string;
   "artist.meta": string; // {albums} {songs} {plays}
@@ -219,6 +220,25 @@ export interface Messages {
   "dialog.save": string;
   "dialog.delete": string;
 
+  "edit.trackTitle": string;
+  "edit.albumTitle": string;
+  "edit.fieldTitle": string;
+  "edit.fieldArtist": string;
+  "edit.fieldAlbum": string;
+  "edit.fieldAlbumArtist": string;
+  "edit.fieldDisc": string;
+  "edit.fieldTrack": string;
+  "edit.srcFolder": string;
+  "edit.srcFileName": string;
+  "edit.srcMajority": string;
+  "edit.srcUnknown": string;
+  "edit.srcEdited": string;
+  "edit.reset": string;
+  "edit.albumScope": string; // {count}
+  "edit.mergeHint": string;
+  "edit.failed": string; // {error}
+  "edit.previewOnly": string;
+
   "player.favorite": string;
   "player.unfavorite": string;
   "player.shuffle": string;
@@ -327,6 +347,7 @@ const zhHans: Messages = {
   "album.collect": "收藏专辑",
   "album.uncollect": "取消收藏专辑",
   "album.collected": "已收藏",
+  "album.disc": "碟 {n}",
 
   "artist.kicker": "歌手",
   "artist.meta": "{albums} 张专辑 · {songs} 首歌曲 · 收听 {plays} 次",
@@ -410,7 +431,7 @@ const zhHans: Messages = {
   "playlist.updatedNow": "今天更新",
   "playlist.newDefaultName": "新歌单",
   "menu.favorite": "收藏",
-  "menu.editTags": "编辑标签…",
+  "menu.editTags": "编辑信息…",
   "menu.showInfo": "显示专辑简介",
   "menu.showLyrics": "查看歌词",
   "menu.revealInFinder": "在 Finder 中显示",
@@ -445,6 +466,25 @@ const zhHans: Messages = {
   "dialog.cancel": "取消",
   "dialog.save": "保存",
   "dialog.delete": "删除",
+
+  "edit.trackTitle": "编辑曲目信息",
+  "edit.albumTitle": "编辑专辑信息",
+  "edit.fieldTitle": "标题",
+  "edit.fieldArtist": "歌手",
+  "edit.fieldAlbum": "专辑",
+  "edit.fieldAlbumArtist": "专辑艺人",
+  "edit.fieldDisc": "碟号",
+  "edit.fieldTrack": "音轨号",
+  "edit.srcFolder": "来自文件夹名",
+  "edit.srcFileName": "来自文件名",
+  "edit.srcMajority": "据同专辑曲目推断",
+  "edit.srcUnknown": "文件未提供",
+  "edit.srcEdited": "已修改",
+  "edit.reset": "还原为文件信息",
+  "edit.albumScope": "改动应用到这张专辑的全部 {count} 首曲目",
+  "edit.mergeHint": "把散在两处的同名专辑改成同一专辑艺人，即可合并为一张",
+  "edit.failed": "保存失败：{error}",
+  "edit.previewOnly": "浏览器预览模式下无法修改元数据",
 
   "player.favorite": "收藏",
   "player.unfavorite": "取消收藏",
@@ -552,6 +592,7 @@ const zhHant: Messages = {
   "album.collect": "收藏專輯",
   "album.uncollect": "取消收藏專輯",
   "album.collected": "已收藏",
+  "album.disc": "碟 {n}",
 
   "artist.kicker": "歌手",
   "artist.meta": "{albums} 張專輯 · {songs} 首歌曲 · 聆聽 {plays} 次",
@@ -635,7 +676,7 @@ const zhHant: Messages = {
   "playlist.updatedNow": "今天更新",
   "playlist.newDefaultName": "新歌單",
   "menu.favorite": "收藏",
-  "menu.editTags": "編輯標籤…",
+  "menu.editTags": "編輯資訊…",
   "menu.showInfo": "顯示專輯簡介",
   "menu.showLyrics": "查看歌詞",
   "menu.revealInFinder": "在 Finder 中顯示",
@@ -670,6 +711,25 @@ const zhHant: Messages = {
   "dialog.cancel": "取消",
   "dialog.save": "儲存",
   "dialog.delete": "刪除",
+
+  "edit.trackTitle": "編輯曲目資訊",
+  "edit.albumTitle": "編輯專輯資訊",
+  "edit.fieldTitle": "標題",
+  "edit.fieldArtist": "歌手",
+  "edit.fieldAlbum": "專輯",
+  "edit.fieldAlbumArtist": "專輯藝人",
+  "edit.fieldDisc": "碟號",
+  "edit.fieldTrack": "音軌號",
+  "edit.srcFolder": "來自資料夾名稱",
+  "edit.srcFileName": "來自檔案名稱",
+  "edit.srcMajority": "據同專輯曲目推斷",
+  "edit.srcUnknown": "檔案未提供",
+  "edit.srcEdited": "已修改",
+  "edit.reset": "還原為檔案資訊",
+  "edit.albumScope": "變更將套用到這張專輯的全部 {count} 首曲目",
+  "edit.mergeHint": "把散在兩處的同名專輯改成同一專輯藝人，即可合併為一張",
+  "edit.failed": "儲存失敗：{error}",
+  "edit.previewOnly": "瀏覽器預覽模式下無法修改中繼資料",
 
   "player.favorite": "收藏",
   "player.unfavorite": "取消收藏",
@@ -777,6 +837,7 @@ const en: Messages = {
   "album.collect": "Favorite album",
   "album.uncollect": "Unfavorite album",
   "album.collected": "Favorited",
+  "album.disc": "Disc {n}",
 
   "artist.kicker": "Artist",
   "artist.meta": "{albums} {albums|album|albums} · {songs} {songs|song|songs} · {plays} plays",
@@ -860,7 +921,7 @@ const en: Messages = {
   "playlist.updatedNow": "Updated today",
   "playlist.newDefaultName": "New Playlist",
   "menu.favorite": "Favorite",
-  "menu.editTags": "Edit Tags…",
+  "menu.editTags": "Edit Info…",
   "menu.showInfo": "Show Album Info",
   "menu.showLyrics": "Show Lyrics",
   "menu.revealInFinder": "Reveal in Finder",
@@ -895,6 +956,25 @@ const en: Messages = {
   "dialog.cancel": "Cancel",
   "dialog.save": "Save",
   "dialog.delete": "Delete",
+
+  "edit.trackTitle": "Edit Track Info",
+  "edit.albumTitle": "Edit Album Info",
+  "edit.fieldTitle": "Title",
+  "edit.fieldArtist": "Artist",
+  "edit.fieldAlbum": "Album",
+  "edit.fieldAlbumArtist": "Album Artist",
+  "edit.fieldDisc": "Disc",
+  "edit.fieldTrack": "Track",
+  "edit.srcFolder": "from folder name",
+  "edit.srcFileName": "from file name",
+  "edit.srcMajority": "inferred from album",
+  "edit.srcUnknown": "not in file",
+  "edit.srcEdited": "edited",
+  "edit.reset": "Revert to File Info",
+  "edit.albumScope": "Changes apply to all {count} {count|track|tracks} in this album",
+  "edit.mergeHint": "Give both copies the same album artist to merge them into one album",
+  "edit.failed": "Save failed: {error}",
+  "edit.previewOnly": "Metadata can't be edited in browser preview",
 
   "player.favorite": "Favorite",
   "player.unfavorite": "Unfavorite",
@@ -1002,6 +1082,7 @@ const ja: Messages = {
   "album.collect": "アルバムをお気に入りに追加",
   "album.uncollect": "アルバムをお気に入りから削除",
   "album.collected": "お気に入り済み",
+  "album.disc": "ディスク {n}",
 
   "artist.kicker": "アーティスト",
   "artist.meta": "{albums} 枚のアルバム · {songs} 曲 · 再生 {plays} 回",
@@ -1085,7 +1166,7 @@ const ja: Messages = {
   "playlist.updatedNow": "今日更新",
   "playlist.newDefaultName": "新しいプレイリスト",
   "menu.favorite": "お気に入り",
-  "menu.editTags": "タグを編集…",
+  "menu.editTags": "情報を編集…",
   "menu.showInfo": "アルバム情報を表示",
   "menu.showLyrics": "歌詞を表示",
   "menu.revealInFinder": "Finder で表示",
@@ -1120,6 +1201,25 @@ const ja: Messages = {
   "dialog.cancel": "キャンセル",
   "dialog.save": "保存",
   "dialog.delete": "削除",
+
+  "edit.trackTitle": "トラック情報を編集",
+  "edit.albumTitle": "アルバム情報を編集",
+  "edit.fieldTitle": "タイトル",
+  "edit.fieldArtist": "アーティスト",
+  "edit.fieldAlbum": "アルバム",
+  "edit.fieldAlbumArtist": "アルバムアーティスト",
+  "edit.fieldDisc": "ディスク番号",
+  "edit.fieldTrack": "トラック番号",
+  "edit.srcFolder": "フォルダ名から推定",
+  "edit.srcFileName": "ファイル名から推定",
+  "edit.srcMajority": "同じアルバムの曲から推定",
+  "edit.srcUnknown": "ファイルに情報なし",
+  "edit.srcEdited": "編集済み",
+  "edit.reset": "ファイルの情報に戻す",
+  "edit.albumScope": "変更はこのアルバムの全 {count} 曲に適用されます",
+  "edit.mergeHint": "同名アルバムを 1 枚にまとめるには、両方に同じアルバムアーティストを設定します",
+  "edit.failed": "保存に失敗しました：{error}",
+  "edit.previewOnly": "ブラウザプレビューではメタデータを編集できません",
 
   "player.favorite": "お気に入り",
   "player.unfavorite": "お気に入り解除",

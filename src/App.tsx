@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { PageTransition } from "@/components/common/PageTransition";
 import { IconRail } from "@/components/layout/IconRail";
 import { LibraryScreen } from "@/components/library/LibraryScreen";
@@ -6,6 +6,7 @@ import { PlayBar } from "@/components/player/PlayBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
+import { getCoverDir, getLibrary, getMusicFolders } from "@/lib/backend";
 import { useLibraryStore } from "@/store/library";
 import { useUiStore } from "@/store/ui";
 
@@ -75,9 +76,42 @@ const FirstRunScreen = lazy(() =>
   })),
 );
 
+/**
+ * 启动时从后端恢复曲库。
+ *
+ * 后端把上次扫描的原始结果缓存在应用数据目录，重启后套用用户的元数据修改重新
+ * 聚合即可——不必重扫，也不该退回演示曲库。浏览器预览没有后端，返回 null，
+ * 保留种子数据。
+ */
+function useRestoreLibrary() {
+  const setLibrary = useLibraryStore((s) => s.setLibrary);
+  useEffect(() => {
+    void (async () => {
+      // 封面目录要先拿到：晚于曲库到位的话，首屏封面会先空一拍再补上。
+      const [snapshot, roots, coverDir] = await Promise.all([
+        getLibrary(),
+        getMusicFolders(),
+        getCoverDir(),
+      ]);
+      useLibraryStore.getState().setCoverDir(coverDir);
+      if (!snapshot) return;
+      setLibrary(snapshot);
+      // 设置页显示真实扫描目录；曲目数按路径前缀统计，文件监听尚未实现，一律标为已扫描。
+      useUiStore.getState().setMusicFolders(
+        roots.map((path) => ({
+          path,
+          tracks: snapshot.tracks.filter((tk) => tk.path?.startsWith(path)).length,
+          watching: false,
+        })),
+      );
+    })();
+  }, [setLibrary]);
+}
+
 export default function App() {
   useApplyTheme();
   usePlaybackTicker();
+  useRestoreLibrary();
   useGlobalHotkeys();
 
   const openAlbumId = useUiStore((s) => s.openAlbumId);

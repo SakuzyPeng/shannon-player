@@ -1,3 +1,4 @@
+import { CoverArt } from "@/components/common/CoverArt";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LyricPlayer } from "@applemusic-like-lyrics/react";
@@ -129,6 +130,7 @@ export function LyricsScreen() {
             <span className="cover-initial font-serif text-[clamp(64px,11vh,96px)] font-medium">
               {track.cover.initial}
             </span>
+            <CoverArt cover={track.cover} px={300} />
             <div className="cover-corners lyrics-cover-overlay absolute inset-0 rounded-[20px] opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
               <motion.button
                 whileHover={{ scale: 1.1 }}
@@ -173,7 +175,7 @@ export function LyricsScreen() {
         </div>
         <div className="mt-2 text-center text-[13px] text-tx2">
           {track.artist} — {track.album}
-          {album ? ` · ${album.year}` : ""}
+          {album?.year ? ` · ${album.year}` : ""}
         </div>
 
         <div className="mt-[34px] flex w-full max-w-[312px] flex-col gap-[7px]">

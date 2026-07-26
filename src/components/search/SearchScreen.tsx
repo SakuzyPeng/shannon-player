@@ -1,3 +1,5 @@
+import { metaJoin } from "@/lib/meta";
+import { CoverArt } from "@/components/common/CoverArt";
 import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Icon } from "@/components/common/Icon";
@@ -307,6 +309,7 @@ export function SearchScreen() {
                         style={coverGradientStyle(tk.cover)}
                       >
                         <span className="cover-initial font-serif text-base">{tk.cover.initial}</span>
+                        <CoverArt cover={tk.cover} px={42} />
                         {isCur && <ThumbEq playing={playing} />}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -353,18 +356,19 @@ export function SearchScreen() {
                         layoutId={`album-cover-${al.id}`}
                         whileHover={{ y: -4 }}
                         transition={{ type: "spring", stiffness: 380, damping: 20 }}
-                        className="cover-corners cover-gradient cover-material grid aspect-square place-items-center rounded-2xl"
+                        className="cover-corners cover-gradient cover-material relative grid aspect-square place-items-center rounded-2xl"
                         style={coverGradientStyle(al.cover)}
                       >
                         <span className="cover-initial font-serif text-[40px] font-medium">
                           {al.cover.initial}
                         </span>
+                        <CoverArt cover={al.cover} px={200} />
                       </motion.div>
                       <div className="mt-2 truncate font-serif text-[13.5px] font-semibold text-tx">
                         <Highlight text={al.title} query={query} />
                       </div>
                       <div className="mt-0.5 truncate text-[11.5px] text-tx2">
-                        {al.artist} · {al.year}
+                        {metaJoin(al.artist, al.year)}
                       </div>
                     </motion.div>
                   ))}

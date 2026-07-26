@@ -1,3 +1,4 @@
+import { CoverArt } from "@/components/common/CoverArt";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
 import {
@@ -61,10 +62,11 @@ export function PlayBar() {
           className="flex min-w-0 cursor-pointer items-center gap-3 text-left"
         >
           <div
-            className="cover-corners cover-gradient play-cover-material grid size-12 flex-shrink-0 place-items-center rounded-xl"
+            className="cover-corners cover-gradient play-cover-material relative grid size-12 flex-shrink-0 place-items-center rounded-xl"
             style={coverGradientStyle(track.cover)}
           >
             <span className="cover-initial font-serif text-[19px]">{track.cover.initial}</span>
+            <CoverArt cover={track.cover} px={48} />
           </div>
           <div className="min-w-0">
             <div className="truncate font-serif text-[14.5px] font-semibold text-tx">{track.title}</div>

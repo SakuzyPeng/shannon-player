@@ -1,3 +1,4 @@
+import { CoverArt } from "@/components/common/CoverArt";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import type { Cover } from "@/types/player";
 
@@ -21,12 +22,18 @@ export function Collage({ covers, size, radius, glyph = 0, className }: Props) {
       style={{ width: size, height: size, borderRadius: radius }}
     >
       {covers.slice(0, 4).map((cover, i) => (
-        <div key={i} className="cover-gradient grid place-items-center" style={coverGradientStyle(cover)}>
+        <div
+          key={i}
+          className="cover-gradient relative grid place-items-center"
+          style={coverGradientStyle(cover)}
+        >
           {glyph > 0 && (
             <span className="cover-initial font-serif" style={{ fontSize: glyph }}>
               {cover.initial}
             </span>
           )}
+          {/* 每格只占拼贴的一半边长 */}
+          <CoverArt cover={cover} px={size / 2} />
         </div>
       ))}
     </div>

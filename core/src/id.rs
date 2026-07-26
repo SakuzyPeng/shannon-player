@@ -108,12 +108,14 @@ fn read_up_to(f: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
     Ok(filled)
 }
 
-/// 专辑 ID：由「专辑艺人 + 专辑名」派生，保证同一张专辑的曲目聚合到一起。
-pub fn album_id(album_artist: &str, album: &str) -> String {
+/// 专辑 ID：由归组键派生。
+///
+/// 归组键含所在目录（见 `scan::album_group_key`），不是「专辑艺人 + 专辑名」——
+/// 否则两位不同歌手各自的《Greatest Hits》会撞成一张。专辑不是持久化实体
+/// （收藏与歌单都用曲目 ID），所以这个 ID 随重扫变化是可以接受的。
+pub fn album_id(group_key: &str) -> String {
     let mut h = blake3::Hasher::new();
-    h.update(album_artist.to_lowercase().trim().as_bytes());
-    h.update(b"\x1f");
-    h.update(album.to_lowercase().trim().as_bytes());
+    h.update(group_key.as_bytes());
     format!("a-{}", &h.finalize().to_hex()[..20])
 }
 
@@ -194,10 +196,11 @@ mod tests {
         let _ = std::fs::remove_file(p);
     }
 
+    /// 归一化（大小写、作用域）是 `scan::album_group_key` 的职责，
+    /// 这里只保证同键同 ID、异键异 ID。
     #[test]
-    fn album_id_is_case_insensitive() {
-        assert_eq!(album_id("白鲸电台", "长夜电波"), album_id("白鲸电台", "长夜电波"));
-        assert_eq!(album_id("Radiohead", "In Rainbows"), album_id("radiohead", "in rainbows"));
-        assert_ne!(album_id("A", "X"), album_id("B", "X"));
+    fn album_id_is_stable_per_group_key() {
+        assert_eq!(album_id("长夜电波\u{1f}aa:白鲸电台"), album_id("长夜电波\u{1f}aa:白鲸电台"));
+        assert_ne!(album_id("greatest hits\u{1f}aa:a"), album_id("greatest hits\u{1f}aa:b"));
     }
 }

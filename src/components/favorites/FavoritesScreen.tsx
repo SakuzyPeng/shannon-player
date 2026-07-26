@@ -1,3 +1,5 @@
+import { metaJoin } from "@/lib/meta";
+import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AnimatePresence, motion } from "framer-motion";
@@ -5,6 +7,7 @@ import { Collage } from "@/components/common/Collage";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { MetaLine } from "@/components/common/MetaLine";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { SegmentedContent, SegmentedControl } from "@/components/common/SegmentedControl";
@@ -91,6 +94,7 @@ export function FavoritesScreen() {
   const toggleFavoriteArtist = usePlayerStore((s) => s.toggleFavoriteArtist);
   const toggleFavoritePlaylist = usePlayerStore((s) => s.toggleFavoritePlaylist);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  const { dialog: editDialog, editTrack } = useMetadataEditor();
   const openAlbum = useUiStore((s) => s.openAlbum);
   const openArtist = useUiStore((s) => s.openArtist);
   const openPlaylist = useUiStore((s) => s.openPlaylist);
@@ -238,6 +242,9 @@ export function FavoritesScreen() {
       case "menu.showLyrics":
         playQueue(songEntries, index);
         useUiStore.getState().openLyrics();
+        break;
+      case "menu.editTags":
+        editTrack(track);
         break;
     }
   };
@@ -475,12 +482,13 @@ export function FavoritesScreen() {
                             <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">
                               {album && (
                                 <div
-                                  className="cover-corners cover-gradient cover-thumb-material grid size-[26px] place-items-center rounded-md"
+                                  className="cover-corners cover-gradient cover-thumb-material relative grid size-[26px] place-items-center rounded-md"
                                   style={coverGradientStyle(album.cover)}
                                 >
                                   <span className="cover-initial font-serif text-[11px]">
                                     {album.cover.initial}
                                   </span>
+                                  <CoverArt cover={album.cover} px={26} />
                                 </div>
                               )}
                               <span className="whitespace-nowrap font-serif text-sm font-semibold text-tx2">
@@ -580,6 +588,7 @@ export function FavoritesScreen() {
           className="scroll-thumb pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
         />
       </div>
+      {editDialog}
     </div>
   );
 }
@@ -617,6 +626,7 @@ function FavAlbumCard({
         <span className="cover-initial font-serif text-[56px] font-medium">
           {album.cover.initial}
         </span>
+        <CoverArt cover={album.cover} px={260} />
         <div className="cover-corners cover-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
           <motion.button
             aria-label={t("album.uncollect")}
@@ -653,7 +663,7 @@ function FavAlbumCard({
         </span>
       </div>
       <div className="mt-[3px] truncate text-[12.5px] text-tx2">
-        {album.artist} · {album.year}
+        {metaJoin(album.artist, album.year)}
       </div>
     </motion.div>
   );
@@ -690,7 +700,10 @@ function FavArtistCard({
         style={cover ? coverGradientStyle(cover) : undefined}
       >
         {cover && (
-          <span className="cover-initial font-serif text-[44px] font-medium">{cover.initial}</span>
+          <>
+            <span className="cover-initial font-serif text-[44px] font-medium">{cover.initial}</span>
+            <CoverArt cover={cover} px={132} />
+          </>
         )}
         <div className="artist-hero-overlay absolute inset-0 rounded-full opacity-0 transition-opacity duration-[220ms] group-hover/avatar:opacity-100">
           <motion.button

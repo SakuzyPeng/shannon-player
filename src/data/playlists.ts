@@ -4,7 +4,9 @@
    后期由 Rust 后端 / 用户数据替换。
    ============================================================ */
 
-import { ALBUMS, DEMO_TRACK, allTracks } from "@/data/library";
+// 只用种子曲库：这里是纯数据模块，若改从 store 取「生效曲库」会与 store 形成循环依赖
+// （store/player.ts 本身要 import PLAYLISTS）。
+import { DEMO_TRACK, SEED_ALBUMS, seedTracksOf } from "@/data/library";
 import type { Cover, Id, Playlist, Track } from "@/types/player";
 
 /** 专辑封面素材（标题 → [c1, c2, 首字]），来自设计稿 ALB_ART。 */
@@ -41,7 +43,7 @@ const NIGHT_DRIVE: ReadonlyArray<readonly [string, string, string, number]> = [
   ["公路之光", "新裤子", "生活因你而火热", 259],
 ];
 
-const LIBRARY_TRACKS = [DEMO_TRACK, ...allTracks()];
+const LIBRARY_TRACKS = [DEMO_TRACK, ...SEED_ALBUMS.flatMap(seedTracksOf)];
 
 /** 优先复用曲库规范 ID，避免同一曲目因歌单种子 ID 不同而绕过去重。 */
 function nightDriveTrack(
@@ -57,7 +59,7 @@ function nightDriveTrack(
   );
   if (libraryTrack) return libraryTrack;
 
-  const albumId = ALBUMS.find((item) => item.title === album && item.artist === artist)?.id;
+  const albumId = SEED_ALBUMS.find((item) => item.title === album && item.artist === artist)?.id;
   return {
     id: `pl-nightdrive-t${index}`,
     title,

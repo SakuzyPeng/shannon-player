@@ -1,7 +1,10 @@
+import { metaJoin } from "@/lib/meta";
+import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useState, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
@@ -41,6 +44,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const toggleFavoriteAlbum = usePlayerStore((s) => s.toggleFavoriteAlbum);
   const toggleFavoriteArtist = usePlayerStore((s) => s.toggleFavoriteArtist);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  const { dialog: editDialog, editTrack } = useMetadataEditor();
 
   const albums = useMemo(() => albumsOfArtist(artistName), [artistName]);
   const topTracks = useMemo(() => topTracksOf(artistName), [artistName]);
@@ -77,6 +81,9 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
         playQueue(topTracks, index);
         useUiStore.getState().openLyrics();
         break;
+      case "menu.editTags":
+        editTrack(track);
+        break;
     }
   };
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
@@ -98,10 +105,11 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
         }}
       >
         <div
-          className="cover-gradient cover-thumb-material grid size-8 place-items-center rounded-full"
+          className="cover-gradient cover-thumb-material relative grid size-8 place-items-center rounded-full"
           style={coverGradientStyle(cover)}
         >
           <span className="cover-initial font-serif text-[14px]">{cover.initial}</span>
+          <CoverArt cover={cover} px={32} />
         </div>
         <div className="relative">
           <span className="font-serif text-[16.5px] font-semibold text-tx">{artistName}</span>
@@ -147,6 +155,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
               <span className="cover-initial font-serif text-[60px] font-medium">
                 {cover.initial}
               </span>
+              <CoverArt cover={cover} px={172} />
               {/* hover 浮现操作爱心（收藏歌手的唯一交互入口） */}
               <div className="artist-hero-overlay absolute inset-0 rounded-full opacity-0 transition-opacity duration-[220ms] group-hover/avatar:opacity-100">
                 <motion.button
@@ -295,6 +304,7 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
         ref={thumbRef}
         className="scroll-thumb pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
       />
+      {editDialog}
     </div>
   );
 }
@@ -322,6 +332,7 @@ function ArtistAlbumCard({ album, favorited, onOpen, onPlay, onToggleFavorite }:
         style={coverGradientStyle(album.cover)}
       >
         <span className="cover-initial font-serif text-5xl font-medium">{album.cover.initial}</span>
+        <CoverArt cover={album.cover} px={200} />
         <div className="cover-corners artist-card-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/card:opacity-100">
           <motion.button
             whileHover={{ scale: 1.1 }}
@@ -365,7 +376,7 @@ function ArtistAlbumCard({ album, favorited, onOpen, onPlay, onToggleFavorite }:
         )}
       </div>
       <div className="mt-[3px] text-[12.5px] text-tx2">
-        {album.year} · {t("unit.tracks", { n: album.trackCount })}
+        {metaJoin(album.year, t("unit.tracks", { n: album.trackCount }))}
       </div>
     </div>
   );

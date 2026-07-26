@@ -7,7 +7,10 @@ export type SettingKey = "watch" | "cloud" | "loudness" | "ttml" | "karaoke";
 /** 歌单页排序模式；custom = 用户拖拽出的自定义顺序。 */
 export type PlaylistSort = "recent" | "title" | "size" | "custom";
 
-/** 音乐文件夹（占位数据，后期由 Rust 后端扫描替换）。 */
+/**
+ * 音乐文件夹。原生窗口里由后端给出真实扫描目录（见 `setMusicFolders`）；
+ * 浏览器预览无后端，沿用下面的设计稿占位数据，否则设置页会是空的。
+ */
 export interface MusicFolder {
   path: string;
   tracks: number;
@@ -51,6 +54,8 @@ interface UiState {
   setLanguage: (l: Language) => void;
   setPlaylistSort: (s: PlaylistSort) => void;
   toggleSetting: (key: SettingKey) => void;
+  /** 用后端的真实扫描目录替换整份列表。 */
+  setMusicFolders: (folders: MusicFolder[]) => void;
   removeMusicFolder: (path: string) => void;
   openAlbum: (id: Id) => void;
   closeAlbum: () => void;
@@ -117,6 +122,7 @@ export const useUiStore = create<UiState>((set) => ({
     set((s) => ({ settings: { ...s.settings, [key]: !s.settings[key] } })),
 
   setPlaylistSort: (playlistSort) => set({ playlistSort }),
+  setMusicFolders: (musicFolders) => set({ musicFolders }),
   removeMusicFolder: (path) =>
     set((s) => ({ musicFolders: s.musicFolders.filter((f) => f.path !== path) })),
 }));

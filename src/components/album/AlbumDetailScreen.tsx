@@ -1,6 +1,9 @@
+import { metaJoin } from "@/lib/meta";
+import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useState, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu, ItemMoreMenu } from "@/components/common/ItemContextMenu";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
@@ -39,9 +42,25 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const toggleFavoriteAlbum = usePlayerStore((s) => s.toggleFavoriteAlbum);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  const { dialog: editDialog, editTrack, editAlbum } = useMetadataEditor();
 
   const album = libraryAlbums().find((a) => a.id === albumId);
   const tracks = useMemo(() => (album ? tracksOf(album) : []), [album]);
+  /**
+   * 按碟分组，同时保留每首在整张专辑里的位置——播放要用全局位置，
+   * 显示序号要用碟内音轨号。两者混用就会出现「第二碟第一首显示成 16」。
+   */
+  const discs = useMemo(() => {
+    const byDisc = new Map<number, { track: Track; index: number }[]>();
+    tracks.forEach((track, index) => {
+      const d = track.discNo ?? 1;
+      if (!byDisc.has(d)) byDisc.set(d, []);
+      byDisc.get(d)!.push({ track, index });
+    });
+    return [...byDisc.entries()].sort((a, b) => a[0] - b[0]);
+  }, [tracks]);
+  // 单碟专辑不显示碟标题，维持设计稿原样。
+  const multiDisc = discs.length > 1;
   if (!album) return null;
 
   const collected = !!favoriteAlbums[album.id];
@@ -72,6 +91,9 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
       case "menu.favorite":
         toggleFavoriteAlbum(album!.id);
         break;
+      case "menu.editTags":
+        editAlbum(album!, tracks.length);
+        break;
     }
   };
   const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
@@ -91,6 +113,9 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
       case "menu.showLyrics":
         playQueue(tracks, index);
         useUiStore.getState().openLyrics();
+        break;
+      case "menu.editTags":
+        editTrack(track);
         break;
     }
   };
@@ -113,10 +138,11 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
         }}
       >
         <div
-          className="cover-corners cover-gradient cover-thumb-material grid size-8 flex-shrink-0 place-items-center rounded-[7px]"
+          className="cover-corners cover-gradient cover-thumb-material relative grid size-8 flex-shrink-0 place-items-center rounded-[7px]"
           style={coverGradientStyle(album.cover)}
         >
           <span className="cover-initial font-serif text-[14px]">{album.cover.initial}</span>
+          <CoverArt cover={album.cover} px={32} />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
@@ -163,6 +189,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
               <span className="cover-initial font-serif text-[76px] font-medium">
                 {album.cover.initial}
               </span>
+              <CoverArt cover={album.cover} px={232} />
               {/* hover 浮现操作爱心（收藏专辑的唯一交互入口） */}
               <div className="cover-corners cover-hero-overlay absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100">
                 <motion.button
@@ -206,8 +233,12 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                   {album.artist}
                 </span>
                 {" · "}
-                {album.year} · {album.genre} · {t("unit.tracks", { n: album.trackCount })} ·{" "}
-                {t("unit.minutes", { n: Math.floor(totalSec / 60) })}
+                {metaJoin(
+                  album.year,
+                  album.genre,
+                  t("unit.tracks", { n: album.trackCount }),
+                  t("unit.minutes", { n: Math.floor(totalSec / 60) }),
+                )}
               </div>
               <div className="mt-2.5 flex items-center gap-3">
                 <motion.button
@@ -242,11 +273,19 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
             </div>
           </div>
 
-          {/* 曲目列表 */}
+          {/* 曲目列表：多碟专辑按碟分节，序号用真实音轨号 */}
           <div className="border-t border-bd">
-            {tracks.map((track: Track, i: number) => {
+            {discs.map(([discNo, items]) => (
+              <div key={discNo}>
+                {multiDisc && (
+                  <div className="px-3.5 pb-1 pt-5 text-[11.5px] font-semibold tracking-[0.06em] text-tx2">
+                    {t("album.disc", { n: discNo })}
+                  </div>
+                )}
+                {items.map(({ track, index }, posInDisc) => {
               const isCur = current?.id === track.id;
               const liked = !!favorites[track.id];
+              const i = index;
               return (
                 <ItemContextMenu
                   key={track.id}
@@ -260,7 +299,12 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                     className="mt-0.5 grid cursor-pointer grid-cols-[44px_1fr_44px_64px] items-center gap-3.5 rounded-xl px-3.5 py-[11px] transition-colors hover:bg-hv"
                   >
                     <span className="text-[13px] tabular-nums text-tx2">
-                      <TrackIndicator number={i + 1} active={isCur} playing={playing} />
+                      {/* 音轨号来自标签；缺号时退回碟内序位，而不是全局序号 */}
+                      <TrackIndicator
+                        number={track.trackNo ?? posInDisc + 1}
+                        active={isCur}
+                        playing={playing}
+                      />
                     </span>
                     <span
                       className={cn(
@@ -294,7 +338,9 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                   </div>
                 </ItemContextMenu>
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -303,6 +349,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
         ref={thumbRef}
         className="scroll-thumb pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
       />
+      {editDialog}
     </div>
   );
 }

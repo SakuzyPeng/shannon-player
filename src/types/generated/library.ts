@@ -4,7 +4,20 @@ import type { AudioFormat } from "./audio";
 /**
  * 专辑（由曲目聚合而来，非独立实体）。
  */
-export type Album = { id: string, title: string, artist: string, year: number, genre: string, cover: Cover, trackCount: number, durationSec: number, };
+export type Album = { id: string, title: string, artist: string, 
+/**
+ * 发行年份。判不出就留空——用 0 当哨兵会一路漏到界面上显示成「0」。
+ */
+year: number | null, genre: string, cover: Cover, trackCount: number, durationSec: number, 
+/**
+ * 合辑：曲目艺人各不相同且无统一专辑艺人，`artist` 为「Various Artists」。
+ * 界面据此避免把合辑当成某个歌手的作品。
+ */
+compilation: boolean, 
+/**
+ * 专辑艺人的来源。合辑判定与目录兜底都可能出错，用户要能看出来并改。
+ */
+artistSource: FieldSource, };
 
 /**
  * 封面：占位渐变（首字母）或真实图片。与前端 `Cover` 对齐。
@@ -15,9 +28,27 @@ export type Cover = { initial: string,
  */
 gradient: [string, string], 
 /**
- * 真实封面图 URL（有则优先）。
+ * 封面内容指纹，缩略图文件以它命名（见 `crate::cover`）。
+ *
+ * 这里给的是键而不是路径：前端要按显示尺寸挑档位（列表 128 / 网格 512 /
+ * 详情页 1024），而且 Tauri 的本地文件还得经 `convertFileSrc` 转成 asset URL，
+ * 拼接由前端做最合适。为空表示这首没有内嵌封面，界面回落占位渐变。
  */
-url?: string, };
+coverKey?: string, };
+
+/**
+ * 元数据字段的来源。
+ *
+ * 存在的理由：标签缺失时我们会用目录名、文件名兜底**猜**一个值，猜错在所难免
+ * （散装文件的父目录可能只是「下载」）。界面必须能区分「文件里就这么写的」与
+ * 「我们猜的」，否则用户既不知道该不该改，也不知道改了会不会被下次扫描覆盖。
+ */
+export type FieldSource = "tag" | "folder" | "fileName" | "majority" | "unknown" | "userEdit";
+
+/**
+ * 曲目各字段的来源。仅覆盖会被兜底猜测或被用户改写的字段。
+ */
+export type FieldSources = { title: FieldSource, artist: FieldSource, album: FieldSource, albumArtist: FieldSource, };
 
 /**
  * 一次扫描的产出。
@@ -26,7 +57,12 @@ export type LibrarySnapshot = { albums: Array<Album>, tracks: Array<Track>,
 /**
  * 遍历到但无法解析的文件数（不静默丢弃，如实上报）。
  */
-failed: number, };
+failed: number, 
+/**
+ * 同一张专辑内被折叠掉的重复曲目数（同一首歌的多份拷贝）。
+ * 折叠是为了界面干净，但**不静默**：数目如实报给前端。
+ */
+duplicates: number, };
 
 /**
  * 扫描进度事件（Tauri event `library://scan-progress`）。
@@ -56,4 +92,8 @@ path: string,
 /**
  * 碟号 / 音轨号（用于专辑内排序）。
  */
-discNo: number | null, trackNo: number | null, format: AudioFormat, };
+discNo: number | null, trackNo: number | null, format: AudioFormat, 
+/**
+ * 各字段是读来的还是猜的（见 `FieldSource`）。
+ */
+sources: FieldSources, };

@@ -1,3 +1,4 @@
+import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useRef, useState, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AnimatePresence, motion } from "framer-motion";
@@ -38,11 +39,14 @@ function ArtistCard({ name }: { name: string }) {
       <motion.div
         whileHover={{ y: -4 }}
         transition={{ type: "spring", stiffness: 380, damping: 20 }}
-        className="cover-gradient cover-thumb-material grid size-[132px] place-items-center rounded-full transition-shadow duration-300 group-hover:shadow-[0_16px_32px_var(--cover-hover-shadow)]"
+        className="cover-gradient cover-thumb-material relative grid size-[132px] place-items-center rounded-full transition-shadow duration-300 group-hover:shadow-[0_16px_32px_var(--cover-hover-shadow)]"
         style={cover ? coverGradientStyle(cover) : undefined}
       >
         {cover && (
-          <span className="cover-initial font-serif text-[44px] font-medium">{cover.initial}</span>
+          <>
+            <span className="cover-initial font-serif text-[44px] font-medium">{cover.initial}</span>
+            <CoverArt cover={cover} px={132} />
+          </>
         )}
       </motion.div>
       <div className="max-w-[150px] truncate text-center font-serif text-[14.5px] font-semibold text-tx">

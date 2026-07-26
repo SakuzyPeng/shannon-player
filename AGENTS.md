@@ -14,16 +14,39 @@ pnpm build            # 类型检查（tsc --noEmit）+ 前端产物构建（vit
 pnpm tauri build      # 打包桌面应用
 ```
 
-目前没有测试套件；`pnpm build` 是主要的正确性校验（i18n 漏键、类型错误都会在这里暴露）。
+```bash
+cargo test -p shannon-core                                # 后端单测；同时把 ts-rs 契约类型重新导出到 src/types/generated/
+cargo test -p shannon-core id_survives_rename             # 跑单个测试（标准 cargo 名字过滤）
+cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的完整规格与字段来源
+cargo run -p shannon-core --example warm_cache -- <目录> <缓存路径>  # 预热扫描缓存，用于验证「重启免重扫」
+```
+
+`pnpm build` 会被 pnpm 的 minimumReleaseAge 策略挡在依赖检查这一步（Radix 的新版本刚发布不久）。绕过办法是直接调本地二进制：`./node_modules/.bin/tsc --noEmit` 与 `./node_modules/.bin/vite build`，校验效果一致。
+
+前端没有测试套件，`pnpm build` 是主要的正确性校验（i18n 漏键、ts-rs 契约漂移、类型错误都在这里暴露）；Rust 侧的正确性校验是 `cargo test -p shannon-core`（扫描聚合、稳定 ID 都有单测，且不需要图形环境）。
 
 验证 UI 效果用 Playwright MCP 指向 `http://localhost:1420` 截图——Tauri 原生窗口截图受 macOS 屏幕录制权限限制，而 Vite dev server 渲染的是同一份前端。注意 Radix 菜单需要真实 pointer 事件，合成 `.click()` 不会触发，需用 browser_click。
 
+**在浏览器预览里用真实曲库**（种子数据没有真实封面、长标题、合辑这些真实形态）：先 `cargo run -p shannon-core --example warm_cache -- <音乐目录> "$HOME/Library/Application Support/com.shannon.player/library-cache.json"` 产出缓存、封面与预览快照，再在页面里注入——dev 构建把 store 挂在了 `window.__shannon`（见 `src/main.tsx`），Vite 的 `server.fs.allow` 也已放行该目录：
+
+```js
+const base = "/@fs/Users/<你>/Library/Application Support/com.shannon.player";
+const snap = await (await fetch(base + "/library-snapshot.json")).json();
+window.__shannon.library.getState().setCoverDir(base + "/covers");
+window.__shannon.library.getState().setLibrary(snap);
+```
+
+`window.__shannon.ui.getState().setView("list")` 这类调用还能绕开被拖拽区遮挡、点不到的控件。
+
 ## 架构
 
-双层结构，通过 pnpm scripts 串联：
+三层结构：前端 + Tauri 薄壳 + 纯逻辑 Rust core，cargo workspace（`Cargo.toml` 成员 `core`、`src-tauri`）与 pnpm scripts 串联。
 
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
-- **`src-tauri/`** —— Rust 外壳（cargo workspace 成员）。当前只负责窗口：无边框（`decorations: false`）、自绘 macOS 交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`）。后期计划承接音频播放与本地曲库扫描。
+- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原）、把 core 的进度回调转成 Tauri event（`library://scan-progress`）、用 `LibraryState` 持有扫描缓存与覆盖层、把两者落到应用数据目录（`library-cache.json` / `metadata-overrides.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：无边框（`decorations: false`）、自绘 macOS 交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`）。**业务逻辑不写在这里。** 两份落盘数据的重要性不同：缓存可重建（损坏就重扫），**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）。
+- **`core/`（crate `shannon-core`）** —— 曲库扫描、音频规格探测、稳定 ID、元数据覆盖层。**刻意不依赖 Tauri 与任何 GUI 库**，因此能在无图形环境 `cargo test`；副作用（进度上报）通过回调注入，由外壳决定落地方式。新增后端能力优先放这里，让外壳保持薄。
+
+**扫描分三步，别把它们揉在一起**：`scan::scan_folders` 只产出 `ScanCache`（原始探测结果，不含封面字节只留指纹）→ `ScanCache::library(&Overrides)` 套用用户覆盖并聚合成 `LibrarySnapshot`（纯内存，毫秒级）→ 外壳把两者分别落盘。分开的理由是「改一次元数据不该重扫整库，重启也不该」：归组依据（原始标签、封面指纹、路径）在聚合后的快照里已经丢失，只留快照就只能回头重读文件。
 
 ### 关键机制（跨文件才能看清的部分）
 
@@ -35,7 +58,23 @@ pnpm tauri build      # 打包桌面应用
 
 **语言范围承诺（重要约束）**：对外只承诺简体中文 + English。`src/data/library.ts` 的 `LANGUAGES` 与 `src/i18n/index.ts` 的 `detectSystemLocale()` 只暴露这两者；zh-Hant / ja 的词条在 `messages.ts` 中备好但**不得**加入 UI 菜单或系统语言解析，文档中也不得宣传，除非用户明确解除该限制。
 
-**数据**：`src/data/library.ts` 是曲库种子数据（来自设计稿），后期由 Rust 后端扫描本地曲库替换。
+**前后端契约（ts-rs，与 i18n 同一理念）**：`core/src/model.rs` 的结构体带 `#[ts(export, export_to = "../../src/types/generated/*.ts")]`，`cargo test -p shannon-core` 会跑 `export_bindings_*` 测试把 TS 类型写进 `src/types/generated/`（`audio.ts` / `library.ts`）。生成物**入库**（前端无 Rust 工具链也能编译），但**禁止手改**——改 Rust 结构后重跑 cargo test 再提交，Rust 一漂移前端 `pnpm build` 就报错。序列化统一 `#[serde(rename_all = "camelCase")]`。
+
+**曲库数据流（seed / scan 双源）**：`src/lib/backend.ts` 是**唯一** IPC 出入口，组件不直接 `invoke`——浏览器 dev 环境（无 Tauri）只在这一处回落，调用点不写环境判断。数据落到 `src/store/library.ts`，`source` 字段区分 `seed`（`src/data/library.ts` 的设计稿种子曲库，浏览器预览或尚未扫描时用，保留它是为了界面不空、UI 开发能继续）与 `scan`（真实扫描）；整库替换时 `version + 1`，`App` 以它为 key 强制重挂载，避免各页缓存旧曲库的派生结果。启动时 `App` 的 `useRestoreLibrary` 从后端缓存恢复曲库（不重扫）。组件读曲库一律经 `src/lib/library.ts` 的访问器（`albums()` / `tracksOf()` / `topTracksOf()` …），不直接碰种子数据；真实曲库没有的派生数据（如热门歌曲的播放统计）要显式退化，不假装有。`src/data/playlists.ts` 是**纯数据模块，只能用种子曲库**——改成从 store 取「生效曲库」会与 `store/player.ts` 形成循环依赖（后者要 import `PLAYLISTS`）。
+
+**音频规格建模戒律（`core/src/model.rs` + `core/src/probe/`）**：① 声道**位掩码是权威**，具名 `ChannelLayout` 只是它的投影——6 声道可能是 5.1 也可能是 6.0，摆位不同下混系数就不同，**判不出一律留空，不用声道数硬猜**；② 空间音频（`SpatialFormat`）与声道维度**正交独立**，Atmos 的声道数可能报 5.1 甚至 2；③ `codec` / `container` 存探测器报告的原始名，不归一化（归一化会丢信息）；④ **识别与播放能力解耦**——扫描只如实记录规格，播不了是播放器的事，不能因为暂时播不了就在扫描阶段丢文件；解析失败计入 `failed` 上报，不静默丢弃；⑤ 增强探测逻辑时必须把 `PROBE_VERSION` +1，否则无法识别哪些条目需要重扫，读不懂的线索塞 `probe_notes` 留待回溯。
+
+**稳定曲目 ID（`core/src/id.rs`，改动前先读该文件顶部的取舍说明）**：收藏、歌单、**元数据覆盖**都以曲目 ID 为键，所以 ID 必须扛得住文件被移动、重命名、改标签——方案是「文件大小 + 跳过元数据区后的三段内容 blake3 + 格式指纹」。**改采样点或指纹构成 = 全库 ID 变化 = 用户的收藏、歌单与元数据修改全部失联**，除非同时给出迁移方案，否则不要动。专辑 ID 相反，它是聚合派生的（改专辑艺人就变），**只能用于会话内导航，绝不能当持久化的键**。
+
+**专辑聚合（`core/src/scan.rs` 的 `aggregate`，两遍 + 一次合并）**：专辑艺人是**组级**结论，单看一首歌无法判断它属于某位歌手的专辑还是一张合辑——逐曲回落到曲目艺人正是合辑曾被拆成十几张的根因。所以第一遍只定字段与来源并套用覆盖，第二遍按组决定专辑艺人（有标签用标签 → 组内多数决 ≥60% → 否则判为 `Various Artists` 合辑）。归组作用域按「用户指定的专辑艺人 > 标签专辑艺人 > 所在目录」保守选取，再按**封面指纹**合并同名专辑。封面这条规矩是踩坑换来的：**只作合并证据，不作拆分依据**——同一张专辑内部可能有几首嵌了不同版本封面，当归组键会把好好的专辑劈成两半；反过来，同名专辑之间有共同封面几乎可以断定是同一张（实测一张 116 首、横跨 6 个艺人目录的合辑，只有主创目录写了专辑艺人，唯有封面认得出）。
+
+**封面（`core/src/cover.rs` + `src/components/common/CoverArt.tsx`）**：实测约四成封面不是正方形（1300×910、710×1000 这类），而封面卡是正方形，因此**后端一次性合成**「原图完整居中 + 同图放大模糊填充四周」的正方形 JPEG。合成放后端而不是前端用两层 DOM 加 CSS 模糊，是因为专辑网格会同时显示几十张封面，每张挂一个模糊图层就要每帧重算（实测后端合成方案滚动零掉帧，中位帧 8.3ms）。缩放规矩：**只缩小不放大**（原图比档位小就按原尺寸存，放大交给 GPU）；缩小用 Lanczos3 且**逐档接力**（原图 → 1024 → 512 → 128，避免大比例缩放时滤波核开销爆炸）；档位按界面实际显示尺寸 × 2 倍屏推算，前端 `src/lib/cover.ts` 的 `pickSize` 按显示边长挑档。封面按**内容指纹**去重（939 首实测只对应 28 张唯一封面），文件名即指纹，重扫时已存在就跳过解码。占位渐变**始终生成**，图未到位、无内嵌封面、文件损坏三种情况自动回落，调用点不写错误分支。宽高比差 2% 以内直接当正方形处理（这些参数与「中位色打底」都参考了同一作者的 Swift 项目 `LGP3` 的 `CoverImageProcessor`）。
+
+**重复曲目与多碟（`core/src/scan.rs`）**：真实曲库里同一首歌常有多份拷贝（导入工具留下的 `xxx 1.m4a`、整盘版与分碟版并存），实测一个库 939 个文件里 559 首是副本。这些副本音频相同但元数据差几十字节，**文件大小不同所以曲目 ID（内容哈希）也不同**，靠 ID 去不掉——判据是「标题 + 时长（0.01 秒）」**或**「碟号 + 音轨号 + 时长」，任一命中即为同一首——后者不可省：同一首歌常被标上不同标题（实测同一轨位有 `ロミオとシンデレラ` 与两种带中文译名的写法），只比标题会让一张 30 轨的精选集显示成 66 首。两条判据都**只在同一张专辑内比较**（跨专辑的同名曲是原盘与精选集各自的收录，都该显示），且都要求时长一致，防的是标签把两首不同的歌错标到同一轨位。折叠时保留信息最全的一份，折叠数经 `LibrarySnapshot.duplicates` 如实上报。多碟专辑另需在归组前剥离 `Disc N` / `CD N` 后缀（碟名常被写进专辑标签），匹配只认独立词，`Discovery` 不会误伤。
+
+**缺失值的表达**：判不出的字段一律留空而不是填哨兵值——`Album.year` 是 `Option`，因为填 0 会一路漏到界面上显示成「0 年」。界面拼接元信息用 `src/lib/meta.ts` 的 `metaJoin`，它会跳过缺失项，避免出现「白鲸电台 · 」这种孤零零的分隔符。多碟专辑的曲目列表按碟分节、组内用真实音轨号（`AlbumDetailScreen` 的 `discs`）：序号若用列表索引，两张碟拼起来第二碟第一首就会显示成 16。
+
+**元数据覆盖层（`core/src/overrides.rs`）**：只要存在兜底推断就会猜错，就必须让用户能改。三条规矩：① 键用曲目 ID，专辑级编辑写入时展开成逐曲记录；② 只存被改过的字段，`None` = 不覆盖，这样重扫读到更好的标签时用户没碰过的字段仍会更新；③ 字段三态——没动 / `Some("")` 撤销该字段 / `Some(值)` 改值，只有两态用户就只能整条还原。**不写回音频文件**：写标签是破坏性操作，不该是「编辑信息」的副作用。前端对应 `src/components/common/EditMetadataDialog.tsx`（含 `useMetadataEditor` hook，各页菜单接入用它），界面同样**只提交用户真正动过的输入框**，否则等于把「猜的」固化成「用户指定的」。
 
 **滚动**：滚动「手感」交还各平台原生（macOS 触控板橡皮筋、Windows/Linux 滚轮惯性各自沿用系统实现），只统一「视觉」。`src/hooks/useElasticScroll.ts`（名称沿用，实为「原生滚动 + 自绘滚动条」）不再拦截 wheel、不再自积分物理，仅：容器用 `.no-scrollbar` 隐藏系统滚动条，并按原生 `scroll` 事件的 scrollTop/scrollHeight 直接映射绘制一份跨平台一致的 6px thumb（静止 0.9s 后淡出，内容未溢出不显示）。返回签名 `{ scrollerRef, innerRef, thumbRef, onScroll }` 不变，`innerRef` 现仅作内容容器，但保留 `will-change:transform`——它把内容提升为一张缓存的合成层，令 superellipse 圆角 + 多重内阴影的封面卡只光栅化一次、滚动时纯合成（去掉会导致专辑网格滚动掉帧）。曾有一版自定义速度积分 + 橡皮筋引擎，因难以在各平台/输入设备上都贴合原生肌肉记忆，权衡后回退为原生手感。
 
@@ -45,11 +84,16 @@ pnpm tauri build      # 打包桌面应用
 
 **i18n 单复数**：`{var|one|other}` 标记按 `params[var] === 1` 选词（实现见 `src/i18n/index.ts`）。英文凡是「数字 + 名词」都必须用，否则会出现「1 songs」；中日文无单复数变化，直接写死名词。
 
+### 音频后端边界（动手前必读）
+
+播放引擎尚未实现，但边界已经定死在文档里，改音频相关代码前先读 `docs/AUDIO_BACKEND_ARCHITECTURE.md`（架构约束，决策已接受）与 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md`（实现级设计：工程结构、线程模型、队列交接、实施阶段）；两者冲突以架构约束为准，**要偏离就先改文档再动代码**。最硬的几条：实时播放链（播放/暂停/seek/解码/DSP/重采样/输出）必须全部在应用进程内，不得用 FFmpeg 管道、mpv 或任何外部播放器兜底，遇到不支持的格式就返回明确的能力错误；子进程只允许出现在非实时导入路径（用户自装的 `yt-dlp`、必要时的 FFmpeg 转封装）与开发期诊断工具中；容器 / 编码 / 声道布局 / 输出端点能力分别建模，不许合并成一个松散的「播放格式」字段。`docs/` 下的 `ATMOS_DECODING_NOTES.md`、`AC4_INTERNAL_METADATA_NOTES.md`、`WINDOWS_SPATIAL_PLAYBACK_NOTES.md` 是 Windows 侧概念验证记录，是后续能力探测与验收指标的依据，**不代表当前版本已有对应播放能力**，写文档时不要把它们说成已交付功能。
+
 ### 设计来源
 
-UI 逐页复刻 Claude Design 项目「香农播放器设计简报」（10 页 + Token 文档，离线导出见 `docs/design/`），定稿方向「杏色·明快 2a」。当前已实现曲库主界面与专辑详情页，其余页面按路线图（见 README.md）逐页迭代；新页面应复用现有 Token、i18n 与 store 体系。
+UI 逐页复刻 Claude Design 项目「香农播放器设计简报」（10 页 + Token 文档，离线导出见 `docs/design/`），定稿方向「杏色·明快 2a」。设计稿页面已基本落地（曲库 / 专辑 / 歌手 / 歌曲 / 歌单 / 收藏 / 搜索 / 设置 / 歌词 / 首启引导，见 `src/components/` 同名目录），当前重心转向 Rust 后端接入（路线图见 README.md）；新页面应复用现有 Token、i18n 与 store 体系。
 
 ## 文档约定
 
 - `README.md` / `README.en.md` 面向用户（产品介绍），开发内容一律放 `docs/DEVELOPMENT.md`；变更记录进 `CHANGELOG.md`（Keep a Changelog 格式）与 `docs/RELEASE_NOTES.md`。
 - 所有文档不使用 emoji。
+- 仓库根目录的 `AGENTS.md` 是本文件的镜像（仅首行称呼不同，供 Codex 读取）。**改 CLAUDE.md 就要同步改 AGENTS.md**，否则两个助手拿到的规则会分叉。

@@ -55,6 +55,17 @@ pub struct Probed {
     pub tags: Tags,
     pub format: AudioFormat,
     pub duration_sec: f64,
+    /// 内嵌封面的内容指纹。
+    ///
+    /// 用途是专辑归组：合辑的曲目常按曲目艺人散在不同目录、又没有专辑艺人标签，
+    /// 目录和音轨号都认不出它们属于同一张专辑，但**它们嵌的是同一张封面图**。
+    /// 在这里算是因为探测本身是并行的，聚合阶段再算等于串行重算一遍。
+    pub cover_key: Option<String>,
+}
+
+/// 封面内容指纹。取前 16 位十六进制足够区分一个曲库内的封面。
+fn cover_key_of(tags: &Tags) -> Option<String> {
+    tags.picture.as_ref().map(|b| blake3::hash(b).to_hex()[..16].to_string())
 }
 
 /// 探测单个文件。返回 Err 表示无法解析（调用方应计入 failed 而非静默丢弃）。
@@ -85,11 +96,9 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
             probe_notes: notes,
             probe_version: PROBE_VERSION,
         };
-        return Ok(Probed {
-            tags: read_tags(path).unwrap_or_else(empty_tags),
-            format,
-            duration_sec: info.duration_sec,
-        });
+        let tags = read_tags(path).unwrap_or_else(empty_tags);
+        let cover_key = cover_key_of(&tags);
+        return Ok(Probed { tags, format, duration_sec: info.duration_sec, cover_key });
     }
 
     // ---- 常规 PCM 路径 ----
@@ -164,7 +173,9 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
         probe_version: PROBE_VERSION,
     };
 
-    Ok(Probed { tags: read_tags(path).unwrap_or_else(empty_tags), format, duration_sec })
+    let tags = read_tags(path).unwrap_or_else(empty_tags);
+    let cover_key = cover_key_of(&tags);
+    Ok(Probed { tags, format, duration_sec, cover_key })
 }
 
 fn symphonia_params(path: &Path) -> Option<CodecParameters> {

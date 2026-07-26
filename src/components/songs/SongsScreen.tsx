@@ -1,3 +1,4 @@
+import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -5,6 +6,7 @@ import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { MetaLine } from "@/components/common/MetaLine";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
@@ -111,6 +113,7 @@ export function SongsScreen() {
   const playQueue = usePlayerStore((s) => s.playQueue);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  const { dialog: editDialog, editTrack } = useMetadataEditor();
 
   const tracks = useMemo(() => allTracks(), []);
   const totalSec = useMemo(() => tracks.reduce((s, tk) => s + tk.durationSec, 0), [tracks]);
@@ -159,6 +162,9 @@ export function SongsScreen() {
       case "menu.showLyrics":
         playQueue(entries, index);
         useUiStore.getState().openLyrics();
+        break;
+      case "menu.editTags":
+        editTrack(track);
         break;
     }
   };
@@ -369,12 +375,13 @@ export function SongsScreen() {
                           <div className="flex items-center gap-[9px] px-0.5 pb-[7px] pt-3.5">
                             {album && (
                               <div
-                                className="cover-corners cover-gradient cover-thumb-material grid size-[26px] place-items-center rounded-md"
+                                className="cover-corners cover-gradient cover-thumb-material relative grid size-[26px] place-items-center rounded-md"
                                 style={coverGradientStyle(album.cover)}
                               >
                                 <span className="cover-initial font-serif text-[11px]">
                                   {album.cover.initial}
                                 </span>
+                                <CoverArt cover={album.cover} px={26} />
                               </div>
                             )}
                             <span className="whitespace-nowrap font-serif text-sm font-semibold text-tx2">
@@ -413,6 +420,7 @@ export function SongsScreen() {
           className="scroll-thumb pointer-events-none absolute right-[5px] top-2 z-20 h-[120px] w-1.5 rounded-[3px] opacity-0"
         />
       </div>
+      {editDialog}
     </div>
   );
 }

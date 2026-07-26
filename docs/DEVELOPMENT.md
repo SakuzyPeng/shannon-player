@@ -59,17 +59,20 @@ docs/                    开发文档
 见 [音频后端架构约束](AUDIO_BACKEND_ARCHITECTURE.md)；工程结构、线程模型、队列交接、
 测试策略与实施阶段见 [音频后端实现设计](AUDIO_BACKEND_IMPLEMENTATION_PLAN.md)。
 
-已有两份 Windows 概念验证记录，作为后续领域建模、能力探测与验收指标的依据，不代表当前版本
+已有三份 Windows 概念验证记录，作为后续领域建模、能力探测与验收指标的依据，不代表当前版本
 已经提供对应播放能力：
 
 - [Dolby Atmos/JOC 系统解码观测](ATMOS_DECODING_NOTES.md)：比较普通 PCM 与
   `MFAudioFormat_Float_SpatialObjects` 解码结果，确认系统解码层能够暴露超过 6 路的
   spatial/object buffer。
+- [AC-4 内部空间元数据兼容性](AC4_INTERNAL_METADATA_NOTES.md)：记录 AC-4 MFT 的对象坐标与
+  节目响度命令、endpoint writer 长度冲突、失败链和能力探测边界。
 - [固定多声道空间回放研究](WINDOWS_SPATIAL_PLAYBACK_NOTES.md)：整理 7.1.4、9.1.6、22.2
   的容器识别、布局解析、流式解码、seek、`ISpatialAudioClient` 路由与无听感验证方法。
 
-两类路径必须分开建模：前者关注带对象元数据码流的系统解码输出，后者把固定声道放入静态类型
-或固定坐标槽位。借用动态对象 API 的固定坐标槽位不表示输入文件含有动态对象元数据。
+三类问题必须分开建模：E-AC-3/JOC 笔记关注系统解码输出，AC-4 笔记关注解码器到 endpoint 的
+私有 metadata 兼容边界，固定多声道笔记关注把既有 PCM 布局放入静态类型或固定坐标槽位。借用
+动态对象 API 的固定坐标槽位不表示输入文件含有动态对象元数据。
 
 ## 设计来源
 

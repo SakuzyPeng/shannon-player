@@ -1,22 +1,54 @@
 //! Tauri 外壳：窗口 + 命令注册 + 状态持有。
 //!
 //! 业务逻辑全在 `shannon-core`（不依赖 Tauri，可在无图形环境下测试），
-//! 这里只做三件事：把命令暴露给前端、把扫描进度转成 Tauri event、持有曲库快照。
+//! 这里只做四件事：把命令暴露给前端、把扫描进度转成 Tauri event、
+//! 持有曲库状态、把状态落到应用数据目录。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use shannon_core::cache::ScanCache;
 use shannon_core::model::{LibrarySnapshot, ScanProgress};
+use shannon_core::overrides::{Overrides, TrackOverride};
 use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
 
 /// 扫描进度事件名。前端 `listen()` 用同一字符串。
 pub const EVENT_SCAN_PROGRESS: &str = "library://scan-progress";
 
-/// 曲库状态。当前为内存快照——SQLite 持久化是下一步。
+const CACHE_FILE: &str = "library-cache.json";
+const OVERRIDES_FILE: &str = "metadata-overrides.json";
+/// 封面缩略图目录（应用数据目录下）。里面按封面内容指纹命名，多档共存。
+const COVER_DIR: &str = "covers";
+
+/// 曲库状态。
+///
+/// 分成两份是刻意的：`cache` 是扫描的原始产出（可重建），`overrides` 是用户手改的
+/// 元数据（**不可重建**，丢了就找不回来）。两者都落盘，但重要性完全不同——
+/// 缓存损坏大不了重扫，覆盖损坏就是用户的劳动白费。
 #[derive(Default)]
 pub struct LibraryState {
-    snapshot: Mutex<Option<LibrarySnapshot>>,
+    cache: Mutex<ScanCache>,
+    overrides: Mutex<Overrides>,
+}
+
+/// 应用数据目录下的文件路径。
+fn data_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
+    app.path().app_data_dir().map(|d| d.join(name)).map_err(|e| e.to_string())
+}
+
+/// 套用当前覆盖，聚合出前端要的快照。纯内存计算，改一次元数据不必重扫。
+fn snapshot(state: &LibraryState) -> Result<LibrarySnapshot, String> {
+    let cache = state.cache.lock().map_err(|e| e.to_string())?;
+    let overrides = state.overrides.lock().map_err(|e| e.to_string())?;
+    Ok(cache.library(&overrides))
+}
+
+/// 保存覆盖层。写失败必须让前端知道——用户以为改好了，其实重启就没了。
+fn persist_overrides(app: &tauri::AppHandle, state: &LibraryState) -> Result<(), String> {
+    let path = data_path(app, OVERRIDES_FILE)?;
+    let overrides = state.overrides.lock().map_err(|e| e.to_string())?;
+    overrides.save(&path).map_err(|e| format!("保存元数据修改失败: {e}"))
 }
 
 /// 扫描指定文件夹并返回曲库快照，同时把进度以事件推给前端。
@@ -32,18 +64,43 @@ fn scan_library(
     if roots.is_empty() {
         return Err("未指定音乐文件夹".into());
     }
-    let snapshot = scan::scan_folders(&roots, |p: ScanProgress| {
+    let covers = data_path(&app, COVER_DIR)?;
+    let cache = scan::scan_folders(&roots, Some(&covers), |p: ScanProgress| {
         // 事件发送失败不该中断扫描（例如窗口已关闭）。
         let _ = app.emit(EVENT_SCAN_PROGRESS, &p);
     });
-    *state.snapshot.lock().map_err(|e| e.to_string())? = Some(snapshot.clone());
-    Ok(snapshot)
+    if cache.cover_failed > 0 {
+        log::warn!("{} 张内嵌封面解码失败，这些专辑回落占位渐变", cache.cover_failed);
+    }
+    // 缓存写失败只记日志：曲库这次仍然可用，只是下次启动要重扫。
+    if let Ok(path) = data_path(&app, CACHE_FILE) {
+        if let Err(e) = cache.save(&path) {
+            log::warn!("曲库缓存写入失败，下次启动需重扫: {e}");
+        }
+    }
+    *state.cache.lock().map_err(|e| e.to_string())? = cache;
+    snapshot(&state)
 }
 
-/// 取当前曲库快照（前端启动时问一次；尚未扫描则为 null）。
+/// 取当前曲库快照（前端启动时问一次；尚未扫描过则曲目为空）。
 #[tauri::command]
 fn get_library(state: State<'_, LibraryState>) -> Result<Option<LibrarySnapshot>, String> {
-    Ok(state.snapshot.lock().map_err(|e| e.to_string())?.clone())
+    let snap = snapshot(&state)?;
+    Ok((!snap.tracks.is_empty()).then_some(snap))
+}
+
+/// 封面缩略图目录。前端据此拼 asset URL（按显示尺寸挑档位），
+/// 路径拼接放前端是因为档位选择本来就是前端的显示决策。
+#[tauri::command]
+fn get_cover_dir(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(data_path(&app, COVER_DIR)?.to_string_lossy().to_string())
+}
+
+/// 上次扫描用的音乐文件夹。设置页显示的是这个，不是写死的示例路径。
+#[tauri::command]
+fn get_music_folders(state: State<'_, LibraryState>) -> Result<Vec<String>, String> {
+    let cache = state.cache.lock().map_err(|e| e.to_string())?;
+    Ok(cache.roots.iter().map(|p| p.to_string_lossy().to_string()).collect())
 }
 
 /// 只遍历不解析，快速估算规模（首启页在开扫前显示总数）。
@@ -53,12 +110,121 @@ fn count_audio_files(folders: Vec<String>) -> u32 {
     scan::count_candidates(&roots)
 }
 
+/// 改写单曲元数据。传入的字段为 null 表示不动，空字符串表示撤销该字段的修改。
+#[tauri::command]
+fn set_track_metadata(
+    app: tauri::AppHandle,
+    state: State<'_, LibraryState>,
+    track_id: String,
+    patch: TrackOverride,
+) -> Result<LibrarySnapshot, String> {
+    {
+        let mut overrides = state.overrides.lock().map_err(|e| e.to_string())?;
+        overrides.merge(&track_id, patch);
+    }
+    persist_overrides(&app, &state)?;
+    snapshot(&state)
+}
+
+/// 改写整张专辑：展开成该专辑当前每一首的覆盖记录。
+///
+/// 之所以逐曲展开而不是记「专辑级覆盖」：专辑 ID 是聚合派生的，用户一改专辑艺人
+/// 它就变了，拿它当持久化的键会立刻失效。曲目 ID 是内容哈希，不会。
+#[tauri::command]
+fn set_album_metadata(
+    app: tauri::AppHandle,
+    state: State<'_, LibraryState>,
+    album_id: String,
+    patch: TrackOverride,
+) -> Result<LibrarySnapshot, String> {
+    let ids: Vec<String> = snapshot(&state)?
+        .tracks
+        .into_iter()
+        .filter(|t| t.album_id.as_deref() == Some(album_id.as_str()))
+        .map(|t| t.id)
+        .collect();
+    if ids.is_empty() {
+        return Err("找不到该专辑的曲目".into());
+    }
+    {
+        let mut overrides = state.overrides.lock().map_err(|e| e.to_string())?;
+        for id in ids {
+            overrides.merge(&id, patch.clone());
+        }
+    }
+    persist_overrides(&app, &state)?;
+    snapshot(&state)
+}
+
+/// 还原为文件里的原始信息（清除该曲的全部修改）。
+#[tauri::command]
+fn reset_track_metadata(
+    app: tauri::AppHandle,
+    state: State<'_, LibraryState>,
+    track_id: String,
+) -> Result<LibrarySnapshot, String> {
+    {
+        let mut overrides = state.overrides.lock().map_err(|e| e.to_string())?;
+        overrides.clear(&track_id);
+    }
+    persist_overrides(&app, &state)?;
+    snapshot(&state)
+}
+
+/// 还原整张专辑的修改。
+#[tauri::command]
+fn reset_album_metadata(
+    app: tauri::AppHandle,
+    state: State<'_, LibraryState>,
+    album_id: String,
+) -> Result<LibrarySnapshot, String> {
+    let ids: Vec<String> = snapshot(&state)?
+        .tracks
+        .into_iter()
+        .filter(|t| t.album_id.as_deref() == Some(album_id.as_str()))
+        .map(|t| t.id)
+        .collect();
+    {
+        let mut overrides = state.overrides.lock().map_err(|e| e.to_string())?;
+        for id in ids {
+            overrides.clear(&id);
+        }
+    }
+    persist_overrides(&app, &state)?;
+    snapshot(&state)
+}
+
+/// 启动时读回上次的缓存与覆盖：曲库不该因为重启就消失。
+fn restore(app: &tauri::AppHandle, state: &LibraryState) {
+    if let Ok(path) = data_path(app, CACHE_FILE) {
+        match ScanCache::load(&path) {
+            Ok(c) if !c.is_empty() => {
+                log::info!("已从缓存恢复 {} 首曲目", c.tracks.len());
+                if let Ok(mut slot) = state.cache.lock() {
+                    *slot = c;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("曲库缓存读取失败，将需要重扫: {e}"),
+        }
+    }
+    if let Ok(path) = data_path(app, OVERRIDES_FILE) {
+        match Overrides::load(&path) {
+            Ok(o) => {
+                if let Ok(mut slot) = state.overrides.lock() {
+                    *slot = o;
+                }
+            }
+            Err(e) => log::warn!("元数据修改读取失败: {e}"),
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            app.manage(LibraryState::default());
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -66,12 +232,21 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            let state = LibraryState::default();
+            restore(app.handle(), &state);
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             scan_library,
             get_library,
-            count_audio_files
+            get_music_folders,
+            get_cover_dir,
+            count_audio_files,
+            set_track_metadata,
+            set_album_metadata,
+            reset_track_metadata,
+            reset_album_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

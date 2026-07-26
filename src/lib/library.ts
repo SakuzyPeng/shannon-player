@@ -26,7 +26,8 @@ export function tracksOf(album: Album): Track[] {
 export function albumsOfArtist(artist: string): Album[] {
   return albums()
     .filter((a) => a.artist === artist)
-    .sort((a, b) => b.year - a.year);
+    // 无年份的排在最后，而不是被当成 0 年
+    .sort((a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity));
 }
 
 /** 歌手页热门歌曲的种子排序（[专辑, 曲名]，来自设计稿）。 */

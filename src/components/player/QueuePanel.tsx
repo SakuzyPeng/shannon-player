@@ -1,3 +1,4 @@
+import { CoverArt } from "@/components/common/CoverArt";
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, Reorder, useReducedMotion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
@@ -151,12 +152,13 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
                       className="group/qrow flex cursor-pointer items-center gap-[11px] rounded-[11px] px-2.5 py-[7px] hover:bg-[var(--qhv)]"
                     >
                       <div
-                        className="cover-corners cover-gradient grid size-[38px] flex-shrink-0 place-items-center rounded-lg shadow-[inset_0_0_0_1px_var(--qring)]"
+                        className="cover-corners cover-gradient relative grid size-[38px] flex-shrink-0 place-items-center rounded-lg shadow-[inset_0_0_0_1px_var(--qring)]"
                         style={coverGradientStyle(item.track.cover)}
                       >
                         <span className="cover-initial font-serif text-[15px]">
                           {item.track.cover.initial}
                         </span>
+                        <CoverArt cover={item.track.cover} px={38} />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-serif text-[13.5px] font-semibold text-tx">

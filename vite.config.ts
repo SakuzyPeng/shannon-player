@@ -28,6 +28,15 @@ export default defineConfig({
       // 别去监听 Rust 侧文件。
       ignored: ["**/src-tauri/**"],
     },
+    fs: {
+      // 允许经 /@fs/ 读取应用数据目录下的封面缩略图。
+      // 真实封面只有原生窗口里才有，而 UI 验证走的是浏览器里的 dev server
+      // （见 CLAUDE.md），开这个口子才能在浏览器里核对封面效果。仅 dev 生效。
+      allow: [
+        fileURLToPath(new URL(".", import.meta.url)),
+        `${process.env.HOME}/Library/Application Support/com.shannon.player`,
+      ],
+    },
   },
 
   // 面向 Tauri 使用的现代 webview，产物无需兼容旧浏览器。

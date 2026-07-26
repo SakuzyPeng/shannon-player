@@ -16,16 +16,27 @@ export interface Cover {
   initial: string;
   /** 渐变起止色（占位封面）。 */
   gradient: [from: string, to: string];
-  /** 真实封面图 URL（有则优先）。 */
-  url?: string;
+  /**
+   * 封面内容指纹，缩略图文件以它命名（后端 `core/src/cover.rs` 生成）。
+   * 种子曲库没有真实封面，故为可选；为空时界面用上面的渐变 + 首字母占位。
+   */
+  coverKey?: string;
 }
+
+/**
+ * 元数据字段来源，与后端 `FieldSource` 对齐（`@/types/generated/library`）。
+ * 界面据此区分「文件里就这么写的」与「我们猜的」——猜错时用户才知道该去改。
+ * 种子曲库没有这个信息，故为可选。
+ */
+export type FieldSource = "tag" | "folder" | "fileName" | "majority" | "unknown" | "userEdit";
 
 /** 专辑。 */
 export interface Album {
   id: Id;
   title: string;
   artist: string;
-  year: number;
+  /** 发行年份；文件没写就留空（后端不用 0 当哨兵）。 */
+  year?: number | null;
   /** 流派（来自文件标签的内容，不进 i18n）。 */
   genre: string;
   cover: Cover;
@@ -33,6 +44,10 @@ export interface Album {
   trackCount: number;
   /** 总时长（秒）。 */
   durationSec: number;
+  /** 合辑：曲目艺人各不相同且无统一专辑艺人，`artist` 为 Various Artists。 */
+  compilation?: boolean;
+  /** 专辑艺人的来源（合辑判定与目录兜底都可能出错）。 */
+  artistSource?: FieldSource;
 }
 
 /** 曲目。 */
@@ -47,6 +62,16 @@ export interface Track {
   durationSec: number;
   /** 本地文件路径（后期由 Rust 后端提供）。 */
   path?: string;
+  /** 碟号 / 音轨号。 */
+  discNo?: number | null;
+  trackNo?: number | null;
+  /** 各字段是读来的还是猜的（真实曲库才有）。 */
+  sources?: {
+    title: FieldSource;
+    artist: FieldSource;
+    album: FieldSource;
+    albumArtist: FieldSource;
+  };
 }
 
 /** 歌单（用户创建的跨专辑曲目集合）。 */

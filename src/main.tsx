@@ -9,6 +9,24 @@ import "./index.css";
 
 installNativeChrome();
 
+// 浏览器预览（无 Tauri）里没有真实曲库，而 UI 验证恰恰走 dev server（见 CLAUDE.md）。
+// 暴露 store 后可在控制台灌入真实快照来核对封面、长标题等真实数据下的表现：
+//   const s = await (await fetch("/@fs/…/library-snapshot.json")).json();
+//   __shannon.library.getState().setCoverDir("/@fs/…/covers");
+//   __shannon.library.getState().setLibrary(s);
+// 仅 dev 构建存在，生产产物里会被摇掉。
+if (import.meta.env.DEV) {
+  void Promise.all([import("@/store/library"), import("@/store/player"), import("@/store/ui")]).then(
+    ([library, player, ui]) => {
+      (window as unknown as Record<string, unknown>).__shannon = {
+        library: library.useLibraryStore,
+        player: player.usePlayerStore,
+        ui: ui.useUiStore,
+      };
+    },
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

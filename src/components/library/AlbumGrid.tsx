@@ -1,4 +1,7 @@
+import { metaJoin } from "@/lib/meta";
+import { CoverArt } from "@/components/common/CoverArt";
 import { AnimatePresence, motion } from "framer-motion";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { ALBUM_MENU } from "@/data/library";
@@ -38,6 +41,7 @@ function handleAlbumAction(album: Album, key: MessageKey, arg?: string, newPlayl
 export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
   const { t } = useT();
   const openAlbum = useUiStore((s) => s.openAlbum);
+  const { dialog: editDialog, editAlbum } = useMetadataEditor();
   // auto-fill 随窗口宽度增减列数：1180（设计稿）恰为 4 列，980 下限 3 列，超宽自动加列。
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-7 gap-y-8">
@@ -52,7 +56,11 @@ export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
           <ItemContextMenu
             label={`${album.title} — ${album.artist}`}
             items={ALBUM_MENU}
-            onAction={(key, arg) => handleAlbumAction(album, key, arg, t("playlist.newDefaultName"))}
+            onAction={(key, arg) =>
+              key === "menu.editTags"
+                ? editAlbum(album, album.trackCount)
+                : handleAlbumAction(album, key, arg, t("playlist.newDefaultName"))
+            }
           >
             <div
               className="relative min-w-0 cursor-pointer hover:z-10"
@@ -68,6 +76,7 @@ export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
                 <span className="cover-initial font-serif text-[56px] font-medium">
                   {album.cover.initial}
                 </span>
+                <CoverArt cover={album.cover} px={260} />
                 {/* hover 浮现播放键（唯一交互入口） */}
                 <div
                   className="cover-corners cover-overlay absolute inset-0 flex items-end justify-end rounded-2xl p-3 opacity-0 transition-opacity duration-[220ms] group-hover/cover:opacity-100"
@@ -88,13 +97,14 @@ export function AlbumGrid({ albums }: { albums: readonly Album[] }) {
                 {album.title}
               </div>
               <div className="mt-[3px] truncate text-[12.5px] text-tx2">
-                {album.artist} · {album.year}
+                {metaJoin(album.artist, album.year)}
               </div>
             </div>
           </ItemContextMenu>
         </motion.div>
       ))}
       </AnimatePresence>
+      {editDialog}
     </div>
   );
 }

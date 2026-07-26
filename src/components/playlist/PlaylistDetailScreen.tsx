@@ -5,6 +5,7 @@ import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Collage } from "@/components/common/Collage";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { ConfirmDialog, PromptDialog } from "@/components/common/Modal";
 import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
@@ -255,6 +256,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const toggleFavoritePlaylist = usePlayerStore((s) => s.toggleFavoritePlaylist);
   const enqueueNext = usePlayerStore((s) => s.enqueueNext);
+  const { dialog: editDialog, editTrack } = useMetadataEditor();
   const reorderPlaylist = usePlayerStore((s) => s.reorderPlaylist);
   const removeFromPlaylist = usePlayerStore((s) => s.removeFromPlaylist);
   const renamePlaylist = usePlayerStore((s) => s.renamePlaylist);
@@ -304,6 +306,9 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
         break;
       case "menu.removeFromPlaylist":
         removeFromPlaylist(playlistId, track.id);
+        break;
+      case "menu.editTags":
+        editTrack(track);
         break;
     }
   };
@@ -557,6 +562,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
           deletePlaylist(playlistId);
         }}
       />
+      {editDialog}
     </div>
   );
 }

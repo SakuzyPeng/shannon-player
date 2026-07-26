@@ -99,10 +99,48 @@ pub struct Cover {
     pub initial: String,
     /// 渐变起止色。
     pub gradient: (String, String),
-    /// 真实封面图 URL（有则优先）。
+    /// 封面内容指纹，缩略图文件以它命名（见 `crate::cover`）。
+    ///
+    /// 这里给的是键而不是路径：前端要按显示尺寸挑档位（列表 128 / 网格 512 /
+    /// 详情页 1024），而且 Tauri 的本地文件还得经 `convertFileSrc` 转成 asset URL，
+    /// 拼接由前端做最合适。为空表示这首没有内嵌封面，界面回落占位渐变。
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub url: Option<String>,
+    pub cover_key: Option<String>,
+}
+
+/// 元数据字段的来源。
+///
+/// 存在的理由：标签缺失时我们会用目录名、文件名兜底**猜**一个值，猜错在所难免
+/// （散装文件的父目录可能只是「下载」）。界面必须能区分「文件里就这么写的」与
+/// 「我们猜的」，否则用户既不知道该不该改，也不知道改了会不会被下次扫描覆盖。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/library.ts")]
+#[serde(rename_all = "camelCase")]
+pub enum FieldSource {
+    /// 文件标签里读到的。
+    Tag,
+    /// 由目录名推断。
+    Folder,
+    /// 由文件名推断。
+    FileName,
+    /// 同专辑内多数曲目的值（专辑艺人归组用）。
+    Majority,
+    /// 什么都没有，落到「未知歌手 / 未知专辑」。
+    Unknown,
+    /// 用户手动改写——**优先级最高，重扫不覆盖**。
+    UserEdit,
+}
+
+/// 曲目各字段的来源。仅覆盖会被兜底猜测或被用户改写的字段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/library.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct FieldSources {
+    pub title: FieldSource,
+    pub artist: FieldSource,
+    pub album: FieldSource,
+    pub album_artist: FieldSource,
 }
 
 /// 曲目。
@@ -125,6 +163,8 @@ pub struct Track {
     pub disc_no: Option<u16>,
     pub track_no: Option<u16>,
     pub format: AudioFormat,
+    /// 各字段是读来的还是猜的（见 `FieldSource`）。
+    pub sources: FieldSources,
 }
 
 /// 专辑（由曲目聚合而来，非独立实体）。
@@ -135,11 +175,17 @@ pub struct Album {
     pub id: String,
     pub title: String,
     pub artist: String,
-    pub year: u32,
+    /// 发行年份。判不出就留空——用 0 当哨兵会一路漏到界面上显示成「0」。
+    pub year: Option<u32>,
     pub genre: String,
     pub cover: Cover,
     pub track_count: u32,
     pub duration_sec: f64,
+    /// 合辑：曲目艺人各不相同且无统一专辑艺人，`artist` 为「Various Artists」。
+    /// 界面据此避免把合辑当成某个歌手的作品。
+    pub compilation: bool,
+    /// 专辑艺人的来源。合辑判定与目录兜底都可能出错，用户要能看出来并改。
+    pub artist_source: FieldSource,
 }
 
 /// 一次扫描的产出。
@@ -151,6 +197,9 @@ pub struct LibrarySnapshot {
     pub tracks: Vec<Track>,
     /// 遍历到但无法解析的文件数（不静默丢弃，如实上报）。
     pub failed: u32,
+    /// 同一张专辑内被折叠掉的重复曲目数（同一首歌的多份拷贝）。
+    /// 折叠是为了界面干净，但**不静默**：数目如实报给前端。
+    pub duplicates: u32,
 }
 
 /// 扫描进度事件（Tauri event `library://scan-progress`）。

@@ -1,3 +1,5 @@
+import { CoverArt } from "@/components/common/CoverArt";
+import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
 import { ALBUM_MENU } from "@/data/library";
 import { tracksOf } from "@/lib/library";
@@ -33,6 +35,7 @@ function handleAlbumAction(album: Album, key: MessageKey, arg?: string, newPlayl
 export function AlbumList({ albums }: { albums: readonly Album[] }) {
   const { t } = useT();
   const openAlbum = useUiStore((s) => s.openAlbum);
+  const { dialog: editDialog, editAlbum } = useMetadataEditor();
   const fmtMinutes = (sec: number) => t("unit.minutes", { n: Math.round(sec / 60) });
 
   return (
@@ -52,25 +55,31 @@ export function AlbumList({ albums }: { albums: readonly Album[] }) {
           key={album.id}
           label={`${album.title} — ${album.artist}`}
           items={ALBUM_MENU}
-          onAction={(key, arg) => handleAlbumAction(album, key, arg, t("playlist.newDefaultName"))}
+          onAction={(key, arg) =>
+            key === "menu.editTags"
+              ? editAlbum(album, album.trackCount)
+              : handleAlbumAction(album, key, arg, t("playlist.newDefaultName"))
+          }
         >
           <div
             onClick={() => openAlbum(album.id)}
             className={`library-row-divider library-row-divider--cover mt-0.5 grid ${COLS} cursor-pointer items-center gap-3.5 rounded-xl px-3.5 py-1.5 transition-colors hover:bg-hv`}
           >
             <div
-              className="cover-corners cover-gradient cover-thumb-material grid size-11 place-items-center rounded-[9px]"
+              className="cover-corners cover-gradient cover-thumb-material relative grid size-11 place-items-center rounded-[9px]"
               style={coverGradientStyle(album.cover)}
             >
               <span className="cover-initial font-serif text-[17px]">
                 {album.cover.initial}
               </span>
+              <CoverArt cover={album.cover} px={44} />
             </div>
             <span className="truncate font-serif text-[14.5px] font-semibold text-tx">
               {album.title}
             </span>
             <span className="truncate text-[13px] text-tx2">{album.artist}</span>
-            <span className="text-[13px] tabular-nums text-tx2">{album.year}</span>
+            {/* 表格列缺值用破折号占位，空着会像是渲染出了问题 */}
+            <span className="text-[13px] tabular-nums text-tx2">{album.year ?? "—"}</span>
             <span className="text-[13px] tabular-nums text-tx2">{t("unit.tracks", { n: album.trackCount })}</span>
             <span className="text-right text-[13px] tabular-nums text-tx2">
               {fmtMinutes(album.durationSec)}
@@ -78,6 +87,7 @@ export function AlbumList({ albums }: { albums: readonly Album[] }) {
           </div>
         </ItemContextMenu>
       ))}
+      {editDialog}
     </div>
   );
 }
