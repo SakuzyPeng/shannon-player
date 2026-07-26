@@ -4,6 +4,7 @@ import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useRef, useState, type RefObject, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
+import { DetailNotFound } from "@/components/common/DetailNotFound";
 import { Icon } from "@/components/common/Icon";
 import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
@@ -83,7 +84,10 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   const albums = useMemo(() => albumsRelatedToArtist(artistName), [artistName]);
   const topTracks = useMemo(() => topTracksOf(artistName), [artistName]);
   const allTracks = useMemo(() => tracksByArtist(artistName), [artistName]);
-  if (albums.length === 0 && allTracks.length === 0) return null;
+  // 从合辑点进一位只在别人专辑里客串过的歌手，重扫后可能什么都不剩——给退路。
+  if (albums.length === 0 && allTracks.length === 0) {
+    return <DetailNotFound backLabel="nav.artists" onBack={closeArtist} />;
+  }
 
   // 列表与播放队列都用当前可见的这一组，避免「看到的」与「播的」不一致。
   const songs = allSongsOpen ? allTracks : topTracks;

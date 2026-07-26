@@ -3,6 +3,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AnimatePresence, motion, Reorder, useDragControls, useReducedMotion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Collage } from "@/components/common/Collage";
+import { DetailNotFound } from "@/components/common/DetailNotFound";
 import { FilterPill, useFilterPill } from "@/components/common/FilterPill";
 import { Icon } from "@/components/common/Icon";
 import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
@@ -277,7 +278,8 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
         : allTracks,
     [allTracks, query],
   );
-  if (!playlist) return null;
+  // 歌单可以在详情页开着的时候被别处删掉（如「…」菜单的删除后再回退）。
+  if (!playlist) return <DetailNotFound backLabel="nav.playlists" onBack={closePlaylist} />;
 
   const totalSec = allTracks.reduce((s, tk) => s + tk.durationSec, 0);
   const playingThis = playing && allTracks.some((tk) => tk.id === current?.id);
@@ -503,18 +505,34 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                 exit={{ opacity: 0, y: reduceMotion ? 0 : -5 }}
                 transition={{ duration: reduceMotion ? 0.01 : 0.18, ease: [0.22, 1, 0.36, 1] }}
               >
-                <div className="font-serif text-[15px] font-semibold text-tx">
-                  {t("playlist.emptyTitle", { q: filter.q.trim() })}
-                </div>
-                <div className="text-[12.5px] text-tx2">
-                  {t("playlist.emptyTryGlobal")}
-                  <span
-                    onClick={() => setNav("albums")}
-                    className="cursor-pointer font-semibold text-ac"
-                  >
-                    {t("playlist.emptyGlobalSearch")}
-                  </span>
-                </div>
+                {/* 「过滤没命中」与「歌单本来就空」是两回事：后者没有过滤词，
+                    套用前者的文案会渲染成「歌单里没有“”」，还引导去搜索——
+                    而用户此刻需要的是知道怎么往里加歌。 */}
+                {allTracks.length === 0 ? (
+                  <>
+                    <div className="font-serif text-[15px] font-semibold text-tx">
+                      {t("playlist.noTracksTitle")}
+                    </div>
+                    <div className="max-w-[300px] text-[12.5px] leading-[1.6] text-tx2">
+                      {t("playlist.noTracksBody")}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-serif text-[15px] font-semibold text-tx">
+                      {t("playlist.emptyTitle", { q: filter.q.trim() })}
+                    </div>
+                    <div className="text-[12.5px] text-tx2">
+                      {t("playlist.emptyTryGlobal")}
+                      <span
+                        onClick={() => setNav("albums")}
+                        className="cursor-pointer font-semibold text-ac"
+                      >
+                        {t("playlist.emptyGlobalSearch")}
+                      </span>
+                    </div>
+                  </>
+                )}
               </motion.div>
             )}
             </AnimatePresence>

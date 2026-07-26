@@ -3,6 +3,7 @@ import { CoverArt } from "@/components/common/CoverArt";
 import { useMemo, useState, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
+import { DetailNotFound } from "@/components/common/DetailNotFound";
 import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { Icon } from "@/components/common/Icon";
 import { ItemContextMenu, ItemMoreMenu } from "@/components/common/ItemContextMenu";
@@ -73,7 +74,8 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
     () => new Set(tracks.map((tk) => tk.artist)).size > 1,
     [tracks],
   );
-  if (!album) return null;
+  // 专辑 ID 是聚合派生的，重扫后会变——旧 ID 打不开时给退路，别留白屏。
+  if (!album) return <DetailNotFound backLabel="nav.albums" onBack={closeAlbum} />;
 
   const collected = !!favoriteAlbums[album.id];
   const isThisAlbum = current?.albumId === album.id;

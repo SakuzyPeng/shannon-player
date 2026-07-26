@@ -144,6 +144,8 @@ export interface Messages {
 
   "lyrics.back": string;
   "common.back": string;
+  "detail.missingTitle": string;
+  "detail.missingBody": string;
   "lyrics.show": string;
   "lyrics.hide": string;
   "lyrics.translation": string;
@@ -209,6 +211,8 @@ export interface Messages {
   "playlist.filterPlaceholder": string;
   "playlist.dragToReorder": string;
   "playlist.emptyTitle": string; // {q}
+  "playlist.noTracksTitle": string;
+  "playlist.noTracksBody": string;
   "playlist.emptyTryGlobal": string;
   "playlist.emptyGlobalSearch": string;
   "playlist.rename": string;
@@ -393,6 +397,8 @@ const zhHans: Messages = {
 
   "lyrics.back": "返回曲库",
   "common.back": "返回",
+  "detail.missingTitle": "这个内容不在曲库里了",
+  "detail.missingBody": "它可能已被移除，或曲库刚重新扫描过。返回列表看看其他内容。",
   "lyrics.show": "显示歌词",
   "lyrics.hide": "隐藏歌词",
   "lyrics.translation": "翻译",
@@ -458,6 +464,8 @@ const zhHans: Messages = {
   "playlist.filterPlaceholder": "过滤歌单内歌曲…",
   "playlist.dragToReorder": "拖拽排序",
   "playlist.emptyTitle": "歌单里没有“{q}”",
+  "playlist.noTracksTitle": "这个歌单还是空的",
+  "playlist.noTracksBody": "在曲库里右键任意歌曲，选择「加入歌单」。",
   "playlist.emptyTryGlobal": "试试 ",
   "playlist.emptyGlobalSearch": "在整个曲库中搜索",
   "playlist.rename": "重命名…",
@@ -640,6 +648,8 @@ const zhHant: Messages = {
 
   "lyrics.back": "返回曲庫",
   "common.back": "返回",
+  "detail.missingTitle": "這個內容不在曲庫裡了",
+  "detail.missingBody": "它可能已被移除，或曲庫剛重新掃描過。返回列表看看其他內容。",
   "lyrics.show": "顯示歌詞",
   "lyrics.hide": "隱藏歌詞",
   "lyrics.translation": "翻譯",
@@ -705,6 +715,8 @@ const zhHant: Messages = {
   "playlist.filterPlaceholder": "過濾歌單內歌曲…",
   "playlist.dragToReorder": "拖曳排序",
   "playlist.emptyTitle": "歌單裡沒有「{q}」",
+  "playlist.noTracksTitle": "這個歌單還是空的",
+  "playlist.noTracksBody": "在曲庫裡右鍵任一歌曲，選擇「加入歌單」。",
   "playlist.emptyTryGlobal": "試試 ",
   "playlist.emptyGlobalSearch": "在整個曲庫中搜尋",
   "playlist.rename": "重新命名…",
@@ -887,6 +899,8 @@ const en: Messages = {
 
   "lyrics.back": "Back to Library",
   "common.back": "Back",
+  "detail.missingTitle": "This is no longer in your library",
+  "detail.missingBody": "It may have been removed, or the library was just rescanned. Go back to browse something else.",
   "lyrics.show": "Show lyrics",
   "lyrics.hide": "Hide lyrics",
   "lyrics.translation": "Translation",
@@ -952,6 +966,8 @@ const en: Messages = {
   "playlist.filterPlaceholder": "Filter songs in playlist…",
   "playlist.dragToReorder": "Drag to reorder",
   "playlist.emptyTitle": "No “{q}” in this playlist",
+  "playlist.noTracksTitle": "This playlist is empty",
+  "playlist.noTracksBody": "Right-click any song in your library and choose “Add to Playlist”.",
   "playlist.emptyTryGlobal": "Try ",
   "playlist.emptyGlobalSearch": "searching the whole library",
   "playlist.rename": "Rename…",
@@ -1134,6 +1150,8 @@ const ja: Messages = {
 
   "lyrics.back": "ライブラリに戻る",
   "common.back": "戻る",
+  "detail.missingTitle": "この項目はライブラリにありません",
+  "detail.missingBody": "削除されたか、ライブラリが再スキャンされた可能性があります。一覧に戻って他の項目をご覧ください。",
   "lyrics.show": "歌詞を表示",
   "lyrics.hide": "歌詞を隠す",
   "lyrics.translation": "翻訳",
@@ -1199,6 +1217,8 @@ const ja: Messages = {
   "playlist.filterPlaceholder": "プレイリスト内を絞り込み…",
   "playlist.dragToReorder": "ドラッグして並べ替え",
   "playlist.emptyTitle": "プレイリストに「{q}」はありません",
+  "playlist.noTracksTitle": "このプレイリストは空です",
+  "playlist.noTracksBody": "ライブラリで曲を右クリックし、「プレイリストに追加」を選んでください。",
   "playlist.emptyTryGlobal": "",
   "playlist.emptyGlobalSearch": "ライブラリ全体を検索",
   "playlist.rename": "名前を変更…",

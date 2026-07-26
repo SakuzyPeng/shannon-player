@@ -11,6 +11,7 @@ export type IconName =
   | "moon"
   | "monitor"
   | "search"
+  | "sort"
   | "shuffle"
   | "repeat"
   | "queue"
@@ -48,6 +49,7 @@ const STROKE: Partial<Record<IconName, string>> = {
     "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 2v2 M12 20v2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M2 12h2 M20 12h2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4",
   moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
   monitor: "M4 5h16v11H4z M9 20h6 M12 16v4",
+  sort: "M4 6h10 M4 12h7 M4 18h4 M17 5v14 M14 16l3 3 3-3",
   shuffle: "M3 6h4l10 11h4 M17 3l4 3-4 3 M3 17h4 M14 8l3-2 M17 21l4-3-4-3",
   repeat: "M4 12a8 8 0 0 1 14-5l2 2 M20 12a8 8 0 0 1-14 5l-2-2 M20 4v5h-5 M4 20v-5h5",
   queue: "M4 6h16 M4 12h16 M4 18h10",

@@ -22,6 +22,7 @@ import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { shuffled } from "@/lib/shuffle";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Album, Playlist, Track } from "@/types/player";
@@ -322,6 +323,18 @@ export function FavoritesScreen() {
     );
   };
 
+  /**
+   * 播放 / 随机**只在「歌曲」分段出现**：那是唯一一个明确的曲目集合。
+   * 专辑、歌手、歌单分段列的是容器，「播放全部」的含义并不明确——收藏了二十位
+   * 歌手，点下去是要播八百首吗？想听某一张点进去就是了。
+   *
+   * 播放范围是 `songEntries`（当前过滤 + 排序的结果），与行点击一致。
+   */
+  const onPlayAll = () => playQueue(songEntries, 0);
+  const onShuffleAll = () => playQueue(shuffled(songEntries), 0);
+  const showPlayActions = tab === "songs";
+  const noSongs = songEntries.length === 0;
+
   /** 分段切换器（头部与吸顶栏共用，尺寸不同）。 */
   const renderTabs = (compact: boolean) => (
     <SegmentedControl
@@ -329,7 +342,9 @@ export function FavoritesScreen() {
       onValueChange={selectTab}
       options={TABS.map((tb) => ({ value: tb.key, label: t(tb.labelKey) }))}
       className={cn("text-[12.5px]", compact ? "p-[2.5px] text-xs" : "p-[3px]")}
-      buttonClassName={compact ? "px-[13px] py-1" : "px-4 py-1.5"}
+      buttonClassName={
+        compact ? "px-[13px] py-1" : "px-2.5 py-1.5 min-[1200px]:px-4"
+      }
     />
   );
 
@@ -361,6 +376,29 @@ export function FavoritesScreen() {
           placeholder={filterPlaceholder}
           className="ml-auto"
         />
+        {/* 吸顶栏只留图标：这里还要塞下分段切换与过滤，文字版会把标题挤没。 */}
+        {showPlayActions && (
+          <>
+            <motion.button
+              aria-label={t("artist.playAll")}
+              title={t("artist.playAll")}
+              onClick={onPlayAll}
+              disabled={noSongs}
+              className="play-action-material play-action-compact grid size-[34px] flex-none cursor-pointer place-items-center rounded-full text-on-ac disabled:pointer-events-none disabled:opacity-40"
+            >
+              <PlayPauseIcon playing={false} size={14} />
+            </motion.button>
+            <button
+              aria-label={t("album.shufflePlay")}
+              title={t("album.shufflePlay")}
+              onClick={onShuffleAll}
+              disabled={noSongs}
+              className="grid size-[34px] flex-none cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx transition-colors hover:bg-hv active:scale-95 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Icon name="shuffle" size={14} strokeWidth={1.8} />
+            </button>
+          </>
+        )}
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -371,7 +409,10 @@ export function FavoritesScreen() {
         >
           <div ref={innerRef} className="will-change-transform">
             {/* 标题栏（兼作窗口拖拽区） */}
-            <div data-tauri-drag-region className="flex items-end gap-4 pb-[18px] pt-[34px]">
+            <div
+              data-tauri-drag-region
+              className="flex items-end gap-2 pb-[18px] pt-[34px] min-[1200px]:gap-4"
+            >
               {/* 标题列不参与压缩：页面身份优先，空间压力由过滤钮吸收。 */}
               <div className="flex flex-none flex-col gap-[7px]">
                 <h1 className="m-0 font-serif text-[40px] font-medium text-tx">
@@ -381,14 +422,50 @@ export function FavoritesScreen() {
               </div>
               <div className="flex-1" data-tauri-drag-region />
 
+              {/* 收藏页比歌曲页多一组分段切换，窄窗口下同时压缩按钮、间距与分段
+                  内边距；只把排序文案收成图标，给过滤框的 132px 展开下限留空间。
+                  1200px 起恢复设计稿尺寸。 */}
+              {showPlayActions && (
+                <>
+                  <motion.button
+                    aria-label={t("artist.playAll")}
+                    title={t("artist.playAll")}
+                    onClick={onPlayAll}
+                    disabled={noSongs}
+                    className="play-action-material grid size-[34px] flex-none cursor-pointer place-items-center rounded-full text-on-ac disabled:pointer-events-none disabled:opacity-40 min-[1200px]:size-[38px]"
+                  >
+                    <PlayPauseIcon playing={false} size={15} />
+                  </motion.button>
+                  <button
+                    aria-label={t("album.shufflePlay")}
+                    title={t("album.shufflePlay")}
+                    onClick={onShuffleAll}
+                    disabled={noSongs}
+                    className="grid size-[34px] flex-none cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx transition-colors hover:bg-hv active:scale-95 disabled:pointer-events-none disabled:opacity-40 min-[1200px]:size-[38px]"
+                  >
+                    <Icon name="shuffle" size={15} strokeWidth={1.8} />
+                  </button>
+                </>
+              )}
+
               {renderTabs(false)}
 
               {/* 排序菜单：各分段仅暴露适用的排序项。 */}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button className="flex flex-none cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv">
-                    {t(SORT_LABEL[sort])}
-                    <Icon name="chevronDown" size={12} strokeWidth={2} />
+                  <button
+                    aria-label={t(SORT_LABEL[sort])}
+                    title={t(SORT_LABEL[sort])}
+                    className="flex size-10 flex-none cursor-pointer items-center justify-center whitespace-nowrap rounded-full border border-bd bg-srf text-[13px] text-tx transition-colors hover:bg-hv min-[1200px]:w-auto min-[1200px]:gap-1.5 min-[1200px]:px-[15px]"
+                  >
+                    <Icon name="sort" size={15} strokeWidth={1.8} className="min-[1200px]:hidden" />
+                    <span className="hidden min-[1200px]:inline">{t(SORT_LABEL[sort])}</span>
+                    <Icon
+                      name="chevronDown"
+                      size={12}
+                      strokeWidth={2}
+                      className="hidden min-[1200px]:block"
+                    />
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
