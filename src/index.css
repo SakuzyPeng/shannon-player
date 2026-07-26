@@ -536,6 +536,27 @@ textarea,
 .animate-dialog[data-state="open"] { animation: dialogPopIn 0.24s var(--ease-spring); }
 .animate-dialog[data-state="closed"] { animation: dialogPopOut 0.14s ease-in forwards; }
 
+/* 展开列表时新增行的入场：只给紧邻的十来行做，整列表上百行同时动会掉帧。 */
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-row-in {
+  animation: rowIn 0.22s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-row-in {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-menu-pop[data-state="open"],
   .animate-menu-pop[data-state="closed"],

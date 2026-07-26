@@ -1,6 +1,7 @@
+import { ExpandToggle } from "@/components/common/ExpandToggle";
 import { metaJoin } from "@/lib/meta";
 import { CoverArt } from "@/components/common/CoverArt";
-import { useMemo, useState, type UIEvent } from "react";
+import { useMemo, useRef, useState, type RefObject, type UIEvent } from "react";
 import { motion } from "framer-motion";
 import { AnimatedIcon } from "@/components/common/AnimatedIcon";
 import { Icon } from "@/components/common/Icon";
@@ -34,6 +35,32 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
   // 展开后换成完整的纵向列表 / 自适应网格，不另开页面。
   const [allSongsOpen, setAllSongsOpen] = useState(false);
   const [allAlbumsOpen, setAllAlbumsOpen] = useState(false);
+  const songsHeadRef = useRef<HTMLDivElement>(null);
+  const albumsHeadRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * 收起时把区块标题带回视野。
+   *
+   * 一百多行收成十行，文档骤然变矮，浏览器会把滚动位置钳到新的底部——
+   * 用户点了「收起」，视线却被甩到页面别处。展开方向不需要处理：新增内容在
+   * 标题下方，标题本身不动。
+   */
+  const toggleSection = (
+    open: boolean,
+    setOpen: (v: boolean) => void,
+    head: RefObject<HTMLDivElement | null>,
+  ) => {
+    const collapsing = open;
+    setOpen(!open);
+    if (!collapsing) return;
+    requestAnimationFrame(() => {
+      const sc = scrollerRef.current;
+      const el = head.current;
+      if (!sc || !el) return;
+      const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+      if (sc.scrollTop > top) sc.scrollTo({ top: Math.max(0, top - 12) });
+    });
+  };
 
   const playing = usePlayerStore((s) => s.playing);
   const current = usePlayerStore((s) =>
@@ -227,23 +254,18 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
           </div>
 
           {/* 热门歌曲 */}
-          <div className="flex items-center border-t border-bd pb-2 pt-2.5">
+          <div ref={songsHeadRef} className="flex items-center border-t border-bd pb-2 pt-2.5">
             {/* 展开后列出的是全部曲目（按专辑顺序），再叫「热门歌曲」名不副实 */}
             <span className="font-serif text-xl font-semibold text-tx">
               {allSongsOpen ? t("nav.songs") : t("artist.topSongs")}
             </span>
             <div className="flex-1" />
-            <button
-              onClick={() => setAllSongsOpen((v) => !v)}
-              className="flex flex-none cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
-            >
-              {allSongsOpen ? t("artist.showLess") : t("artist.showAllSongs", { n: songCount })}
-              <Icon
-                name={allSongsOpen ? "chevronLeft" : "chevronRight"}
-                size={12}
-                strokeWidth={2}
-              />
-            </button>
+            <ExpandToggle
+              open={allSongsOpen}
+              onToggle={() => toggleSection(allSongsOpen, setAllSongsOpen, songsHeadRef)}
+              openLabel={t("artist.showAllSongs", { n: songCount })}
+              closeLabel={t("artist.showLess")}
+            />
           </div>
           <div
             className={cn(
@@ -256,6 +278,9 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
             {songs.map((track, i) => {
               const isCur = current?.id === track.id;
               const liked = !!favorites[track.id];
+              // 展开时让紧接在原有十首之后的十来行浮现一下；再往后的直接显示——
+              // 一百多行同时做入场动画会掉帧，而且屏幕上也看不到那么远。
+              const entering = allSongsOpen && i >= topTracks.length && i < topTracks.length + 12;
               return (
                 <ItemContextMenu
                   key={track.id}
@@ -266,7 +291,13 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
                 >
                   <div
                     onClick={() => playQueue(songs, i)}
-                    className="mt-0.5 grid snap-start cursor-pointer grid-cols-[40px_1fr_150px_40px_56px] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-hv"
+                    style={
+                      entering ? { animationDelay: `${(i - topTracks.length) * 15}ms` } : undefined
+                    }
+                    className={cn(
+                      "mt-0.5 grid snap-start cursor-pointer grid-cols-[40px_1fr_150px_40px_56px] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-hv",
+                      entering && "animate-row-in",
+                    )}
                   >
                     <span className="text-[13px] tabular-nums text-tx2">
                       <TrackIndicator number={i + 1} active={isCur} playing={playing} />
@@ -308,20 +339,15 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
           </div>
 
           {/* 专辑横排 */}
-          <div className="flex items-center pb-3.5 pt-[26px]">
+          <div ref={albumsHeadRef} className="flex items-center pb-3.5 pt-[26px]">
             <span className="font-serif text-xl font-semibold text-tx">{t("nav.albums")}</span>
             <div className="flex-1" />
-            <button
-              onClick={() => setAllAlbumsOpen((v) => !v)}
-              className="flex flex-none cursor-pointer items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-tx2 transition-colors hover:bg-hv hover:text-tx"
-            >
-              {allAlbumsOpen ? t("artist.showLess") : t("artist.showAllAlbums", { n: albums.length })}
-              <Icon
-                name={allAlbumsOpen ? "chevronLeft" : "chevronRight"}
-                size={12}
-                strokeWidth={2}
-              />
-            </button>
+            <ExpandToggle
+              open={allAlbumsOpen}
+              onToggle={() => toggleSection(allAlbumsOpen, setAllAlbumsOpen, albumsHeadRef)}
+              openLabel={t("artist.showAllAlbums", { n: albums.length })}
+              closeLabel={t("artist.showLess")}
+            />
           </div>
           <div
             className={cn(
