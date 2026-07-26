@@ -105,7 +105,14 @@
   --color-danger: var(--danger);
   --color-on-ac: var(--on-ac);
 
-  --font-serif: "Lora Variable", "Lora", "Noto Serif SC Variable", "Noto Serif SC", serif;
+  /* Lora 只覆盖拉丁，Noto Serif SC 补 CJK；两者都没有数学运算符一类的符号
+     （实测 ∀ U+2200 不在其中），缺字时浏览器会回落到系统默认字体，笔画风格
+     与 Lora 差得很明显——专辑名带这类字符时尤其扎眼（`∀rkadia`）。
+     中间插一层 Times 风格的衬线数学字体，让回落的字形至少同属衬线调性：
+     STIXGeneral 是 macOS 自带，Cambria Math 对应 Windows。
+     注意它们都不含 CJK，中文会继续落到后面的 Noto Serif SC，不受影响。 */
+  --font-serif: "Lora Variable", "Lora", "STIXGeneral", "Cambria Math",
+    "Noto Serif SC Variable", "Noto Serif SC", serif;
   --font-ui: -apple-system, "SF Pro", "PingFang SC", "Microsoft YaHei", sans-serif;
 
   /* 全局回弹曲线（spring 代用） */
