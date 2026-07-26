@@ -467,17 +467,64 @@ fn pick(
 /// 同一张专辑也可能既有整盘版本又有分碟版本）。这些副本的音频内容一样，但元数据块
 /// 差几十字节，文件大小因此不同，**曲目 ID 是内容哈希所以并不相同**，光靠 ID 去不掉。
 ///
-/// 判据用「标题 + 时长（0.01 秒）」：同一录音的两份拷贝时长完全一致，而两首不同的
-/// 录音同名又同时长到百分位的概率极低。只在同一张专辑内比较，跨专辑的同名曲
-/// （原盘与精选集收录同一首）不会被牵连——那是两张专辑各自的曲目，都该显示。
+/// 判据始终带「时长（0.01 秒）」：先比精确标题，再比去掉末尾译名括注后的标题，
+/// 最后比碟号 + 音轨号。同一录音的副本时长一致，而两首不同录音同时长到百分位的
+/// 概率极低。只在同一张专辑内比较，跨专辑的同名曲不会被牵连。
 fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32) {
-    /// 保留信息更全的那一份：有封面 > 有音轨号 > 有专辑艺人标签。
+    /// 标题的宽松键：末尾括注常只是同一标题的翻译，如
+    /// `Winter Alice` / `Winter Alice（冬日爱丽丝）`。括注前的版本标识仍保留，
+    /// `Alive ~rearranged~（活着·重编版）` 不会退化成 `Alive`。
+    fn title_key(title: &str) -> String {
+        let mut base = title.trim();
+        loop {
+            let mut stripped = None;
+            for (open, close) in [('(', ')'), ('（', '）'), ('[', ']'), ('【', '】')] {
+                if let Some(before_close) = base.strip_suffix(close) {
+                    if let Some(at) = before_close.rfind(open) {
+                        let candidate = before_close[..at].trim_end();
+                        if !candidate.is_empty() {
+                            stripped = Some(candidate);
+                            break;
+                        }
+                    }
+                }
+            }
+            match stripped {
+                Some(next) => base = next,
+                None => break,
+            }
+        }
+        base.chars()
+            .flat_map(char::to_lowercase)
+            .filter(|c| !c.is_whitespace())
+            .map(|c| match c {
+                '～' | '〜' => '~',
+                _ => c,
+            })
+            .collect()
+    }
+
+    /// 多份副本的标签可能互相冲突；取出现次数最多的编号，票数相同时取较小值，
+    /// 保证结果稳定。缺失值不投票，但带音轨号、缺碟号的副本仍能参与音轨号多数决。
+    fn mode(values: impl Iterator<Item = u16>) -> Option<u16> {
+        let mut counts: HashMap<u16, usize> = HashMap::new();
+        for value in values {
+            *counts.entry(value).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+            .map(|(value, _)| value)
+    }
+
+    /// 保留信息更全的那一份：有封面 > 有碟号 > 有音轨号 > 有专辑艺人标签。
     fn quality(p: &Pending) -> u8 {
-        (p.raw.cover_key.is_some() as u8) * 4
+        (p.raw.cover_key.is_some() as u8) * 8
+            + (p.raw.tags.disc_no.is_some() as u8) * 4
             + (p.raw.tags.track_no.is_some() as u8) * 2
             + (p.raw.tags.album_artist.is_some() as u8)
     }
-    // 并查集：两条判据任一命中就并到一组。
+    // 并查集：三条判据任一命中就并到一组。
     let mut parent: Vec<usize> = (0..idxs.len()).collect();
     fn find(parent: &mut Vec<usize>, mut i: usize) -> usize {
         while parent[i] != i {
@@ -486,7 +533,7 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         }
         i
     }
-    let mut union = |parent: &mut Vec<usize>, a: usize, b: usize| {
+    let union = |parent: &mut Vec<usize>, a: usize, b: usize| {
         let (ra, rb) = (find(parent, a), find(parent, b));
         if ra != rb {
             let (lo, hi) = if ra < rb { (ra, rb) } else { (rb, ra) };
@@ -495,6 +542,7 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
     };
 
     let mut by_title: HashMap<(String, i64), usize> = HashMap::new();
+    let mut by_title_key: HashMap<(String, i64), usize> = HashMap::new();
     let mut by_slot: HashMap<(u16, u16, i64), usize> = HashMap::new();
     for (pos, &i) in idxs.iter().enumerate() {
         let dur = (pending[i].raw.duration_sec * 100.0).round() as i64;
@@ -507,7 +555,17 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
             by_title.insert(tkey, pos);
         }
 
-        // 判据二：碟号 + 音轨号 + 时长。抓的是「同一首歌被标了不同标题」——
+        // 判据二：去掉末尾译名括注的标题 + 时长。真实库里恰好有两组副本因为
+        // `Winter Alice` / `Winter Alice（冬日爱丽丝）` 这类写法且轨位标签互相冲突，
+        // 精确标题和轨位两条规则都认不出来。版本标识在括注前，所以仍会保留。
+        let ckey = (title_key(&pending[i].title), dur);
+        if let Some(&prev) = by_title_key.get(&ckey) {
+            union(&mut parent, pos, prev);
+        } else {
+            by_title_key.insert(ckey, pos);
+        }
+
+        // 判据三：碟号 + 音轨号 + 时长。抓的是「同一首歌被标了不同标题」——
         // 实测同一轨位出现过 `ロミオとシンデレラ`、`ロミオとシンデレラ（罗密欧与仙杜瑞拉）`、
         // `ロミオとシンデレラ（罗密欧与灰姑娘）` 三种写法，只比标题永远认不出是一首。
         // 同一张专辑的同一个轨位就是同一首歌；再要求时长一致，防的是标签把两首
@@ -522,23 +580,40 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         }
     }
 
-    // 每组留下信息最全的一份；同分取路径靠前的，保证每次扫描结果一致。
-    let mut best: HashMap<usize, usize> = HashMap::new();
+    // 先收集重复组。每组的轨位可能冲突，不能只按路径随便留一份：实测同一录音既有
+    // `1-05` 又有 `1-11`，而完整副本的多数票能给出正确位置。
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
     for pos in 0..idxs.len() {
         let root = find(&mut parent, pos);
-        let cand = idxs[pos];
-        best.entry(root)
-            .and_modify(|cur| {
-                let better = quality(&pending[cand]) > quality(&pending[*cur])
-                    || (quality(&pending[cand]) == quality(&pending[*cur])
-                        && pending[cand].raw.path < pending[*cur].raw.path);
-                if better {
-                    *cur = cand;
-                }
-            })
-            .or_insert(cand);
+        groups.entry(root).or_default().push(idxs[pos]);
     }
-    let mut kept: Vec<usize> = best.into_values().collect();
+
+    let mut kept = Vec::with_capacity(groups.len());
+    for members in groups.into_values() {
+        let preferred_track = mode(members.iter().filter_map(|&i| pending[i].raw.tags.track_no));
+        let preferred_disc = preferred_track.and_then(|track| {
+            mode(members.iter().filter_map(|&i| {
+                (pending[i].raw.tags.track_no == Some(track)).then_some(pending[i].raw.tags.disc_no).flatten()
+            }))
+        });
+        let score = |i: usize| {
+            (
+                preferred_track.is_some_and(|n| pending[i].raw.tags.track_no == Some(n)),
+                preferred_disc.is_some_and(|n| pending[i].raw.tags.disc_no == Some(n)),
+                quality(&pending[i]),
+            )
+        };
+        let mut best = members[0];
+        for &candidate in &members[1..] {
+            if score(candidate) > score(best)
+                || (score(candidate) == score(best)
+                    && pending[candidate].raw.path < pending[best].raw.path)
+            {
+                best = candidate;
+            }
+        }
+        kept.push(best);
+    }
     kept.sort_unstable();
     let dropped = (idxs.len() - kept.len()) as u32;
     (kept, dropped)
@@ -1116,6 +1191,83 @@ mod tests {
         let snap = agg(items, &Overrides::default());
         assert_eq!(snap.tracks.len(), 1, "同一轨位同时长就是同一首歌，标题写法不影响");
         assert_eq!(snap.duplicates, 2);
+    }
+
+    /// 末尾括注只是译名时，即使两份拷贝的轨位标签也互相冲突，仍应按标题主体 + 时长折叠。
+    #[test]
+    fn translated_title_suffix_is_a_duplicate_even_when_slots_conflict() {
+        let mut plain = probed_cover(
+            "/m/doriko/best/11 Winter Alice.m4a",
+            "Winter Alice",
+            "初音ミク",
+            "BEST",
+            "封面",
+        );
+        plain.tags.track_no = Some(11);
+        plain.duration_sec = 301.973;
+        let mut translated = probed_cover(
+            "/m/doriko/best/1-05 Winter Alice.m4a",
+            "Winter Alice（冬日爱丽丝）",
+            "初音ミク",
+            "BEST",
+            "封面",
+        );
+        translated.tags.disc_no = Some(1);
+        translated.tags.track_no = Some(5);
+        translated.duration_sec = 301.973;
+
+        let snap = agg(vec![plain, translated], &Overrides::default());
+        assert_eq!(snap.tracks.len(), 1, "带/不带译名括注的是同一录音");
+        assert_eq!(snap.duplicates, 1);
+    }
+
+    /// 同一录音的多份拷贝可能写着互相冲突的轨位；应采用组内多数，而不是路径最靠前的错值。
+    #[test]
+    fn dedupe_prefers_consensus_disc_and_track() {
+        let mut items = Vec::new();
+        for n in 0..2 {
+            let mut t = probed_cover(
+                &format!("/m/doriko/best/a-wrong-{n}.m4a"),
+                "Winter Alice（冬日爱丽丝）",
+                "初音ミク",
+                "BEST",
+                "封面",
+            );
+            t.tags.disc_no = Some(1);
+            t.tags.track_no = Some(5);
+            t.duration_sec = 301.973;
+            items.push(t);
+        }
+        for n in 0..3 {
+            let mut t = probed_cover(
+                &format!("/m/doriko/best/z-correct-{n}.m4a"),
+                "Winter Alice",
+                "初音ミク",
+                "BEST",
+                "封面",
+            );
+            t.tags.disc_no = Some(1);
+            t.tags.track_no = Some(11);
+            t.duration_sec = 301.973;
+            items.push(t);
+        }
+        let mut partial = probed_cover(
+            "/m/doriko/best/11 Winter Alice.m4a",
+            "Winter Alice（冬日爱丽丝）",
+            "初音ミク",
+            "BEST",
+            "封面",
+        );
+        partial.tags.track_no = Some(11);
+        partial.duration_sec = 301.973;
+        items.push(partial);
+
+        let snap = agg(items, &Overrides::default());
+        assert_eq!(snap.tracks.len(), 1);
+        assert_eq!(snap.duplicates, 5);
+        assert_eq!(snap.tracks[0].disc_no, Some(1));
+        assert_eq!(snap.tracks[0].track_no, Some(11));
+        assert!(snap.tracks[0].path.contains("z-correct"), "应保留多数轨位对应的副本");
     }
 
     /// 但同一轨位时长不同的，是标签把两首不同的歌错标到了一处，两首都要留。
