@@ -104,6 +104,14 @@ export function ArtistDetailScreen({ artistName }: { artistName: string }) {
           transition: "opacity 0.25s ease, transform 0.25s var(--ease-spring)",
         }}
       >
+        {/* 吸顶栏里的返回：页面滚动后面包屑已经不在视野内，没有这个按钮就退不出去 */}
+        <button
+          aria-label={t("common.back")}
+          onClick={closeArtist}
+          className="grid size-[30px] flex-none cursor-pointer place-items-center rounded-full text-tx2 transition-colors hover:bg-hv hover:text-tx"
+        >
+          <Icon name="chevronLeft" size={15} strokeWidth={2} />
+        </button>
         <div
           className="cover-gradient cover-thumb-material relative grid size-8 place-items-center rounded-full"
           style={coverGradientStyle(cover)}

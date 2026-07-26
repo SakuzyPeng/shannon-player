@@ -142,6 +142,7 @@ export interface Messages {
   "songs.emptyBody": string;
 
   "lyrics.back": string;
+  "common.back": string;
   "lyrics.show": string;
   "lyrics.hide": string;
   "lyrics.translation": string;
@@ -389,6 +390,7 @@ const zhHans: Messages = {
   "songs.emptyBody": "检查拼写，或试试歌手名、专辑名",
 
   "lyrics.back": "返回曲库",
+  "common.back": "返回",
   "lyrics.show": "显示歌词",
   "lyrics.hide": "隐藏歌词",
   "lyrics.translation": "翻译",
@@ -634,6 +636,7 @@ const zhHant: Messages = {
   "songs.emptyBody": "檢查拼寫，或試試歌手名、專輯名",
 
   "lyrics.back": "返回曲庫",
+  "common.back": "返回",
   "lyrics.show": "顯示歌詞",
   "lyrics.hide": "隱藏歌詞",
   "lyrics.translation": "翻譯",
@@ -879,6 +882,7 @@ const en: Messages = {
   "songs.emptyBody": "Check the spelling, or try an artist or album name",
 
   "lyrics.back": "Back to Library",
+  "common.back": "Back",
   "lyrics.show": "Show lyrics",
   "lyrics.hide": "Hide lyrics",
   "lyrics.translation": "Translation",
@@ -1124,6 +1128,7 @@ const ja: Messages = {
   "songs.emptyBody": "スペルを確認するか、アーティスト名やアルバム名で試してください",
 
   "lyrics.back": "ライブラリに戻る",
+  "common.back": "戻る",
   "lyrics.show": "歌詞を表示",
   "lyrics.hide": "歌詞を隠す",
   "lyrics.translation": "翻訳",
