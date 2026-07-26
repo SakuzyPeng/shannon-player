@@ -84,6 +84,8 @@ window.__shannon.library.getState().setLibrary(snap);
 
 **窗口自适应（布局戒律）**：窗口可任意拉伸，需保证的区间是 [980×640, ∞)（下限由 `src-tauri/tauri.conf.json` 的 minWidth/minHeight 兜底，设计稿画板 1180×760 只是默认尺寸）。规则：卡片网格一律 `repeat(auto-fill, minmax(…, 1fr))`，禁止固定列数（`grid-cols-4` 这类会在超宽下把封面撑到失衡）；文本容器一律 `truncate` + `min-w-0`；滚动区一律 `absolute inset-0 overflow-auto` 套 `min-h-0 flex-1`（高度变矮只增加滚动，不裁内容）；长文页面用 `max-w` 居中；对高度敏感的固定尺寸元素（如歌词页封面）用 `min(设计值, Nvh)` 收敛。改动布局后用 Playwright 在 980×640 与 1920×1080 各截一轮，并断言 `document.documentElement.scrollWidth <= clientWidth`（零横向溢出）。
 
+**设计稿的隐含前提要在真实曲库上复核**：设计稿按「一张专辑一位歌手」画，专辑详情页的曲目行因此只有标题；但真实曲库里合辑、致敬盘、社团专辑占了相当比例（实测 28 张有 10 张的曲目艺人不止一位），这类列表必须按需补出歌手列。同类判断一律**看数据而不是看类型**——用「实际存在几个不同的曲目艺人」决定，而不是只信 `compilation` 标记。
+
 **折行戒律（按体裁分类，不要凭感觉）**：① 控件（按钮 / pill / tab / 菜单项）一律不换行——胶囊形状本身是可点击性的视觉暗示，被撑成两行等于换了个组件；写法是 `flex-none` + `whitespace-nowrap`。② 头部元信息副标题（`3 首 · 2 张专辑 · …` 这类一行摘要）也要规避换行：它在 `items-end` 的头部里，换行会顶高整个头部，拖动窗口时标题会跳；做法是标题列 `flex-none`（页面身份优先），并把文案交给 `src/components/common/MetaLine.tsx` 渲染——每个片段包成 `whitespace-nowrap`，极窄时只能断在 ` · ` 处，永不出现「1」与「playlists」被拆开的孤字断行。③ 正文 / 说明 / 空态本来就是多行排版，不用管。**头部空间不足时的让位顺序是固定的**：标题列与控件都不压缩，压力全部由过滤钮（`FilterPill`）吸收——收起态是固定圆钮不参与压缩，展开态可收缩至 132px 下限。
 
 **i18n 单复数**：`{var|one|other}` 标记按 `params[var] === 1` 选词（实现见 `src/i18n/index.ts`）。英文凡是「数字 + 名词」都必须用，否则会出现「1 songs」；中日文无单复数变化，直接写死名词。

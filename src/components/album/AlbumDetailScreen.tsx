@@ -61,6 +61,17 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
   }, [tracks]);
   // 单碟专辑不显示碟标题，维持设计稿原样。
   const multiDisc = discs.length > 1;
+  /**
+   * 曲目艺人不止一位时才显示歌手列。
+   *
+   * 设计稿是按「一张专辑一位歌手」画的，行里只有标题；但合辑、致敬盘、社团专辑
+   * 里每首歌的演唱者都不同（实测 28 张里有 10 张如此，最多的一张有 10 位），
+   * 不显示就完全看不出谁唱的。单人专辑仍旧不显示——每行重复同一个名字是噪音。
+   */
+  const showTrackArtist = useMemo(
+    () => new Set(tracks.map((tk) => tk.artist)).size > 1,
+    [tracks],
+  );
   if (!album) return null;
 
   const collected = !!favoriteAlbums[album.id];
@@ -304,7 +315,12 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                 >
                   <div
                     onClick={() => playQueue(tracks, i)}
-                    className="mt-0.5 grid cursor-pointer grid-cols-[44px_1fr_44px_64px] items-center gap-3.5 rounded-xl px-3.5 py-[11px] transition-colors hover:bg-hv"
+                    className={cn(
+                      "mt-0.5 grid cursor-pointer items-center gap-3.5 rounded-xl px-3.5 py-[11px] transition-colors hover:bg-hv",
+                      showTrackArtist
+                        ? "grid-cols-[44px_1fr_minmax(96px,180px)_44px_64px]"
+                        : "grid-cols-[44px_1fr_44px_64px]",
+                    )}
                   >
                     <span className="text-[13px] tabular-nums text-tx2">
                       {/* 音轨号来自标签；缺号时退回碟内序位，而不是全局序号 */}
@@ -322,6 +338,9 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                     >
                       {track.title}
                     </span>
+                    {showTrackArtist && (
+                      <span className="min-w-0 truncate text-[13px] text-tx2">{track.artist}</span>
+                    )}
                     <button
                       aria-label={liked ? t("player.unfavorite") : t("player.favorite")}
                       onClick={(e) => {
