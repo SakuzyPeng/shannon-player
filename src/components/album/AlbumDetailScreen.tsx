@@ -17,6 +17,7 @@ import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { shuffled } from "@/lib/shuffle";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Id, Track } from "@/types/player";
@@ -83,10 +84,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
     if (isThisAlbum) togglePlay();
     else playQueue(tracks, 0);
   };
-  const onShuffleAlbum = () => {
-    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-    playQueue(shuffled, 0);
-  };
+  const onShuffleAlbum = () => playQueue(shuffled(tracks), 0);
   /** 专辑级动作（「…」菜单）：与专辑卡右键菜单一致。 */
   const onAlbumAction = (key: MessageKey, arg?: string) => {
     switch (key) {
@@ -171,13 +169,26 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
           <div className="truncate text-[11px] text-tx2">{album.artist}</div>
         </div>
         <div className="flex-1" />
-        <motion.button
-          aria-label={playingThis ? t("player.pause") : t("player.play")}
-          onClick={onPlayAlbum}
-          className="play-action-material play-action-compact grid size-[34px] cursor-pointer place-items-center rounded-full text-on-ac"
-        >
-          <PlayPauseIcon playing={playingThis} size={15} />
-        </motion.button>
+        {/* 与头部同一对动作，只是收成图标：滚下去之后大按钮已不在视野，
+            随机播放不该因为翻了页就没得点。 */}
+        <div className="flex flex-none items-center gap-2.5">
+          <motion.button
+            aria-label={playingThis ? t("player.pause") : t("player.play")}
+            title={playingThis ? t("player.pause") : t("player.play")}
+            onClick={onPlayAlbum}
+            className="play-action-material play-action-compact grid size-[34px] cursor-pointer place-items-center rounded-full text-on-ac"
+          >
+            <PlayPauseIcon playing={playingThis} size={15} />
+          </motion.button>
+          <button
+            aria-label={t("album.shufflePlay")}
+            title={t("album.shufflePlay")}
+            onClick={onShuffleAlbum}
+            className="grid size-[34px] flex-none cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx transition-colors hover:bg-hv active:scale-95"
+          >
+            <Icon name="shuffle" size={14} strokeWidth={1.8} />
+          </button>
+        </div>
       </div>
 
       <div

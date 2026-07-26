@@ -121,6 +121,11 @@
 
   /* 全局回弹曲线（spring 代用） */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* 窗口圆角。系统标题栏被关掉（decorations: false）后窗口就是个直角矩形，
+     圆角得自己画。10px 取自 macOS Big Sur 起的窗口圆角，与 Windows 11 的 8px
+     也接近，不按平台分叉——三端一致比逐端贴合更好维护。 */
+  --window-radius: 10px;
 }
 
 /* ---------- 基础 ---------- */
@@ -138,6 +143,28 @@ body {
   user-select: none;
   cursor: default;
   overflow: hidden;
+}
+
+/* ---------- 窗口圆角 ----------
+   只在 Tauri 原生窗口里生效（`useWindowChrome` 打上 data-window-chrome="custom"）：
+   浏览器预览下窗口是浏览器画的，再切一圈圆角只会露出四个白色小三角。
+
+   圆角外必须**真透明**，所以背景从 body 挪到 #root——body 的背景会铺满整个矩形
+   视口，把圆角盖回去。窗口本身的 `transparent: true` 是前提，两者缺一不可。
+
+   窗口铺满整块屏幕时去掉圆角，四角留着就是四个透出桌面的缺口。判定交给
+   `useWindowChrome`：macOS 的最大化只是撑到工作区，原生窗口那时仍是圆角的，
+   跟 Windows 的最大化不是一回事。 */
+html[data-window-chrome="custom"] body {
+  background: transparent;
+}
+html[data-window-chrome="custom"] #root {
+  background: var(--bg);
+  border-radius: var(--window-radius);
+  overflow: hidden;
+}
+html[data-window-chrome="custom"][data-window-fit="full"] #root {
+  border-radius: 0;
 }
 
 /* 输入类控件恢复可选中，保证过滤框能选词 / 粘贴。 */

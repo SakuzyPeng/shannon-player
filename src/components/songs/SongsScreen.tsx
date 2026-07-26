@@ -8,6 +8,7 @@ import { Icon } from "@/components/common/Icon";
 import { MetaLine } from "@/components/common/MetaLine";
 import { useMetadataEditor } from "@/components/common/EditMetadataDialog";
 import { ItemContextMenu } from "@/components/common/ItemContextMenu";
+import { PlayPauseIcon } from "@/components/common/PlayPauseIcon";
 import { TrackIndicator } from "@/components/common/TrackIndicator";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { TRACK_MENU } from "@/data/library";
@@ -18,6 +19,7 @@ import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { shuffled } from "@/lib/shuffle";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Track } from "@/types/player";
@@ -138,6 +140,18 @@ export function SongsScreen() {
     }
     return list; // recent = 曲库顺序
   }, [tracks, q, sort]);
+
+  /**
+   * 播放范围是 `entries`（当前过滤 + 排序的结果）而不是整个曲库：过滤出某位歌手的
+   * 二十首之后按「播放全部」，用户要的是那二十首。行点击本来就是 `playQueue(entries, …)`，
+   * 两者保持一致。
+   *
+   * 与专辑页 / 歌手页不同，这里的播放钮**不做暂停态**：那些页面能用「当前曲目是否属于
+   * 本专辑 / 本歌手」判断「正在播的就是这一堆」，而歌曲页列的是全库，这个判断几乎恒真，
+   * 按钮会长期显示成「暂停」，实际变成一个全局暂停钮——那是播放栏的职责。
+   */
+  const onPlayAll = () => playQueue(entries, 0);
+  const onShuffleAll = () => playQueue(shuffled(entries), 0);
 
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
     onScroll(e);
@@ -279,7 +293,26 @@ export function SongsScreen() {
         </div>
         <span className="font-serif text-[16.5px] font-semibold text-tx">{t("nav.songs")}</span>
         <span className="whitespace-nowrap text-xs text-tx2">{subtitle}</span>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2.5">
+          {/* 吸顶栏只留图标：这里要塞下排序与过滤，文字版会把标题挤没。 */}
+          <motion.button
+            aria-label={t("artist.playAll")}
+            title={t("artist.playAll")}
+            onClick={onPlayAll}
+            disabled={entries.length === 0}
+            className="play-action-material play-action-compact grid size-[34px] flex-none cursor-pointer place-items-center rounded-full text-on-ac disabled:pointer-events-none disabled:opacity-40"
+          >
+            <PlayPauseIcon playing={false} size={14} />
+          </motion.button>
+          <button
+            aria-label={t("album.shufflePlay")}
+            title={t("album.shufflePlay")}
+            onClick={onShuffleAll}
+            disabled={entries.length === 0}
+            className="grid size-[34px] flex-none cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx transition-colors hover:bg-hv active:scale-95 disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Icon name="shuffle" size={14} strokeWidth={1.8} />
+          </button>
           <SongSortMenu sort={sort} onValueChange={setSort} />
           <FilterPill
             filter={filter}
@@ -308,6 +341,25 @@ export function SongsScreen() {
                 <MetaLine text={subtitle} className="text-[13px] text-tx2" />
               </div>
               <div className="flex-1" data-tauri-drag-region />
+
+              {/* 与排序钮、过滤钮同排等高：歌曲页头部是横向一行，按钮挪到标题下方会顶高
+                  头部，拖窗口时标题跟着跳。 */}
+              <motion.button
+                onClick={onPlayAll}
+                disabled={entries.length === 0}
+                className="play-action-material flex flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-[19px] py-[9px] text-[13px] font-semibold text-on-ac disabled:pointer-events-none disabled:opacity-40"
+              >
+                <PlayPauseIcon playing={false} size={14} />
+                {t("artist.playAll")}
+              </motion.button>
+              <button
+                onClick={onShuffleAll}
+                disabled={entries.length === 0}
+                className="flex flex-none cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border border-bd bg-srf px-[15px] py-[9px] text-[13px] text-tx transition-colors hover:bg-hv active:scale-95 disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Icon name="shuffle" size={14} strokeWidth={1.8} />
+                {t("album.shufflePlay")}
+              </button>
 
               <SongSortMenu sort={sort} onValueChange={setSort} />
 

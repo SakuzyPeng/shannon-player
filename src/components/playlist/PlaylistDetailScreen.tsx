@@ -18,6 +18,7 @@ import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { NEW_PLAYLIST, addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { shuffled } from "@/lib/shuffle";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 import type { Id, Playlist, Track } from "@/types/player";
@@ -285,7 +286,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
     if (allTracks.some((tk) => tk.id === current?.id)) togglePlay();
     else playQueue(allTracks, 0);
   };
-  const onShuffle = () => playQueue([...allTracks].sort(() => Math.random() - 0.5), 0);
+  const onShuffle = () => playQueue(shuffled(allTracks), 0);
   const onTrackAction = (track: Track, index: number, key: MessageKey, arg?: string) => {
     switch (key) {
       case "menu.addToPlaylist":
@@ -363,13 +364,28 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
           placeholder={t("playlist.filterPlaceholder")}
           className="ml-auto"
         />
-        <motion.button
-          aria-label={playingThis ? t("player.pause") : t("player.play")}
-          onClick={onPlayAll}
-          className="play-action-material play-action-compact grid size-[34px] cursor-pointer place-items-center rounded-full text-on-ac"
-        >
-          <PlayPauseIcon playing={playingThis} size={15} />
-        </motion.button>
+        {/* 与头部同一对动作，只是收成图标：滚下去之后大按钮已不在视野，
+            随机播放不该因为翻了页就没得点。 */}
+        <div className="flex flex-none items-center gap-2.5">
+          <motion.button
+            aria-label={playingThis ? t("player.pause") : t("player.play")}
+            title={playingThis ? t("player.pause") : t("player.play")}
+            onClick={onPlayAll}
+            disabled={allTracks.length === 0}
+            className="play-action-material play-action-compact grid size-[34px] cursor-pointer place-items-center rounded-full text-on-ac disabled:pointer-events-none disabled:opacity-40"
+          >
+            <PlayPauseIcon playing={playingThis} size={15} />
+          </motion.button>
+          <button
+            aria-label={t("album.shufflePlay")}
+            title={t("album.shufflePlay")}
+            onClick={onShuffle}
+            disabled={allTracks.length === 0}
+            className="grid size-[34px] flex-none cursor-pointer place-items-center rounded-full border border-bd bg-srf text-tx transition-colors hover:bg-hv active:scale-95 disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Icon name="shuffle" size={14} strokeWidth={1.8} />
+          </button>
+        </div>
       </div>
 
       <div
@@ -431,16 +447,20 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
               </div>
               <div className="text-[13px] text-tx2">{meta}</div>
               <div className="mt-2 flex items-center gap-3">
+                {/* 空歌单是常态（刚建的还没加歌），两个钮一并置灰，
+                    否则点下去是往队列里塞一个空列表。 */}
                 <motion.button
                   onClick={onPlayAll}
-                  className="play-action-material flex cursor-pointer items-center gap-2 rounded-full px-[26px] py-[11px] text-sm font-semibold text-on-ac"
+                  disabled={allTracks.length === 0}
+                  className="play-action-material flex cursor-pointer items-center gap-2 rounded-full px-[26px] py-[11px] text-sm font-semibold text-on-ac disabled:pointer-events-none disabled:opacity-40"
                 >
                   <PlayPauseIcon playing={playingThis} size={16} />
                   {playingThis ? t("player.pause") : t("player.play")}
                 </motion.button>
                 <button
                   onClick={onShuffle}
-                  className="flex cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[22px] py-[11px] text-sm font-semibold text-tx transition-colors hover:bg-hv active:scale-95"
+                  disabled={allTracks.length === 0}
+                  className="flex cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[22px] py-[11px] text-sm font-semibold text-tx transition-colors hover:bg-hv active:scale-95 disabled:pointer-events-none disabled:opacity-40"
                 >
                   <Icon name="shuffle" size={15} strokeWidth={1.8} />
                   {t("album.shufflePlay")}

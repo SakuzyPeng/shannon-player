@@ -6,6 +6,7 @@ import { PlayBar } from "@/components/player/PlayBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
+import { useWindowChrome } from "@/hooks/useWindowChrome";
 import { getCoverDir, getLibrary, getMusicFolders } from "@/lib/backend";
 import { useLibraryStore } from "@/store/library";
 import { useUiStore } from "@/store/ui";
@@ -110,6 +111,7 @@ function useRestoreLibrary() {
 
 export default function App() {
   useApplyTheme();
+  useWindowChrome();
   usePlaybackTicker();
   useRestoreLibrary();
   useGlobalHotkeys();

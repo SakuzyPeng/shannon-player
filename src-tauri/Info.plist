@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  打包时并入 .app 的 Info.plist（Tauri 会把这里的键合并进生成的那份）。
+
+  这几个键只为一件事：让**系统画的** UI 跟着系统语言走。绿灯 hover 弹出的窗口
+  平铺菜单（移动与调整大小 / 填充与排列 / 全屏幕）是 AppKit 提供的，它按应用
+  声明支持的语言挑文案——不声明就退回开发区域语言，于是中文系统上照样弹一份
+  英文菜单。声明了 zh-Hans，同一个菜单才会是中文。
+
+  这与 src/i18n 无关：那套管的是我们自己画的界面，管不到系统控件。
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh-Hans</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>zh-Hans</string>
+    <string>en</string>
+  </array>
+</dict>
+</plist>
