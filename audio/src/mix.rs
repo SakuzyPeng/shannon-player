@@ -1,10 +1,22 @@
 //! 源声道到输出声道的适配。
 //!
-//! 阶段 0 只覆盖立体声路径，能做的只有两件**无歧义**的事：原样直通，以及单声道复制成双声道。
-//! 多声道到立体声的下混**刻意不在这里草率实现**——下混系数依赖布局（5.1 与 6.0 的
-//! 6 声道系数完全不同），而布局判不出时（[`LayoutSource::Unknown`](crate::layout::LayoutSource)）
-//! 任何系数都是猜的。猜错的表现是声场错乱或人声消失，用户听得出却无从归因。
-//! 因此此处返回明确的能力错误，把下混留给阶段 1 连同布局置信度一起做。
+//! 作用域仅限**立体声输出路径**，能做的只有两件无歧义的事：原样直通，
+//! 以及单声道复制成双声道。
+//!
+//! ## 下混不在这里，也不在别处——它是系统的职责
+//!
+//! 多声道到立体声的下混**应用不自己做**（架构约束「输出后端」与「明确不采用」）。
+//! 这与「不自己双耳化」是同一条理由的两种表现：自行下混等于把一条本可以被系统空间化的
+//! 多声道流提前拍扁，系统看到的只剩两条声道，空间音频开关会显示「不可用」，
+//! 头部追踪更无从谈起——**渲染发生在头动之前**。
+//!
+//! 正确的做法是把布局如实交给平台原生输出后端（macOS `AVSampleBufferAudioRenderer`
+//! 附 `AudioChannelLayoutTag`，Windows `ISpatialAudioClient`），由系统决定空间化还是下混。
+//! 系统掌握端点特性（耳机 / 扬声器 / HDMI 各不相同），而应用只能猜一套通用系数；
+//! 而且用户在系统播放器里听到的下混结果，在这里应当是同一个。
+//!
+//! 所以本模块遇到多声道时返回的是**路由错误而非能力缺口**：它要走另一条后端，
+//! 不是等我们把某个算法补上。
 
 use crate::error::{EngineError, ErrorKind, Result, Stage};
 use crate::layout::ChannelLayout;
@@ -19,7 +31,7 @@ pub enum ChannelAdapt {
 }
 
 impl ChannelAdapt {
-    /// 选出适配方案；做不到就报能力错误，不静默丢声道。
+    /// 选出适配方案；做不到就报明确的错误，不静默丢声道、也不自行下混。
     pub fn plan(src: ChannelLayout, dst: ChannelLayout) -> Result<Self> {
         if src.count() == dst.count() {
             return Ok(ChannelAdapt::Passthrough);
@@ -31,9 +43,8 @@ impl ChannelAdapt {
             Stage::Output,
             ErrorKind::Unsupported,
             format!(
-                "暂不支持把 {} 适配到 {}（多声道下混尚未实现）",
-                src.describe(),
-                dst.describe()
+                "{} 需要交由系统输出（多声道不自行下混），平台原生输出后端尚未接入",
+                src.describe()
             ),
         ))
     }
@@ -80,9 +91,15 @@ mod tests {
     }
 
     #[test]
-    fn multichannel_downmix_reports_capability_error() {
-        // 阶段 0 不下混：宁可明确报错，也不按猜的系数把声场弄乱。
+    fn multichannel_is_routed_to_the_platform_backend_not_downmixed() {
+        // 多声道不在立体声路径里解决：自行下混会把本可被系统空间化的流提前拍扁，
+        // 是用户可见的能力降级。这里要的是明确的路由错误。
         let err = ChannelAdapt::plan(ChannelLayout::discrete(6), ChannelLayout::STEREO).unwrap_err();
         assert_eq!(err.kind, ErrorKind::Unsupported);
+        assert!(
+            err.message.contains("交由系统"),
+            "错误要说清这是路由问题而非缺个算法：{}",
+            err.message
+        );
     }
 }

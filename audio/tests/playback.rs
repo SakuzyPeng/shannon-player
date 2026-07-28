@@ -163,8 +163,9 @@ fn mono_source_is_upmixed_to_stereo() {
 }
 
 #[test]
-fn multichannel_source_reports_capability_error() {
-    // 阶段 0 不下混。要的是**明确的能力错误**，不是静默丢声道，
+fn multichannel_source_is_routed_to_platform_backend() {
+    // 多声道不走立体声路径：下混与空间化都交给系统，应用自己混会把本可被空间化的流
+    // 提前拍扁。所以这里要的是明确的**路由**错误，不是静默丢声道，
     // 也不是按猜的系数把声场弄乱。
     let path = corpus("surround", 6, 441);
     let layout = Decoder::open(&path).unwrap().spec().layout;
@@ -172,7 +173,11 @@ fn multichannel_source_reports_capability_error() {
 
     let err = ChannelAdapt::plan(layout, ChannelLayout::STEREO).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Unsupported);
-    assert!(err.message.contains("下混"), "错误信息要说清缺的是什么能力");
+    assert!(
+        err.message.contains("交由系统"),
+        "错误要说清多声道该走哪条路，而不是暗示我们欠一个下混算法：{}",
+        err.message
+    );
 }
 
 #[test]

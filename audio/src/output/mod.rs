@@ -3,10 +3,11 @@
 //! trait 首版即定，后续的 WASAPI 独占、macOS `AVSampleBufferAudioRenderer`、
 //! Windows `ISpatialAudioClient` 都以新实现插入，不改引擎。
 //!
-//! **接口必须能表达声道布局，而不只是声道数**——这正是 CPAL 不能承担空间输出的原因：
-//! 它的配置里只有一个数字，而布局标签才是系统判断能否空间化的依据（见
-//! `docs/MACOS_SPATIAL_PLAYBACK_NOTES.md`）。所以协商的输入输出都用
-//! [`ChannelLayout`](crate::layout::ChannelLayout)，哪怕 CPAL 实现自己只用得上其中的声道数。
+//! **接口必须能表达声道布局，而不只是声道数**——这正是 CPAL 不能承担**任何**多声道输出的
+//! 原因（不只是空间内容）：它的配置里只有一个数字，而布局标签既是系统判断能否空间化的
+//! 依据，也是它正确下混的依据（见 `docs/MACOS_SPATIAL_PLAYBACK_NOTES.md`）。
+//! 所以协商的输入输出都用 [`ChannelLayout`](crate::layout::ChannelLayout)，
+//! 哪怕当前唯一的实现（CPAL 立体声）自己只用得上其中的声道数。
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
