@@ -13,7 +13,12 @@
 //!   --seconds N   总共播 N 秒后退出
 //!   --seek N      开播前先定位到第 N 秒（只作用于第一首）
 //!   --volume V    音量 0.0 ~ 1.0（默认 1.0）
+//!   --device 名字 指定输出设备（名字片段，不区分大小写；默认走系统默认设备）
 //!   --null        用空输出后端（无声卡环境验证链路）
+//!
+//! `--device` 是用来排除「送错设备」的：系统默认输出可能是蓝牙耳机、虚拟声卡或
+//! 聚合设备，此时引擎一切正常（欠载为零、位置照常推进）而人耳什么也听不到。
+//! 设备清单用 `devices` 例子看。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -36,6 +41,7 @@ fn main() {
     let mut each_limit: Option<f64> = None;
     let mut seek: Option<f64> = None;
     let mut volume = 1.0f32;
+    let mut device: Option<String> = None;
     let mut use_null = false;
 
     while let Some(arg) = args.next() {
@@ -44,6 +50,7 @@ fn main() {
             "--each" => each_limit = args.next().and_then(|v| v.parse().ok()),
             "--seek" => seek = args.next().and_then(|v| v.parse().ok()),
             "--volume" => volume = args.next().and_then(|v| v.parse().ok()).unwrap_or(1.0),
+            "--device" => device = args.next(),
             "--null" => use_null = true,
             other => inputs.push(PathBuf::from(other)),
         }
@@ -52,13 +59,15 @@ fn main() {
     let tracks = expand(&inputs);
     if tracks.is_empty() {
         eprintln!(
-            "用法：play <文件或目录>… [--each N] [--seconds N] [--seek N] [--volume V] [--null]"
+            "用法：play <文件或目录>… [--each N] [--seconds N] [--seek N] [--volume V] [--device 名字] [--null]"
         );
         std::process::exit(2);
     }
 
     let backend: Box<dyn OutputBackend> = if use_null {
         Box::new(NullOutput::new())
+    } else if let Some(name) = device {
+        Box::new(CpalOutput::with_device(name))
     } else {
         Box::new(CpalOutput::new())
     };

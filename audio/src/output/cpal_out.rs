@@ -31,6 +31,9 @@ pub struct CpalOutput {
     stream: Option<Stream>,
     config: Option<OutputConfig>,
     errors: Option<Receiver<String>>,
+    /// 指定输出设备的名字片段。`None` 走系统默认设备。
+    /// 这是**诊断用途**——产品级的设备选择（持久化偏好、热插拔跟随）是阶段 1 的事。
+    prefer: Option<String>,
 }
 
 impl Default for CpalOutput {
@@ -45,6 +48,23 @@ impl CpalOutput {
             stream: None,
             config: None,
             errors: None,
+            prefer: None,
+        }
+    }
+
+    /// 按名字片段（不区分大小写）指定输出设备。
+    ///
+    /// 存在的意义是**排除「送错设备」这个伪故障**：系统默认输出可能是蓝牙耳机、
+    /// 虚拟声卡或聚合设备，那时引擎一切正常——欠载为零、位置照常推进——但用户
+    /// 什么也听不到。没有这个开关，就只能靠改系统设置来二分，而改系统设置会同时
+    /// 影响其它应用，是个比问题本身更大的动作。
+    ///
+    /// 匹配不到时**报错而不是回落到默认设备**：诊断工具一旦允许静默回落，
+    /// 它给出的结论就不再可信——你以为在测扬声器，其实测的还是那只耳机。
+    pub fn with_device(name: impl Into<String>) -> Self {
+        Self {
+            prefer: Some(name.into()),
+            ..Self::new()
         }
     }
 }
@@ -186,11 +206,35 @@ where
         .map_err(|e| device_err(ErrorKind::Stream, format!("创建输出流失败：{e}")))
 }
 
-/// 取默认输出设备。设备选择（切换到指定设备）是阶段 1 的事。
-fn default_device() -> Result<Device> {
-    cpal::default_host()
-        .default_output_device()
-        .ok_or_else(|| device_err(ErrorKind::NoDevice, "没有可用的音频输出设备"))
+/// 取输出设备：给了名字片段就按它挑，否则走系统默认。
+///
+/// 匹配不到指定名字时**报错**，不回落默认设备——理由见 [`CpalOutput::with_device`]。
+/// 错误信息里带上现有设备清单，因为这时用户最需要知道的就是「那到底叫什么」。
+fn pick_device(prefer: Option<&str>) -> Result<Device> {
+    let host = cpal::default_host();
+    let Some(want) = prefer else {
+        return host
+            .default_output_device()
+            .ok_or_else(|| device_err(ErrorKind::NoDevice, "没有可用的音频输出设备"));
+    };
+
+    let want_lower = want.to_lowercase();
+    let devices: Vec<Device> = host
+        .output_devices()
+        .map_err(|e| device_err(ErrorKind::NoDevice, format!("列举输出设备失败：{e}")))?
+        .collect();
+
+    devices
+        .iter()
+        .find(|d| device_label(d).to_lowercase().contains(&want_lower))
+        .cloned()
+        .ok_or_else(|| {
+            let names: Vec<String> = devices.iter().map(device_label).collect();
+            device_err(
+                ErrorKind::NoDevice,
+                format!("没有名字含「{want}」的输出设备。现有：{}", names.join("、")),
+            )
+        })
 }
 
 impl OutputBackend for CpalOutput {
@@ -199,7 +243,7 @@ impl OutputBackend for CpalOutput {
     }
 
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
-        let device = default_device()?;
+        let device = pick_device(self.prefer.as_deref())?;
         let supported = negotiate(&device, request)?;
         Ok(OutputConfig {
             sample_rate: supported.sample_rate(),
@@ -217,7 +261,7 @@ impl OutputBackend for CpalOutput {
     ) -> Result<OutputConfig> {
         self.close();
 
-        let device = default_device()?;
+        let device = pick_device(self.prefer.as_deref())?;
         let device_name = device_label(&device);
 
         let supported = negotiate(&device, request)?;
