@@ -227,6 +227,17 @@ Symphonia 管线加自定义解码器注册：
 
 `shannon-audio` 与 Tauri 无关，测试全部无头运行：
 
+- **格式矩阵**（`tests/format_matrix.rs`）：语料由 `cargo run -p shannon-audio
+  --example make_corpus` 用 ffmpeg 从同一份扫频源转出全部启用格式，验证四件事——
+  规格读取（采样率 / 声道数 / 时长）、**无损格式与源逐样本一致**（对齐后误差 < 1e-4
+  且偏移为 0）、有损格式整体能量守恒、以及每种格式端到端播完且零欠载。
+  另有一条混合格式「歌单」用例：同一个引擎依次播放 44.1k 立体声 → 48k 立体声 →
+  单声道 → ALAC，验证**换曲时输出流、环形缓冲与重采样器整套重建**，
+  而不是沿用第一首的配置。
+  - 语料**不入库**（可复现，且几 MB 二进制进 git 无意义），缺失时用例整体跳过并打印
+    生成命令。跳过是有意的取舍：CI 未必装了 ffmpeg，而 PCM 路径已由纯 Rust 语料覆盖。
+  - 用 ffmpeg 而非平台工具（如 macOS 的 `afconvert`）：后者只能在一个平台上生成，
+    等于把验证能力绑死在开发者的机器上。
 - 语料测试：连续正弦波切成两个文件分别编码，断言播放边界处相位连续（误差小于阈值），
   验证 gapless；对应验收条件第 6 条。
 - seek 等价测试：任意位置 seek 后的解码输出等于从头解码的对应后缀。
@@ -238,6 +249,9 @@ Symphonia 管线加自定义解码器注册：
   逻辑以同一场景验证 current 最终与发声曲目一致。
 - AAC / ALAC 等“不能预先承诺 gapless”的格式，以语料测试产出兼容性结论后再更新格式
   范围表，不凭实现推断。
+- **启用一个解码器 feature 就要同时把它纳入格式矩阵**。开 flag 是一行的事，
+  但那一行是一句承诺；没有语料覆盖的承诺等同于赌它能用，与验收条件第 7 条
+  「未经证实的状态不得展示」相悖。
 - 测试语料由脚本在开发期生成（属架构约束允许的开发期工具），不提交大体积二进制。
 
 ## 曲库扫描选型
@@ -281,7 +295,7 @@ Symphonia 管线加自定义解码器注册：
 | 引擎骨架、状态机、命令与事件 | 完成（`engine.rs`） |
 | SPSC 环形缓冲 | 完成（`ring.rs`） |
 | `OutputBackend` trait、CPAL 共享输出、`NullOutput` | 完成（`output/`） |
-| Symphonia 解码：ALAC / AAC / FLAC / MP3 / WAV | 完成（`decode.rs`） |
+| Symphonia 解码：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis / MKV | 完成（`decode.rs`），全部纳入格式矩阵测试 |
 | 播放 / 暂停 / seek / 音量（带斜坡） | 完成 |
 | 声道布局与布局来源自解码起点进类型 | 完成（`layout.rs`） |
 | 立体声与单声道上混 | 完成（`mix.rs`） |
@@ -289,7 +303,7 @@ Symphonia 管线加自定义解码器注册：
 | 多声道输出 | **不在本路径内**——整体划归平台原生后端（阶段 5），当前报明确的路由错误 |
 | store 后继算法、queueRevision、事件桥、MockEngine | 未开始 |
 
-验证方式：`cargo test -p shannon-audio`（31 项，无头，语料现生成不入库）与
+验证方式：`cargo test -p shannon-audio`（37 项，无头，语料现生成不入库）与
 `cargo run -p shannon-audio --example play -- <文件>`。设备诊断用
 `--example devices`。二者均为架构约束允许的开发期工具。
 

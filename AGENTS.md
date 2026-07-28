@@ -23,11 +23,14 @@ cargo run -p shannon-core --example warm_cache -- <目录> <缓存路径>  # 预
 cargo test -p shannon-audio                               # 播放引擎测试（无头，语料现生成不入库）
 cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
 cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数/采样率/采样格式
+cargo run -p shannon-audio --example make_corpus          # 用 ffmpeg 生成格式矩阵测试语料
 ```
 
 `pnpm build` 会被 pnpm 的 minimumReleaseAge 策略挡在依赖检查这一步（Radix 的新版本刚发布不久）。绕过办法是直接调本地二进制：`./node_modules/.bin/tsc --noEmit` 与 `./node_modules/.bin/vite build`，校验效果一致。
 
-前端没有测试套件，`pnpm build` 是主要的正确性校验（i18n 漏键、ts-rs 契约漂移、类型错误都在这里暴露）；Rust 侧的正确性校验是 `cargo test -p shannon-core`（扫描聚合、稳定 ID 都有单测，且不需要图形环境）。
+前端没有测试套件，`pnpm build` 是主要的正确性校验（i18n 漏键、ts-rs 契约漂移、类型错误都在这里暴露）；Rust 侧的正确性校验是 `cargo test -p shannon-core`（扫描聚合、稳定 ID 都有单测，且不需要图形环境）与 `cargo test -p shannon-audio`（解码、环形缓冲、重采样、端到端播放，同样无需图形与声卡）。
+
+**启用一个解码器 feature 就要同时把它加进 `audio/tests/format_matrix.rs` 的矩阵**：开 flag 是一行的事，但那一行是一句承诺，没有语料覆盖的承诺等同于赌它能用（验收条件第 7 条「未经证实的状态不得展示」）。矩阵语料由 `make_corpus` 用 ffmpeg 从同一份扫频源转出（**不入库**，可复现），验证规格读取、**无损格式与源逐样本一致**、有损格式能量守恒、端到端播完零欠载，外加一条混合格式「歌单」用例覆盖换曲时的整套重建。语料不在时这批用例跳过并打印生成命令——CI 未必有 ffmpeg，PCM 路径已由 `playback.rs` 现造的语料兜住。别用 `afconvert` 之类的平台工具造语料，那会把验证能力绑死在一台机器上。
 
 验证 UI 效果用 Playwright MCP 指向 `http://localhost:1420` 截图——Tauri 原生窗口截图受 macOS 屏幕录制权限限制，而 Vite dev server 渲染的是同一份前端。注意 Radix 菜单需要真实 pointer 事件，合成 `.click()` 不会触发，需用 browser_click。
 
@@ -49,7 +52,7 @@ window.__shannon.library.getState().setLibrary(snap);
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
 - **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原）、把 core 的进度回调转成 Tauri event（`library://scan-progress`）、用 `LibraryState` 持有扫描缓存与覆盖层、把两者落到应用数据目录（`library-cache.json` / `metadata-overrides.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 两份落盘数据的重要性不同：缓存可重建（损坏就重扫），**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）。
 - **`core/`（crate `shannon-core`）** —— 曲库扫描、音频规格探测、稳定 ID、元数据覆盖层。**刻意不依赖 Tauri 与任何 GUI 库**，因此能在无图形环境 `cargo test`；副作用（进度上报）通过回调注入，由外壳决定落地方式。新增后端能力优先放这里，让外壳保持薄。
-- **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**阶段 0 的立体声路径**：ALAC / AAC / FLAC / MP3 / WAV 经 Symphonia 解码 → 重采样 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡。**多声道不走这条路**——下混与空间化都交给系统（见下），平台原生后端尚未接入，当前遇到多声道报明确的路由错误。尚未接进 Tauri 与前端，播放条走的仍是占位时钟。
+- **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**阶段 0 的立体声路径**：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis 经 Symphonia 解码 → 重采样 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡。**多声道不走这条路**——下混与空间化都交给系统（见下），平台原生后端尚未接入，当前遇到多声道报明确的路由错误。尚未接进 Tauri 与前端，播放条走的仍是占位时钟。
 
 管线里有三处顺序是想清楚才这么定的，改动前先看 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md` 的「管线顺序」：① **音量在输出回调里做，不在管线里**——管线领先播放一秒半，在那儿改增益意味着按下静音要等一秒半才生效；② **重采样在声道适配之前**（按源声道数做），通则是在声道数少的那一侧重采样，所以将来加多声道下混时顺序要反过来；③ **协商与打开流分成两步**（`OutputBackend::negotiate` 只预演不碰设备），因为环形缓冲容量、重采样比率、位置计数的时基都要按协商结果搭。另外**位置计数一律记输出域的帧**——`Decoder::seek` 返回的是源域帧位置，混用会让进度按比率走偏（44.1 → 48 kHz 快 8.8%）。
 

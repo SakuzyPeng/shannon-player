@@ -3727,7 +3727,7 @@ dependencies = [
  "symphonia-codec-pcm 0.5.5",
  "symphonia-codec-vorbis 0.5.5",
  "symphonia-core 0.5.5",
- "symphonia-format-caf",
+ "symphonia-format-caf 0.5.5",
  "symphonia-format-isomp4 0.5.5",
  "symphonia-format-mkv 0.5.5",
  "symphonia-format-ogg 0.5.5",
@@ -3750,6 +3750,7 @@ dependencies = [
  "symphonia-codec-pcm 0.6.0",
  "symphonia-codec-vorbis 0.6.0",
  "symphonia-core 0.6.0",
+ "symphonia-format-caf 0.6.0",
  "symphonia-format-isomp4 0.6.0",
  "symphonia-format-mkv 0.6.0",
  "symphonia-format-ogg 0.6.0",
@@ -3958,6 +3959,17 @@ dependencies = [
  "log",
  "symphonia-core 0.5.5",
  "symphonia-metadata 0.5.5",
+]
+
+[[package]]
+name = "symphonia-format-caf"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cde3ca76633d3400ab57195456c09f8a58d775ff5452329f3f212b6efc8622f5"
+dependencies = [
+ "log",
+ "symphonia-common",
+ "symphonia-core 0.6.0",
 ]
 
 [[package]]

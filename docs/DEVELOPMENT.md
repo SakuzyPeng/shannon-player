@@ -38,7 +38,14 @@ cargo test -p shannon-audio                               # 播放引擎；无�
 cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的规格与字段来源
 cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
 cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数与采样率
+cargo run -p shannon-audio --example make_corpus          # 用 ffmpeg 生成格式矩阵测试语料（需 ffmpeg）
 ```
+
+格式矩阵测试（`audio/tests/format_matrix.rs`）验证每种启用的编码真的解得对、放得完，
+其语料由上面的 `make_corpus` 生成到 `audio/tests/corpus/`（**不入库**，可复现）。
+语料不在时这批用例整体跳过并打印生成命令——CI 未必装了 ffmpeg，而纯 PCM 路径
+已由 `playback.rs` 里现造的语料覆盖。**新启用一个解码器 feature 就要同时把它加进矩阵**：
+开 flag 是一行的事，但那一行是一句承诺。
 
 ## 目录结构
 
@@ -70,7 +77,7 @@ docs/                    开发文档
 ## 音频后端架构与研究
 
 播放引擎已开工但**尚未接入主程序**：`audio/`（crate `shannon-audio`）已打通阶段 0 的
-立体声路径——ALAC / AAC / FLAC / MP3 / WAV 经 Symphonia 解码 → 重采样 → 声道适配 →
+立体声路径——ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis 经 Symphonia 解码 → 重采样 → 声道适配 →
 无锁环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量。多声道不走这条路：下混与
 空间化都交给系统（应用自行下混会把本可被空间化的流提前拍扁），而平台原生输出后端尚未
 接入，当前遇到多声道报明确的路由错误。界面上的播放条走的仍是占位时钟。目标分层、实时播放零子进程约束、解码后端优先级与链接导入边界
