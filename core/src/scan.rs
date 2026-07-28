@@ -470,6 +470,19 @@ fn pick(
 /// 判据始终带「时长（0.01 秒）」：先比精确标题，再比去掉末尾译名括注后的标题，
 /// 最后比碟号 + 音轨号。同一录音的副本时长一致，而两首不同录音同时长到百分位的
 /// 概率极低。只在同一张专辑内比较，跨专辑的同名曲不会被牵连。
+///
+/// **三条判据都还要求音频规格一致**（编码、采样率、位深、声道数），这一条是后加的：
+/// 只看标题与时长的话，同一首歌的不同**格式**版本会被当成副本折叠掉——
+/// 实测把一段音乐转成 11 种编码放进同一目录，扫出来只剩 4 首。那不是清理，是丢东西。
+///
+/// 分界在于**用户知不知情**：导入工具留下的副本是同一份音频的字节级拷贝，
+/// 规格必然完全相同，用户既没要它也不想看见它；而同时留着 FLAC 与 MP3、
+/// 16 bit 与 24 bit 的人是有意为之（车载用一份、听音用一份），
+/// 那是两个不同的东西，折叠等于替用户做了他没同意的删除。
+///
+/// 已知残留：同一编码的不同码率（MP3 128k 与 320k）规格键相同，仍会被折叠。
+/// 没把码率纳入键是因为 lofty 的码率由文件大小估算，副本之间差几十字节就可能
+/// 抖动 1 kbps，纳入反而会让真副本漏掉。
 fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32) {
     /// 标题的宽松键：末尾括注常只是同一标题的翻译，如
     /// `Winter Alice` / `Winter Alice（冬日爱丽丝）`。括注前的版本标识仍保留，
@@ -541,14 +554,22 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         }
     };
 
-    let mut by_title: HashMap<(String, i64), usize> = HashMap::new();
-    let mut by_title_key: HashMap<(String, i64), usize> = HashMap::new();
-    let mut by_slot: HashMap<(u16, u16, i64), usize> = HashMap::new();
+    /// 音频规格键。规格不同就不是同一份编码，不该被当成副本。
+    fn spec_key(p: &Pending) -> (String, u32, Option<u8>, u8) {
+        let f = &p.raw.format;
+        (f.codec.clone(), f.sample_rate_hz, f.bit_depth, f.channels)
+    }
+
+    type SpecKey = (String, u32, Option<u8>, u8);
+    let mut by_title: HashMap<(SpecKey, String, i64), usize> = HashMap::new();
+    let mut by_title_key: HashMap<(SpecKey, String, i64), usize> = HashMap::new();
+    let mut by_slot: HashMap<(SpecKey, u16, u16, i64), usize> = HashMap::new();
     for (pos, &i) in idxs.iter().enumerate() {
         let dur = (pending[i].raw.duration_sec * 100.0).round() as i64;
+        let spec = spec_key(&pending[i]);
 
-        // 判据一：标题 + 时长。
-        let tkey = (pending[i].title.trim().to_lowercase(), dur);
+        // 判据一：规格 + 标题 + 时长。
+        let tkey = (spec.clone(), pending[i].title.trim().to_lowercase(), dur);
         if let Some(&prev) = by_title.get(&tkey) {
             union(&mut parent, pos, prev);
         } else {
@@ -558,7 +579,7 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         // 判据二：去掉末尾译名括注的标题 + 时长。真实库里恰好有两组副本因为
         // `Winter Alice` / `Winter Alice（冬日爱丽丝）` 这类写法且轨位标签互相冲突，
         // 精确标题和轨位两条规则都认不出来。版本标识在括注前，所以仍会保留。
-        let ckey = (title_key(&pending[i].title), dur);
+        let ckey = (spec.clone(), title_key(&pending[i].title), dur);
         if let Some(&prev) = by_title_key.get(&ckey) {
             union(&mut parent, pos, prev);
         } else {
@@ -571,7 +592,7 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         // 同一张专辑的同一个轨位就是同一首歌；再要求时长一致，防的是标签把两首
         // 不同的歌错标到同一轨位（那种情况下时长几乎不可能同到百分位）。
         if let (Some(d), Some(t)) = (pending[i].raw.tags.disc_no, pending[i].raw.tags.track_no) {
-            let skey = (d, t, dur);
+            let skey = (spec.clone(), d, t, dur);
             if let Some(&prev) = by_slot.get(&skey) {
                 union(&mut parent, pos, prev);
             } else {
@@ -981,6 +1002,16 @@ mod tests {
             probe_notes: vec![],
             probe_version: crate::model::PROBE_VERSION,
         }
+    }
+
+    /// 把一条记录改成另一种音频规格，用来构造「同一首歌的不同格式版本」。
+    fn with_spec(mut t: RawTrack, codec: &str, rate: u32, depth: Option<u8>) -> RawTrack {
+        t.format.codec = codec.into();
+        t.format.container = codec.into();
+        t.format.sample_rate_hz = rate;
+        t.format.bit_depth = depth;
+        // ID 是内容哈希，不同编码必然不同；测试里用路径派生已保证唯一。
+        t
     }
 
     /// 构造一条原始记录。`album_artist` 为 None 模拟「文件没写专辑艺人标签」。
@@ -1513,5 +1544,35 @@ mod tests {
         let b = make_cover("a-abc", "长夜电波", None);
         assert_eq!(a.gradient, b.gradient);
         assert_eq!(a.initial, "长");
+    }
+    #[test]
+    fn different_formats_of_one_song_are_not_folded() {
+        // 同一段音乐的不同编码：标题、时长、轨位全都一样，只有规格不同。
+        // 只看标题与时长的判据会把它们全折叠掉——实测 11 个格式扫出来只剩 4 首。
+        // 用户同时留着 FLAC 与 MP3 是有意为之，不是导入工具的手滑。
+        let items = vec![
+            with_spec(probed_at("/m/实测/01.flac", "同一首", "歌手", "格式实测", None), "flac", 44100, Some(16)),
+            with_spec(probed_at("/m/实测/02.m4a", "同一首", "歌手", "格式实测", None), "alac", 44100, Some(16)),
+            with_spec(probed_at("/m/实测/03.mp3", "同一首", "歌手", "格式实测", None), "mp3", 44100, None),
+            with_spec(probed_at("/m/实测/04.flac", "同一首", "歌手", "格式实测", None), "flac", 48000, Some(16)),
+            with_spec(probed_at("/m/实测/05.flac", "同一首", "歌手", "格式实测", None), "flac", 44100, Some(24)),
+        ];
+        let snap = agg(items, &Overrides::default());
+        assert_eq!(snap.tracks.len(), 5, "不同格式/采样率/位深是不同的东西，不该折叠");
+        assert_eq!(snap.duplicates, 0);
+    }
+
+    #[test]
+    fn identical_copies_are_still_folded() {
+        // 规格纳入判据之后，导入工具留下的真副本仍要被折叠——
+        // 它们是同一份音频的字节级拷贝，规格必然完全相同。
+        let items = vec![
+            probed_at("/m/album/track.m4a", "一首歌", "歌手", "专辑", None),
+            probed_at("/m/album/track 1.m4a", "一首歌", "歌手", "专辑", None),
+            probed_at("/m/album/track 2.m4a", "一首歌", "歌手", "专辑", None),
+        ];
+        let snap = agg(items, &Overrides::default());
+        assert_eq!(snap.tracks.len(), 1, "同规格同标题同时长的拷贝仍应折叠");
+        assert_eq!(snap.duplicates, 2);
     }
 }

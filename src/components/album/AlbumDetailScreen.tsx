@@ -314,7 +314,7 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                     {t("album.disc", { n: discNo })}
                   </div>
                 )}
-                {items.map(({ track, index }, posInDisc) => {
+                {items.map(({ track, index }) => {
               const isCur = current?.id === track.id;
               const liked = !!favorites[track.id];
               const i = index;
@@ -336,9 +336,15 @@ export function AlbumDetailScreen({ albumId }: { albumId: Id }) {
                     )}
                   >
                     <span className="text-[13px] tabular-nums text-tx2">
-                      {/* 音轨号来自标签；缺号时退回碟内序位，而不是全局序号 */}
+                      {/*
+                        音轨号来自标签，**没写就留空位**。曾经退回碟内序位，
+                        但那是个会撞号的哨兵值：同一张专辑里只要有几首缺标签，
+                        编出来的序位就会与其它曲目的真实音轨号重号（实测一张
+                        11 首的专辑同时出现了两个「10」和两个「11」）。
+                        缺失值宁可留空，也不填一个看起来像真的的数字。
+                      */}
                       <TrackIndicator
-                        number={track.trackNo ?? posInDisc + 1}
+                        number={track.trackNo ?? "·"}
                         active={isCur}
                         playing={playing}
                       />

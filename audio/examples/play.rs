@@ -181,13 +181,10 @@ fn expand(inputs: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for input in inputs {
         if input.is_dir() {
-            let mut found: Vec<PathBuf> = std::fs::read_dir(input)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file() && has_audio_ext(p))
-                .collect();
+            // 递归：make_playlist 会把曲目放进以专辑名命名的子目录，
+            // 只看一层的话传歌单根目录会什么都找不到。
+            let mut found = Vec::new();
+            collect(input, &mut found);
             found.sort();
             out.extend(found);
         } else {
@@ -195,6 +192,17 @@ fn expand(inputs: &[PathBuf]) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, out);
+        } else if has_audio_ext(&path) {
+            out.push(path);
+        }
+    }
 }
 
 fn has_audio_ext(path: &Path) -> bool {

@@ -27,7 +27,7 @@ use crate::model::{AudioFormat, ChannelLayout, Encoding, SpatialFormat, PROBE_VE
 /// 支持扫描的扩展名。**只用于决定「要不要尝试解析」，不代表能播放**。
 pub const AUDIO_EXTS: &[&str] = &[
     "flac", "mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "wav", "wave", "aiff", "aif",
-    "alac", "wma", "wv", "ape", "dsf", "dff", "mka",
+    "caf", "alac", "wma", "wv", "ape", "dsf", "dff", "mka",
 ];
 
 pub fn is_audio_file(path: &Path) -> bool {
@@ -102,19 +102,43 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
     }
 
     // ---- 常规 PCM 路径 ----
-    let tagged = lofty::read_from_path(path).map_err(|e| format!("lofty: {e}"))?;
-    let props = tagged.properties();
-    let duration_sec = props.duration().as_secs_f64();
+    //
+    // lofty 读不了的容器（实测 CAF）**不能就此丢文件**：标签读不到只意味着信息少，
+    // 不意味着这不是一首歌。与「识别与播放能力解耦」同一条道理——扫描如实记录能拿到的，
+    // 拿不到的留空由文件名兜底，而不是让整个文件从曲库里消失。
+    // 早先这里是 `?` 直接返回错误，结果一个合法的 CAF 只会体现为 failed 计数 +1。
+    let tagged = lofty::read_from_path(path).ok();
+    let sym = symphonia_params(path);
+
+    // 两个都读不出来才是真的「这不是音频」。只有 lofty 失败不算：
+    // 它读不了的合法容器确实存在（实测 CAF），那时 symphonia 仍能给出规格。
+    if tagged.is_none() && sym.is_none() {
+        return Err(format!("既读不到标签也探不出音频规格: {}", path.display()));
+    }
+
+    let props = tagged.as_ref().map(|t| t.properties());
 
     let mut notes = Vec::new();
+    if tagged.is_none() {
+        // 留下痕迹：「没有标签」与「有标签但是空的」不是一回事，
+        // 日后回溯字段为何缺失时要分得清。
+        notes.push("tags:unreadable".into());
+    }
     let mut channel_mask = None;
     let mut codec = String::new();
-    let mut bit_depth = props.bit_depth();
-    let mut sample_rate_hz = props.sample_rate().unwrap_or(0);
-    let mut channels = props.channels().unwrap_or(0);
+    let mut bit_depth = props.and_then(|p| p.bit_depth());
+    let mut sample_rate_hz = props.and_then(|p| p.sample_rate()).unwrap_or(0);
+    let mut channels = props.and_then(|p| p.channels()).unwrap_or(0);
+    let mut duration_sec = props.map(|p| p.duration().as_secs_f64()).unwrap_or(0.0);
 
     // symphonia 补齐 lofty 拿不到的声道掩码（布局的权威来源）。
-    if let Some(params) = symphonia_params(path) {
+    // lofty 整个读不了时，它还要顶上时长与其余规格。
+    if let Some((params, dur)) = sym {
+        if duration_sec <= 0.0 {
+            if let Some(d) = dur {
+                duration_sec = d;
+            }
+        }
         if let Some(m) = params.channels.map(|c| c.bits()) {
             channel_mask = Some(m);
         }
@@ -163,7 +187,7 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
         encoding,
         sample_rate_hz,
         bit_depth,
-        bitrate_kbps: props.audio_bitrate(),
+        bitrate_kbps: props.and_then(|p| p.audio_bitrate()),
         lossless: Some(is_lossless(&codec)),
         channels,
         channel_mask,
@@ -178,7 +202,8 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
     Ok(Probed { tags, format, duration_sec, cover_key })
 }
 
-fn symphonia_params(path: &Path) -> Option<CodecParameters> {
+/// symphonia 侧的规格与时长。时长单独返回是因为 lofty 读不了的容器要靠它顶上。
+fn symphonia_params(path: &Path) -> Option<(CodecParameters, Option<f64>)> {
     let file = std::fs::File::open(path).ok()?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -188,12 +213,18 @@ fn symphonia_params(path: &Path) -> Option<CodecParameters> {
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
         .ok()?;
-    probed
+    let track = probed
         .format
         .tracks()
         .iter()
-        .find(|t| t.codec_params.sample_rate.is_some() || t.codec_params.channels.is_some())
-        .map(|t| t.codec_params.clone())
+        .find(|t| t.codec_params.sample_rate.is_some() || t.codec_params.channels.is_some())?;
+    let params = track.codec_params.clone();
+    // 时长 = 帧数 / 采样率。容器没给帧数就留空，不拿 0 冒充。
+    let duration = params
+        .n_frames
+        .zip(params.sample_rate)
+        .map(|(frames, rate)| frames as f64 / rate as f64);
+    Some((params, duration))
 }
 
 fn codec_name(codec: symphonia::core::codecs::CodecType) -> String {
@@ -257,9 +288,44 @@ mod tests {
         assert!(is_audio_file(Path::new("/m/a.flac")));
         assert!(is_audio_file(Path::new("/m/a.FLAC")));
         assert!(is_audio_file(Path::new("/m/a.dsf")));
+        // CAF 是 Apple 生态里的常规音频容器（Logic 导出、系统录音），
+        // 漏掉它等于对着一整类文件装作没看见。
+        assert!(is_audio_file(Path::new("/m/a.caf")));
         assert!(!is_audio_file(Path::new("/m/cover.jpg")));
         assert!(!is_audio_file(Path::new("/m/notes.txt")));
         assert!(!is_audio_file(Path::new("/m/noext")));
+    }
+
+    #[test]
+    fn tagless_container_still_yields_a_track() {
+        // lofty 读不了标签的合法容器（实测 CAF）不能就此丢文件：读不到标签只意味着
+        // 信息少，不意味着这不是一首歌。早先这里是硬失败，一个合法的 CAF 只体现为
+        // failed 计数 +1，用户那边就是「文件明明在，曲库里找不到」。
+        let dir = std::env::temp_dir().join("shannon_probe_tagless");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("bare.wav");
+
+        let (rate, frames, channels) = (44_100u32, 4_410usize, 1u16);
+        let data_len = (frames * channels as usize * 2) as u32;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&(36 + data_len).to_le_bytes());
+        buf.extend_from_slice(b"WAVEfmt ");
+        buf.extend_from_slice(&16u32.to_le_bytes());
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&channels.to_le_bytes());
+        buf.extend_from_slice(&rate.to_le_bytes());
+        buf.extend_from_slice(&(rate * channels as u32 * 2).to_le_bytes());
+        buf.extend_from_slice(&(channels * 2).to_le_bytes());
+        buf.extend_from_slice(&16u16.to_le_bytes());
+        buf.extend_from_slice(b"data");
+        buf.extend_from_slice(&data_len.to_le_bytes());
+        buf.extend_from_slice(&vec![0u8; data_len as usize]);
+        std::fs::write(&path, buf).unwrap();
+
+        let probed = probe(&path).expect("合法音频不该因为没有标签而被拒绝");
+        assert_eq!(probed.format.sample_rate_hz, rate);
+        assert!(probed.duration_sec > 0.0, "时长要能从码流推出来，不能是 0");
     }
 
     #[test]
