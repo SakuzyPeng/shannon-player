@@ -9,11 +9,18 @@ use shannon_core::overrides::Overrides;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let dir = args.next().expect("用法: warm_cache <音乐目录> <缓存文件路径>");
-    let out = args.next().expect("用法: warm_cache <音乐目录> <缓存文件路径>");
+    let dir = args
+        .next()
+        .expect("用法: warm_cache <音乐目录> <缓存文件路径>");
+    let out = args
+        .next()
+        .expect("用法: warm_cache <音乐目录> <缓存文件路径>");
     // 封面缩略图写到缓存文件同级的 covers/，与应用运行时的布局一致。
     let out_path = std::path::PathBuf::from(&out);
-    let covers = out_path.parent().unwrap_or(std::path::Path::new(".")).join("covers");
+    let covers = out_path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("covers");
     let cache = shannon_core::scan::scan_folders(&[dir.into()], Some(&covers), |_| {});
     cache.save(&out_path).expect("写入缓存失败");
 
@@ -21,8 +28,11 @@ fn main() {
     // （用法见 src/main.tsx 的 __shannon）。
     let snapshot = cache.library(&Overrides::default());
     let snap_path = out_path.with_file_name("library-snapshot.json");
-    std::fs::write(&snap_path, serde_json::to_string(&snapshot).expect("序列化失败"))
-        .expect("写入快照失败");
+    std::fs::write(
+        &snap_path,
+        serde_json::to_string(&snapshot).expect("序列化失败"),
+    )
+    .expect("写入快照失败");
 
     println!(
         "已写入 {} 首曲目 / {} 张专辑 → {out}\n封面 → {}（解码失败 {} 张）\n预览快照 → {}",

@@ -47,7 +47,11 @@ pub fn probe_dsf(path: &Path) -> Option<DsfInfo> {
     } else {
         0.0
     };
-    Some(DsfInfo { sample_rate_hz, channels, duration_sec })
+    Some(DsfInfo {
+        sample_rate_hz,
+        channels,
+        duration_sec,
+    })
 }
 
 /// DSD 码率 → 常用倍率标签（DSD64 / DSD128 …）。基准 44 100 × 64。
@@ -78,13 +82,21 @@ pub struct Mp4Spatial {
 pub fn probe_mp4_spatial(path: &Path) -> Mp4Spatial {
     let mut notes = Vec::new();
     let Ok(mut f) = File::open(path) else {
-        return Mp4Spatial { spatial: None, notes };
+        return Mp4Spatial {
+            spatial: None,
+            notes,
+        };
     };
     // 只读前 4 MB：足以覆盖 moov 前置的常见排布。
     let mut buf = vec![0u8; 4 * 1024 * 1024];
     let n = match f.read(&mut buf) {
         Ok(n) => n,
-        Err(_) => return Mp4Spatial { spatial: None, notes },
+        Err(_) => {
+            return Mp4Spatial {
+                spatial: None,
+                notes,
+            }
+        }
     };
     let buf = &buf[..n];
 
@@ -92,7 +104,10 @@ pub fn probe_mp4_spatial(path: &Path) -> Mp4Spatial {
         notes.push(format!("mp4:dac4@{pos}"));
         // AC-4 在音乐场景下基本等同 Atmos，但对象数需要解 TOC，此处不冒充。
         return Mp4Spatial {
-            spatial: Some(SpatialFormat::DolbyAtmos { joc: false, objects: None }),
+            spatial: Some(SpatialFormat::DolbyAtmos {
+                joc: false,
+                objects: None,
+            }),
             notes,
         };
     }
@@ -104,14 +119,20 @@ pub fn probe_mp4_spatial(path: &Path) -> Mp4Spatial {
         let joc = dec3_has_joc(&buf[pos..]);
         if joc {
             return Mp4Spatial {
-                spatial: Some(SpatialFormat::DolbyAtmos { joc: true, objects: None }),
+                spatial: Some(SpatialFormat::DolbyAtmos {
+                    joc: true,
+                    objects: None,
+                }),
                 notes,
             };
         }
         notes.push("mp4:dec3-no-joc".into());
     }
 
-    Mp4Spatial { spatial: None, notes }
+    Mp4Spatial {
+        spatial: None,
+        notes,
+    }
 }
 
 /// 粗判 EC3SpecificBox 是否带 JOC。
@@ -123,7 +144,9 @@ fn dec3_has_joc(tail: &[u8]) -> bool {
     // dec3 box 本体通常很短（< 64 字节）。取其后 32 字节做启发式检查。
     let window = &tail[4..tail.len().min(36)];
     // JOC 扩展存在时，尾字节的低 4 位会给出对象数量索引（非零）。
-    window.len() >= 5 && window.iter().rev().take(2).any(|b| *b & 0x0F != 0) && window.contains(&0x01)
+    window.len() >= 5
+        && window.iter().rev().take(2).any(|b| *b & 0x0F != 0)
+        && window.contains(&0x01)
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {

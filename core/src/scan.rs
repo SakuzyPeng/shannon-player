@@ -161,7 +161,11 @@ fn raw_track(path: PathBuf, p: Probed) -> RawTrack {
 fn collect_files(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for root in roots {
-        for entry in WalkDir::new(root).follow_links(false).into_iter().filter_map(|e| e.ok()) {
+        for entry in WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if entry.file_type().is_file() && probe::is_audio_file(entry.path()) {
                 out.push(entry.path().to_path_buf());
             }
@@ -212,14 +216,21 @@ pub(crate) fn aggregate(
         // 所以用户改标题不会让覆盖记录自己的键失效。
         let ov = overrides.get(&r.id);
 
-        let file_stem =
-            r.path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let file_stem = r
+            .path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
         let (dir_artist, dir_album) = folder_hint(&r.path, roots);
 
         let (title, title_src) = pick(
             ov.and_then(|o| o.title.clone()),
             r.tags.title.clone(),
-            if file_stem.is_empty() { None } else { Some((file_stem, FieldSource::FileName)) },
+            if file_stem.is_empty() {
+                None
+            } else {
+                Some((file_stem, FieldSource::FileName))
+            },
             "未知曲目",
         );
         // 无标签时按 Artist/Album/Track 目录约定兜底：把整盘未标签文件都并进
@@ -244,8 +255,9 @@ pub(crate) fn aggregate(
                 None => (None, FieldSource::Majority),
             },
         };
-        let user_aa =
-            (album_artist_src == FieldSource::UserEdit).then(|| album_artist.clone()).flatten();
+        let user_aa = (album_artist_src == FieldSource::UserEdit)
+            .then(|| album_artist.clone())
+            .flatten();
         let group = album_group_key(&album, user_aa.as_deref(), album_artist.as_deref(), &r.path);
         pending.push(Pending {
             raw: r,
@@ -269,7 +281,9 @@ pub(crate) fn aggregate(
     let mut infos: Vec<GroupInfo> = buckets
         .into_iter()
         .map(|(key, members)| GroupInfo {
-            album_norm: strip_disc_suffix(&pending[members[0]].album).trim().to_lowercase(),
+            album_norm: strip_disc_suffix(&pending[members[0]].album)
+                .trim()
+                .to_lowercase(),
             covers: members
                 .iter()
                 .filter_map(|&i| pending[i].raw.cover_key.clone())
@@ -300,7 +314,9 @@ pub(crate) fn aggregate(
     // 把被合并的组并成一个成员表，代表键取组内最小键（有序 → ID 可重复）。
     let mut merged: HashMap<usize, (String, Vec<usize>)> = HashMap::new();
     for (i, info) in infos.iter().enumerate() {
-        let entry = merged.entry(repr[i]).or_insert_with(|| (info.key.clone(), Vec::new()));
+        let entry = merged
+            .entry(repr[i])
+            .or_insert_with(|| (info.key.clone(), Vec::new()));
         entry.1.extend(info.members.iter().copied());
     }
 
@@ -337,7 +353,11 @@ pub(crate) fn aggregate(
                 pending[i].album_artist_src == FieldSource::UserEdit
                     && pending[i].album_artist.as_deref() == Some(value.as_str())
             });
-            let src = if user_set { FieldSource::UserEdit } else { FieldSource::Tag };
+            let src = if user_set {
+                FieldSource::UserEdit
+            } else {
+                FieldSource::Tag
+            };
             (value, src, false)
         } else {
             let artists: Vec<&str> = idxs.iter().map(|&i| pending[i].artist.as_str()).collect();
@@ -365,7 +385,10 @@ pub(crate) fn aggregate(
             .find_map(|&i| pending[i].raw.tags.genre.clone().filter(|g| !g.is_empty()))
             .unwrap_or_default();
         // 显示名取组内剥离碟号后的多数名：各碟合并后该叫主专辑名，而不是某一碟的名字。
-        let names: Vec<&str> = idxs.iter().map(|&i| strip_disc_suffix(&pending[i].album)).collect();
+        let names: Vec<&str> = idxs
+            .iter()
+            .map(|&i| strip_disc_suffix(&pending[i].album))
+            .collect();
         let title = majority(&names).unwrap_or_else(|| names[0].to_string());
         // 专辑封面取组内首个有内嵌封面的曲目（按曲目顺序，结果稳定）。
         let album_cover_key = idxs.iter().find_map(|&i| pending[i].raw.cover_key.clone());
@@ -393,13 +416,21 @@ pub(crate) fn aggregate(
         // 曲目**优先用自己的封面**：同一张专辑里个别曲目嵌了不同版本封面是常见的
         // （实测 unformed 28 首里有两种），显示专辑封面等于抹掉这个差异；
         // 自己没有内嵌封面时才回落到专辑封面。
-        let album_cover = albums.iter().find(|a| Some(&a.id) == aid.as_ref()).map(|a| &a.cover);
+        let album_cover = albums
+            .iter()
+            .find(|a| Some(&a.id) == aid.as_ref())
+            .map(|a| &a.cover);
         let cover = match album_cover {
-            Some(c) if it.raw.cover_key.is_some() => {
-                Cover { cover_key: it.raw.cover_key.clone(), ..c.clone() }
-            }
+            Some(c) if it.raw.cover_key.is_some() => Cover {
+                cover_key: it.raw.cover_key.clone(),
+                ..c.clone()
+            },
             Some(c) => c.clone(),
-            None => make_cover(aid.as_deref().unwrap_or(""), &it.album, it.raw.cover_key.clone()),
+            None => make_cover(
+                aid.as_deref().unwrap_or(""),
+                &it.album,
+                it.raw.cover_key.clone(),
+            ),
         };
         let album_artist_src = albums
             .iter()
@@ -432,13 +463,26 @@ pub(crate) fn aggregate(
     tracks.sort_by(|a, b| {
         a.album_id
             .cmp(&b.album_id)
-            .then(a.disc_no.unwrap_or(u16::MAX).cmp(&b.disc_no.unwrap_or(u16::MAX)))
-            .then(a.track_no.unwrap_or(u16::MAX).cmp(&b.track_no.unwrap_or(u16::MAX)))
+            .then(
+                a.disc_no
+                    .unwrap_or(u16::MAX)
+                    .cmp(&b.disc_no.unwrap_or(u16::MAX)),
+            )
+            .then(
+                a.track_no
+                    .unwrap_or(u16::MAX)
+                    .cmp(&b.track_no.unwrap_or(u16::MAX)),
+            )
             .then(a.title.cmp(&b.title))
     });
     albums.sort_by(|a, b| a.artist.cmp(&b.artist).then(a.title.cmp(&b.title)));
 
-    LibrarySnapshot { albums, tracks, failed: 0, duplicates }
+    LibrarySnapshot {
+        albums,
+        tracks,
+        failed: 0,
+        duplicates,
+    }
 }
 
 /// 按「用户覆盖 > 标签 > 兜底推断 > 未知」定值并记录来源。
@@ -641,7 +685,9 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         let preferred_track = mode(members.iter().filter_map(|&i| pending[i].raw.tags.track_no));
         let preferred_disc = preferred_track.and_then(|track| {
             mode(members.iter().filter_map(|&i| {
-                (pending[i].raw.tags.track_no == Some(track)).then_some(pending[i].raw.tags.disc_no).flatten()
+                (pending[i].raw.tags.track_no == Some(track))
+                    .then_some(pending[i].raw.tags.disc_no)
+                    .flatten()
             }))
         });
         let score = |i: usize| {
@@ -686,7 +732,10 @@ fn strip_disc_suffix(album: &str) -> &str {
         let is_kw = matches!(lower.as_str(), "disc" | "disk" | "cd");
         // 「disc 1」这样分开写，或「cd2」连写。
         let joined_num = ["disc", "disk", "cd"].iter().any(|k| {
-            lower.strip_prefix(k).map(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())).unwrap_or(false)
+            lower
+                .strip_prefix(k)
+                .map(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()))
+                .unwrap_or(false)
         });
         let next_is_num = words
             .get(w + 1)
@@ -737,7 +786,9 @@ fn album_group_key(
     } else {
         format!(
             "dir:{}",
-            path.parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default()
+            path.parent()
+                .map(|d| d.to_string_lossy().to_string())
+                .unwrap_or_default()
         )
     };
     format!("{}\x1f{}", album.trim().to_lowercase(), scope)
@@ -831,7 +882,10 @@ fn folder_hint(path: &Path, roots: &[PathBuf]) -> (Option<String>, Option<String
     let name = |d: &Path| d.file_name().map(|s| s.to_string_lossy().to_string());
     let parent = path.parent().filter(|d| !is_root(d));
     let album = parent.and_then(name);
-    let artist = parent.and_then(|d| d.parent()).filter(|d| !is_root(d)).and_then(name);
+    let artist = parent
+        .and_then(|d| d.parent())
+        .filter(|d| !is_root(d))
+        .and_then(name);
     (artist, album)
 }
 
@@ -844,7 +898,11 @@ fn make_cover(album_id: &str, album_name: &str, cover_key: Option<String>) -> Co
     // 按专辑 ID 稳定取色：同一张专辑每次扫描配色一致。
     let idx = album_id.bytes().map(|b| b as usize).sum::<usize>() % GRADIENTS.len();
     let (from, to) = GRADIENTS[idx];
-    Cover { initial, gradient: (from.to_string(), to.to_string()), cover_key }
+    Cover {
+        initial,
+        gradient: (from.to_string(), to.to_string()),
+        cover_key,
+    }
 }
 
 /// 只遍历不探测，用于快速估算规模（首启页显示总数）。
@@ -909,8 +967,8 @@ mod tests {
     #[test]
     fn empty_folder_yields_empty_snapshot() {
         let d = tmpdir("shannon_scan_empty");
-        let snap = scan_folders(std::slice::from_ref(&d), None, |_| {})
-            .library(&Overrides::default());
+        let snap =
+            scan_folders(std::slice::from_ref(&d), None, |_| {}).library(&Overrides::default());
         assert!(snap.albums.is_empty() && snap.tracks.is_empty() && snap.failed == 0);
         let _ = fs::remove_dir_all(d);
     }
@@ -934,16 +992,13 @@ mod tests {
     #[test]
     fn scan_root_is_not_used_as_album_or_artist() {
         let root = PathBuf::from("/Users/x/Music");
-        let (artist, album) =
-            folder_hint(&root.join("散装.flac"), std::slice::from_ref(&root));
+        let (artist, album) = folder_hint(&root.join("散装.flac"), std::slice::from_ref(&root));
         assert_eq!(album, None, "根目录名不该当专辑名");
         assert_eq!(artist, None, "根目录的上级更不该当歌手名");
 
         // 根下一层仍可作专辑名，但再上一层是根，就不给歌手名。
-        let (artist, album) = folder_hint(
-            &root.join("长夜电波/01.flac"),
-            std::slice::from_ref(&root),
-        );
+        let (artist, album) =
+            folder_hint(&root.join("长夜电波/01.flac"), std::slice::from_ref(&root));
         assert_eq!(album.as_deref(), Some("长夜电波"));
         assert_eq!(artist, None);
     }
@@ -981,14 +1036,30 @@ mod tests {
     fn differing_covers_inside_one_album_do_not_split_it() {
         let mut items: Vec<_> = (0..6)
             .map(|i| {
-                probed_cover(&format!("/m/doriko/unformed/{i}.m4a"), &format!("曲{i}"), "doriko", "unformed", "封面A")
+                probed_cover(
+                    &format!("/m/doriko/unformed/{i}.m4a"),
+                    &format!("曲{i}"),
+                    "doriko",
+                    "unformed",
+                    "封面A",
+                )
             })
             .collect();
         items.extend((6..10).map(|i| {
-            probed_cover(&format!("/m/doriko/unformed/{i}.m4a"), &format!("曲{i}"), "doriko", "unformed", "封面B")
+            probed_cover(
+                &format!("/m/doriko/unformed/{i}.m4a"),
+                &format!("曲{i}"),
+                "doriko",
+                "unformed",
+                "封面B",
+            )
         }));
         let snap = agg(items, &Overrides::default());
-        assert_eq!(snap.albums.len(), 1, "同目录同专辑名不该因为封面不一致被拆开");
+        assert_eq!(
+            snap.albums.len(),
+            1,
+            "同目录同专辑名不该因为封面不一致被拆开"
+        );
         assert_eq!(snap.albums[0].track_count, 10);
     }
 
@@ -1014,7 +1085,11 @@ mod tests {
             },
         );
         let after = agg(items(), &ov);
-        assert_eq!(after.albums.len(), 2, "用户给一侧指定了专辑艺人，就不能再自动并回去");
+        assert_eq!(
+            after.albums.len(),
+            2,
+            "用户给一侧指定了专辑艺人，就不能再自动并回去"
+        );
     }
 
     // ---- 聚合：合辑与多数决 ----
@@ -1132,12 +1207,31 @@ mod tests {
                 )
             })
             .collect();
-        items.push(probed_cover("/m/舞花/rs4/a.m4a", "客串A", "舞花", "Rebirth Story 4", "同一张封面"));
-        items.push(probed_cover("/m/NAGI/rs4/b.m4a", "客串B", "NAGI☆", "Rebirth Story 4", "同一张封面"));
+        items.push(probed_cover(
+            "/m/舞花/rs4/a.m4a",
+            "客串A",
+            "舞花",
+            "Rebirth Story 4",
+            "同一张封面",
+        ));
+        items.push(probed_cover(
+            "/m/NAGI/rs4/b.m4a",
+            "客串B",
+            "NAGI☆",
+            "Rebirth Story 4",
+            "同一张封面",
+        ));
         let snap = agg(items, &Overrides::default());
-        assert_eq!(snap.albums.len(), 1, "同名专辑 + 同封面必须聚成一张，哪怕分散在多个艺人目录");
+        assert_eq!(
+            snap.albums.len(),
+            1,
+            "同名专辑 + 同封面必须聚成一张，哪怕分散在多个艺人目录"
+        );
         assert_eq!(snap.albums[0].track_count, 10);
-        assert_eq!(snap.albums[0].artist, "FELT", "八成曲目属 FELT，应归到它名下");
+        assert_eq!(
+            snap.albums[0].artist, "FELT",
+            "八成曲目属 FELT，应归到它名下"
+        );
     }
 
     /// 回归：整张专辑在一处、另有几首缺封面缺标签的漏网之鱼搁在别的艺人目录下，
@@ -1183,7 +1277,10 @@ mod tests {
     /// 碟名被写进专辑标签时，各碟要认作同一张专辑。
     #[test]
     fn disc_suffix_is_stripped_for_grouping() {
-        assert_eq!(strip_disc_suffix("Rebirth Story 5 Disc 1 SUN"), "Rebirth Story 5");
+        assert_eq!(
+            strip_disc_suffix("Rebirth Story 5 Disc 1 SUN"),
+            "Rebirth Story 5"
+        );
         assert_eq!(strip_disc_suffix("全集 CD2"), "全集");
         assert_eq!(strip_disc_suffix("Album (Disc 2)"), "Album");
         assert_eq!(strip_disc_suffix("Rebirth Story 5"), "Rebirth Story 5");
@@ -1221,7 +1318,10 @@ mod tests {
         }
         let snap = agg(items, &Overrides::default());
         assert_eq!(snap.albums.len(), 1, "各碟应认作同一张专辑");
-        assert_eq!(snap.albums[0].title, "Rebirth Story 5", "显示名该用主专辑名，不带碟号");
+        assert_eq!(
+            snap.albums[0].title, "Rebirth Story 5",
+            "显示名该用主专辑名，不带碟号"
+        );
         assert_eq!(snap.albums[0].track_count, 4, "重复曲目要折叠");
         assert_eq!(snap.tracks.len(), 4);
         assert_eq!(snap.duplicates, 4, "折叠数如实上报");
@@ -1253,7 +1353,11 @@ mod tests {
             items.push(t);
         }
         let snap = agg(items, &Overrides::default());
-        assert_eq!(snap.tracks.len(), 1, "同一轨位同时长就是同一首歌，标题写法不影响");
+        assert_eq!(
+            snap.tracks.len(),
+            1,
+            "同一轨位同时长就是同一首歌，标题写法不影响"
+        );
         assert_eq!(snap.duplicates, 2);
     }
 
@@ -1331,14 +1435,23 @@ mod tests {
         assert_eq!(snap.duplicates, 5);
         assert_eq!(snap.tracks[0].disc_no, Some(1));
         assert_eq!(snap.tracks[0].track_no, Some(11));
-        assert!(snap.tracks[0].path.contains("z-correct"), "应保留多数轨位对应的副本");
+        assert!(
+            snap.tracks[0].path.contains("z-correct"),
+            "应保留多数轨位对应的副本"
+        );
     }
 
     /// 但同一轨位时长不同的，是标签把两首不同的歌错标到了一处，两首都要留。
     #[test]
     fn same_slot_different_length_is_kept() {
         let mut a = probed_cover("/m/x/best/1-05 a.m4a", "Winter Alice", "甲", "BEST", "封面");
-        let mut b = probed_cover("/m/x/best/1-05 b.m4a", "あなたの願いをうたうもの", "甲", "BEST", "封面");
+        let mut b = probed_cover(
+            "/m/x/best/1-05 b.m4a",
+            "あなたの願いをうたうもの",
+            "甲",
+            "BEST",
+            "封面",
+        );
         for t in [&mut a, &mut b] {
             t.tags.disc_no = Some(1);
             t.tags.track_no = Some(5);
@@ -1385,7 +1498,10 @@ mod tests {
         rich.tags.track_no = Some(3);
         let snap = agg(vec![plain, rich], &Overrides::default());
         assert_eq!(snap.tracks.len(), 1);
-        assert!(snap.tracks[0].path.ends_with("original.m4a"), "该留下带封面和音轨号的那份");
+        assert!(
+            snap.tracks[0].path.ends_with("original.m4a"),
+            "该留下带封面和音轨号的那份"
+        );
         assert_eq!(snap.tracks[0].track_no, Some(3));
     }
 
@@ -1404,8 +1520,20 @@ mod tests {
     #[test]
     fn coverless_on_both_sides_stays_apart() {
         let items = vec![
-            probed_at("/m/甲/greatest hits/1.flac", "A", "甲", "Greatest Hits", None),
-            probed_at("/m/乙/greatest hits/1.flac", "B", "乙", "Greatest Hits", None),
+            probed_at(
+                "/m/甲/greatest hits/1.flac",
+                "A",
+                "甲",
+                "Greatest Hits",
+                None,
+            ),
+            probed_at(
+                "/m/乙/greatest hits/1.flac",
+                "B",
+                "乙",
+                "Greatest Hits",
+                None,
+            ),
         ];
         assert_eq!(agg(items, &Overrides::default()).albums.len(), 2);
     }
@@ -1434,8 +1562,20 @@ mod tests {
                 )
             })
             .collect();
-        items.push(probed_at("/m/FELT/rs4/g1.flac", "客串1", "Vivienne", "Rebirth Story 4", None));
-        items.push(probed_at("/m/FELT/rs4/g2.flac", "客串2", "美歌", "Rebirth Story 4", None));
+        items.push(probed_at(
+            "/m/FELT/rs4/g1.flac",
+            "客串1",
+            "Vivienne",
+            "Rebirth Story 4",
+            None,
+        ));
+        items.push(probed_at(
+            "/m/FELT/rs4/g2.flac",
+            "客串2",
+            "美歌",
+            "Rebirth Story 4",
+            None,
+        ));
         let snap = agg(items, &Overrides::default());
         assert_eq!(snap.albums.len(), 1);
         assert_eq!(snap.albums[0].artist, "FELT");
@@ -1475,7 +1615,13 @@ mod tests {
         let items = || {
             vec![
                 probed_at("/m/Sakuzyo/lang/1.flac", "A", "Sakuzyo", "Language", None),
-                probed_at("/m/Sakuzyo (削除)/lang/2.flac", "B", "Sakuzyo (削除)", "Language", None),
+                probed_at(
+                    "/m/Sakuzyo (削除)/lang/2.flac",
+                    "B",
+                    "Sakuzyo (削除)",
+                    "Language",
+                    None,
+                ),
             ]
         };
         let before = agg(items(), &Overrides::default());
@@ -1534,10 +1680,16 @@ mod tests {
         let mut ov = Overrides::default();
         ov.merge(
             &id,
-            crate::overrides::TrackMetadataPatch { title: Some("新标题".into()), ..Default::default() },
+            crate::overrides::TrackMetadataPatch {
+                title: Some("新标题".into()),
+                ..Default::default()
+            },
         );
         assert_eq!(cache.library(&ov).tracks[0].title, "新标题");
-        assert_eq!(cache.library(&Overrides::default()).tracks[0].title, "原标题");
+        assert_eq!(
+            cache.library(&Overrides::default()).tracks[0].title,
+            "原标题"
+        );
     }
 
     /// 用户改的标题优先于标签，且来源标为 UserEdit（界面据此显示「已修改」）。
@@ -1551,7 +1703,10 @@ mod tests {
         let mut ov = Overrides::default();
         ov.merge(
             &id,
-            crate::overrides::TrackMetadataPatch { title: Some("我改的".into()), ..Default::default() },
+            crate::overrides::TrackMetadataPatch {
+                title: Some("我改的".into()),
+                ..Default::default()
+            },
         );
         let snap = agg(items(), &ov);
         assert_eq!(snap.tracks[0].title, "我改的");

@@ -34,7 +34,10 @@ pub struct LibraryState {
 
 /// 应用数据目录下的文件路径。
 fn data_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
-    app.path().app_data_dir().map(|d| d.join(name)).map_err(|e| e.to_string())
+    app.path()
+        .app_data_dir()
+        .map(|d| d.join(name))
+        .map_err(|e| e.to_string())
 }
 
 /// 套用当前覆盖，聚合出前端要的快照。纯内存计算，改一次元数据不必重扫。
@@ -48,7 +51,9 @@ fn snapshot(state: &LibraryState) -> Result<LibrarySnapshot, String> {
 fn persist_overrides(app: &tauri::AppHandle, state: &LibraryState) -> Result<(), String> {
     let path = data_path(app, OVERRIDES_FILE)?;
     let overrides = state.overrides.lock().map_err(|e| e.to_string())?;
-    overrides.save(&path).map_err(|e| format!("保存元数据修改失败: {e}"))
+    overrides
+        .save(&path)
+        .map_err(|e| format!("保存元数据修改失败: {e}"))
 }
 
 /// 扫描指定文件夹并返回曲库快照，同时把进度以事件推给前端。
@@ -70,7 +75,10 @@ fn scan_library(
         let _ = app.emit(EVENT_SCAN_PROGRESS, &p);
     });
     if cache.cover_failed > 0 {
-        log::warn!("{} 张内嵌封面解码失败，这些专辑回落占位渐变", cache.cover_failed);
+        log::warn!(
+            "{} 张内嵌封面解码失败，这些专辑回落占位渐变",
+            cache.cover_failed
+        );
     }
     // 缓存写失败只记日志：曲库这次仍然可用，只是下次启动要重扫。
     if let Ok(path) = data_path(&app, CACHE_FILE) {
@@ -100,7 +108,11 @@ fn get_cover_dir(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn get_music_folders(state: State<'_, LibraryState>) -> Result<Vec<String>, String> {
     let cache = state.cache.lock().map_err(|e| e.to_string())?;
-    Ok(cache.roots.iter().map(|p| p.to_string_lossy().to_string()).collect())
+    Ok(cache
+        .roots
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect())
 }
 
 /// 只遍历不解析，快速估算规模（首启页在开扫前显示总数）。

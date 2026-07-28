@@ -60,7 +60,10 @@ pub struct ScanCache {
 
 impl ScanCache {
     /// 套用覆盖并聚合成前端要的曲库快照。纯内存计算。
-    pub fn library(&self, overrides: &crate::overrides::Overrides) -> crate::model::LibrarySnapshot {
+    pub fn library(
+        &self,
+        overrides: &crate::overrides::Overrides,
+    ) -> crate::model::LibrarySnapshot {
         let mut snap = crate::scan::aggregate(&self.tracks, &self.roots, overrides);
         snap.failed = self.failed;
         snap

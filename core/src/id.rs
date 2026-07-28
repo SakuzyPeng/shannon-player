@@ -189,7 +189,10 @@ mod tests {
             sample_rate_hz: 48_000,
             channel_mask: Some(0x3F),
         };
-        let six_zero = FormatFingerprint { channel_mask: Some(0x37), ..five_one };
+        let six_zero = FormatFingerprint {
+            channel_mask: Some(0x37),
+            ..five_one
+        };
         assert_ne!(track_id_with(&p, &five_one), track_id_with(&p, &six_zero));
         // 同指纹仍然稳定
         assert_eq!(track_id_with(&p, &five_one), track_id_with(&p, &five_one));
@@ -200,7 +203,13 @@ mod tests {
     /// 这里只保证同键同 ID、异键异 ID。
     #[test]
     fn album_id_is_stable_per_group_key() {
-        assert_eq!(album_id("长夜电波\u{1f}aa:白鲸电台"), album_id("长夜电波\u{1f}aa:白鲸电台"));
-        assert_ne!(album_id("greatest hits\u{1f}aa:a"), album_id("greatest hits\u{1f}aa:b"));
+        assert_eq!(
+            album_id("长夜电波\u{1f}aa:白鲸电台"),
+            album_id("长夜电波\u{1f}aa:白鲸电台")
+        );
+        assert_ne!(
+            album_id("greatest hits\u{1f}aa:a"),
+            album_id("greatest hits\u{1f}aa:b")
+        );
     }
 }

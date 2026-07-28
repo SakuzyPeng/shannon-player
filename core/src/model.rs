@@ -33,11 +33,19 @@ pub enum ChannelLayout {
     Stereo,
     Quad,
     /// 环绕：`{ main: 5, lfe: 1, height: 0 }` → 5.1；`{ 7, 1, 4 }` → 7.1.4。
-    Surround { main: u8, lfe: u8, height: u8 },
+    Surround {
+        main: u8,
+        lfe: u8,
+        height: u8,
+    },
     /// n 阶 Ambisonics（声道数 = (n+1)²）。
-    Ambisonic { order: u8 },
+    Ambisonic {
+        order: u8,
+    },
     /// 无法归入具名布局；掩码是权威。
-    Other { mask: u32 },
+    Other {
+        mask: u32,
+    },
 }
 
 /// 空间 / 对象音频标记。
@@ -49,10 +57,15 @@ pub enum ChannelLayout {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SpatialFormat {
     /// Dolby Atmos。`joc` = 以 JOC 形式承载于 E-AC-3；`objects` 为对象数（读不到则 None）。
-    DolbyAtmos { joc: bool, objects: Option<u16> },
+    DolbyAtmos {
+        joc: bool,
+        objects: Option<u16>,
+    },
     Sony360Ra,
     MpegH,
-    Ambisonics { order: u8 },
+    Ambisonics {
+        order: u8,
+    },
     /// 检测到空间音频线索但无法归类。
     Unknown,
 }

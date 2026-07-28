@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  shannon_player_lib::run();
+    shannon_player_lib::run();
 }

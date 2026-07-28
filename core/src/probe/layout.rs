@@ -32,9 +32,7 @@ pub fn layout_from_mask(mask: u32) -> ChannelLayout {
     }
     match mask {
         m if m == FRONT_LEFT | FRONT_RIGHT => return ChannelLayout::Stereo,
-        m if m == FRONT_LEFT | FRONT_RIGHT | REAR_LEFT | REAR_RIGHT => {
-            return ChannelLayout::Quad
-        }
+        m if m == FRONT_LEFT | FRONT_RIGHT | REAR_LEFT | REAR_RIGHT => return ChannelLayout::Quad,
         _ => {}
     }
 
@@ -72,7 +70,10 @@ mod tests {
         assert_eq!(layout_from_mask(FRONT_CENTRE), ChannelLayout::Mono);
         // WAV 的单声道掩码常是 FRONT_LEFT，也必须判为 Mono
         assert_eq!(layout_from_mask(FRONT_LEFT), ChannelLayout::Mono);
-        assert_eq!(layout_from_mask(FRONT_LEFT | FRONT_RIGHT), ChannelLayout::Stereo);
+        assert_eq!(
+            layout_from_mask(FRONT_LEFT | FRONT_RIGHT),
+            ChannelLayout::Stereo
+        );
     }
 
     #[test]
@@ -80,30 +81,31 @@ mod tests {
         let quad = FRONT_LEFT | FRONT_RIGHT | REAR_LEFT | REAR_RIGHT;
         assert_eq!(layout_from_mask(quad), ChannelLayout::Quad);
 
-        let five_one =
-            FRONT_LEFT | FRONT_RIGHT | FRONT_CENTRE | LFE1 | REAR_LEFT | REAR_RIGHT;
+        let five_one = FRONT_LEFT | FRONT_RIGHT | FRONT_CENTRE | LFE1 | REAR_LEFT | REAR_RIGHT;
         assert_eq!(
             layout_from_mask(five_one),
-            ChannelLayout::Surround { main: 5, lfe: 1, height: 0 }
+            ChannelLayout::Surround {
+                main: 5,
+                lfe: 1,
+                height: 0
+            }
         );
     }
 
     /// 同为 6 声道，5.1 与 6.0 必须区分开——这正是「不能只看声道数」的核心案例。
     #[test]
     fn six_channels_five_one_vs_six_zero() {
-        let five_one =
-            FRONT_LEFT | FRONT_RIGHT | FRONT_CENTRE | LFE1 | REAR_LEFT | REAR_RIGHT;
-        let six_zero = FRONT_LEFT
-            | FRONT_RIGHT
-            | FRONT_CENTRE
-            | REAR_LEFT
-            | REAR_RIGHT
-            | SIDE_LEFT;
+        let five_one = FRONT_LEFT | FRONT_RIGHT | FRONT_CENTRE | LFE1 | REAR_LEFT | REAR_RIGHT;
+        let six_zero = FRONT_LEFT | FRONT_RIGHT | FRONT_CENTRE | REAR_LEFT | REAR_RIGHT | SIDE_LEFT;
         assert_eq!(five_one.count_ones(), six_zero.count_ones());
         assert_ne!(layout_from_mask(five_one), layout_from_mask(six_zero));
         assert_eq!(
             layout_from_mask(six_zero),
-            ChannelLayout::Surround { main: 6, lfe: 0, height: 0 }
+            ChannelLayout::Surround {
+                main: 6,
+                lfe: 0,
+                height: 0
+            }
         );
     }
 
@@ -123,7 +125,11 @@ mod tests {
             | TOP_REAR_RIGHT;
         assert_eq!(
             layout_from_mask(mask),
-            ChannelLayout::Surround { main: 7, lfe: 1, height: 4 }
+            ChannelLayout::Surround {
+                main: 7,
+                lfe: 1,
+                height: 4
+            }
         );
     }
 

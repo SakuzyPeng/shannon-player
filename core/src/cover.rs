@@ -55,7 +55,9 @@ pub fn thumb_path(dir: &Path, cover_key: &str, size: u32) -> PathBuf {
 
 /// 该封面的所有档位是否都已生成（重扫时据此跳过解码）。
 pub fn thumbs_exist(dir: &Path, cover_key: &str) -> bool {
-    SIZES.iter().all(|&s| thumb_path(dir, cover_key, s).exists())
+    SIZES
+        .iter()
+        .all(|&s| thumb_path(dir, cover_key, s).exists())
 }
 
 /// 解码封面字节并写出各档缩略图。
@@ -102,7 +104,9 @@ fn shrink_to_fit(img: RgbImage, size: u32) -> RgbImage {
     if w.max(h) <= size {
         return img;
     }
-    DynamicImage::ImageRgb8(img).resize(size, size, FilterType::Lanczos3).to_rgb8()
+    DynamicImage::ImageRgb8(img)
+        .resize(size, size, FilterType::Lanczos3)
+        .to_rgb8()
 }
 
 /// 合成正方形：原图居中完整显示，四周用同图放大模糊填充。
@@ -181,7 +185,11 @@ mod tests {
     fn shrink_never_upscales() {
         let small = img(300, 200);
         let out = shrink_to_fit(small, 1024);
-        assert_eq!((out.width(), out.height()), (300, 200), "比档位小的原图不该被放大");
+        assert_eq!(
+            (out.width(), out.height()),
+            (300, 200),
+            "比档位小的原图不该被放大"
+        );
     }
 
     #[test]
@@ -214,7 +222,10 @@ mod tests {
         let d = tmpdir("shannon_cover_sizes");
         let mut bytes: Vec<u8> = Vec::new();
         DynamicImage::ImageRgb8(img(1300, 910))
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .unwrap();
 
         assert!(!thumbs_exist(&d, "k1"));

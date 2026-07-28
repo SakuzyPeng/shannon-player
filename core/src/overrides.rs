@@ -57,10 +57,18 @@ pub struct TrackMetadataPatch {
     pub album: Option<String>,
     #[ts(optional)]
     pub album_artist: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_double_option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
     #[ts(optional)]
     pub disc_no: Option<Option<u16>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_double_option")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_double_option"
+    )]
     #[ts(optional)]
     pub track_no: Option<Option<u16>>,
 }
@@ -202,7 +210,13 @@ mod tests {
     #[test]
     fn empty_override_is_removed_not_stored() {
         let mut o = Overrides::default();
-        o.set("t-1", TrackOverride { title: Some("改过".into()), ..Default::default() });
+        o.set(
+            "t-1",
+            TrackOverride {
+                title: Some("改过".into()),
+                ..Default::default()
+            },
+        );
         assert!(o.get("t-1").is_some());
         o.set("t-1", TrackOverride::default());
         assert!(o.get("t-1").is_none(), "空覆盖应当清除记录，而不是留下空壳");
@@ -212,15 +226,33 @@ mod tests {
     #[test]
     fn blank_string_counts_as_no_override() {
         let mut o = Overrides::default();
-        o.set("t-1", TrackOverride { title: Some("   ".into()), ..Default::default() });
+        o.set(
+            "t-1",
+            TrackOverride {
+                title: Some("   ".into()),
+                ..Default::default()
+            },
+        );
         assert!(o.get("t-1").is_none());
     }
 
     #[test]
     fn merge_keeps_untouched_fields() {
         let mut o = Overrides::default();
-        o.set("t-1", TrackOverride { artist: Some("白鲸电台".into()), ..Default::default() });
-        o.merge("t-1", TrackMetadataPatch { album: Some("长夜电波".into()), ..Default::default() });
+        o.set(
+            "t-1",
+            TrackOverride {
+                artist: Some("白鲸电台".into()),
+                ..Default::default()
+            },
+        );
+        o.merge(
+            "t-1",
+            TrackMetadataPatch {
+                album: Some("长夜电波".into()),
+                ..Default::default()
+            },
+        );
         let got = o.get("t-1").unwrap();
         assert_eq!(got.artist.as_deref(), Some("白鲸电台"));
         assert_eq!(got.album.as_deref(), Some("长夜电波"));
@@ -241,17 +273,35 @@ mod tests {
         );
 
         // 只提交 album，artist 不动。
-        o.merge("t-1", TrackMetadataPatch { album: Some("再改一次".into()), ..Default::default() });
+        o.merge(
+            "t-1",
+            TrackMetadataPatch {
+                album: Some("再改一次".into()),
+                ..Default::default()
+            },
+        );
         assert_eq!(o.get("t-1").unwrap().artist.as_deref(), Some("我改的歌手"));
 
         // 提交空串 = 撤销 artist 的修改，其余保留。
-        o.merge("t-1", TrackMetadataPatch { artist: Some("".into()), ..Default::default() });
+        o.merge(
+            "t-1",
+            TrackMetadataPatch {
+                artist: Some("".into()),
+                ..Default::default()
+            },
+        );
         let got = o.get("t-1").unwrap();
         assert_eq!(got.artist, None, "清空该字段应撤销修改");
         assert_eq!(got.album.as_deref(), Some("再改一次"), "其他字段不受影响");
 
         // 所有字段都撤销后，整条记录消失。
-        o.merge("t-1", TrackMetadataPatch { album: Some("  ".into()), ..Default::default() });
+        o.merge(
+            "t-1",
+            TrackMetadataPatch {
+                album: Some("  ".into()),
+                ..Default::default()
+            },
+        );
         assert!(o.get("t-1").is_none());
     }
 
@@ -285,7 +335,10 @@ mod tests {
 
         o.merge(
             "t-1",
-            TrackMetadataPatch { disc_no: Some(None), ..Default::default() },
+            TrackMetadataPatch {
+                disc_no: Some(None),
+                ..Default::default()
+            },
         );
 
         let got = o.get("t-1").unwrap();
@@ -297,7 +350,13 @@ mod tests {
     fn round_trips_through_disk() {
         let p = tmpfile("shannon_overrides_roundtrip.json");
         let mut o = Overrides::default();
-        o.set("t-1", TrackOverride { album_artist: Some("Various Artists".into()), ..Default::default() });
+        o.set(
+            "t-1",
+            TrackOverride {
+                album_artist: Some("Various Artists".into()),
+                ..Default::default()
+            },
+        );
         o.save(&p).unwrap();
         let back = Overrides::load(&p).unwrap();
         assert_eq!(back, o);

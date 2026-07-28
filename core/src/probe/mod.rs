@@ -26,8 +26,8 @@ use crate::model::{AudioFormat, ChannelLayout, Encoding, SpatialFormat, PROBE_VE
 
 /// 支持扫描的扩展名。**只用于决定「要不要尝试解析」，不代表能播放**。
 pub const AUDIO_EXTS: &[&str] = &[
-    "flac", "mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "wav", "wave", "aiff", "aif",
-    "caf", "alac", "wma", "wv", "ape", "dsf", "dff", "mka",
+    "flac", "mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "wav", "wave", "aiff", "aif", "caf",
+    "alac", "wma", "wv", "ape", "dsf", "dff", "mka",
 ];
 
 pub fn is_audio_file(path: &Path) -> bool {
@@ -65,7 +65,9 @@ pub struct Probed {
 
 /// 封面内容指纹。取前 16 位十六进制足够区分一个曲库内的封面。
 fn cover_key_of(tags: &Tags) -> Option<String> {
-    tags.picture.as_ref().map(|b| blake3::hash(b).to_hex()[..16].to_string())
+    tags.picture
+        .as_ref()
+        .map(|b| blake3::hash(b).to_hex()[..16].to_string())
 }
 
 /// 探测单个文件。返回 Err 表示无法解析（调用方应计入 failed 而非静默丢弃）。
@@ -98,7 +100,12 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
         };
         let tags = read_tags(path).unwrap_or_else(empty_tags);
         let cover_key = cover_key_of(&tags);
-        return Ok(Probed { tags, format, duration_sec: info.duration_sec, cover_key });
+        return Ok(Probed {
+            tags,
+            format,
+            duration_sec: info.duration_sec,
+            cover_key,
+        });
     }
 
     // ---- 常规 PCM 路径 ----
@@ -199,7 +206,12 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
 
     let tags = read_tags(path).unwrap_or_else(empty_tags);
     let cover_key = cover_key_of(&tags);
-    Ok(Probed { tags, format, duration_sec, cover_key })
+    Ok(Probed {
+        tags,
+        format,
+        duration_sec,
+        cover_key,
+    })
 }
 
 /// symphonia 侧的规格与时长。时长单独返回是因为 lofty 读不了的容器要靠它顶上。
@@ -211,7 +223,12 @@ fn symphonia_params(path: &Path) -> Option<(CodecParameters, Option<f64>)> {
         hint.with_extension(ext);
     }
     let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .ok()?;
     let track = probed
         .format
@@ -246,7 +263,10 @@ fn codec_name(codec: symphonia::core::codecs::CodecType) -> String {
 
 /// 无损判定由 codec 决定；未知 codec 不猜（返回 false 但 probe_notes 已记录）。
 fn is_lossless(codec: &str) -> bool {
-    matches!(codec, "flac" | "alac" | "pcm" | "dsd" | "wav" | "wave" | "aiff" | "wv" | "ape")
+    matches!(
+        codec,
+        "flac" | "alac" | "pcm" | "dsd" | "wav" | "wave" | "aiff" | "wv" | "ape"
+    )
 }
 
 fn empty_tags() -> Tags {

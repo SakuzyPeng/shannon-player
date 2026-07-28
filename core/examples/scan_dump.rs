@@ -6,7 +6,10 @@ fn main() {
     let dir = std::env::args().nth(1).expect("用法: scan_dump <目录>");
     let cache = shannon_core::scan::scan_folders(&[dir.into()], None, |p| {
         if p.current.is_empty() {
-            println!("[进度] 完成 {}/{}  曲目={} 专辑={}", p.done, p.total, p.tracks, p.albums);
+            println!(
+                "[进度] 完成 {}/{}  曲目={} 专辑={}",
+                p.done, p.total, p.tracks, p.albums
+            );
         }
     });
     // 聚合与套用覆盖是独立的纯内存步骤；这里用空覆盖看「未经用户修改」的判断结果。
