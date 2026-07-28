@@ -18,8 +18,26 @@ use crate::ring::RingConsumer;
 /// 模拟回调的周期。取值贴近常见设备的缓冲区（约 10 ms）。
 const TICK: Duration = Duration::from_millis(10);
 
+fn config_for(request: &OutputRequest, fixed_rate: Option<u32>) -> OutputConfig {
+    OutputConfig {
+        sample_rate: fixed_rate.unwrap_or(request.sample_rate),
+        layout: request.layout,
+        sample_format: "f32".into(),
+        device_name: match fixed_rate {
+            Some(r) => format!("空输出（无声，固定 {r} Hz）"),
+            None => "空输出（无声）".into(),
+        },
+    }
+}
+
 pub struct NullOutput {
     config: Option<OutputConfig>,
+    /// 强制采样率：不为 `None` 时，无论请求什么都只给这个值。
+    ///
+    /// 用来模拟**只支持有限采样率的真实设备**——这不是臆想的边界，
+    /// 实测本机默认输出设备就只提供 24 与 48 kHz。重采样路径必须能在无声卡的
+    /// CI 上验证，否则它的正确性就只能靠人在特定机器上手动听。
+    fixed_rate: Option<u32>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -32,13 +50,24 @@ impl Default for NullOutput {
 
 impl NullOutput {
     pub fn new() -> Self {
-        Self { config: None, stop: Arc::new(AtomicBool::new(false)), worker: None }
+        Self { config: None, fixed_rate: None, stop: Arc::new(AtomicBool::new(false)), worker: None }
+    }
+
+    /// 模拟一台只支持单一采样率的设备，用于验证重采样路径。
+    pub fn with_fixed_rate(rate: u32) -> Self {
+        let mut out = Self::new();
+        out.fixed_rate = Some(rate);
+        out
     }
 }
 
 impl OutputBackend for NullOutput {
     fn name(&self) -> &'static str {
         "null"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        Ok(config_for(request, self.fixed_rate))
     }
 
     fn open(
@@ -49,16 +78,10 @@ impl OutputBackend for NullOutput {
     ) -> Result<OutputConfig> {
         self.close();
 
-        // 空后端全盘接受请求：它不代表任何真实设备，没有可协商的能力边界。
-        let config = OutputConfig {
-            sample_rate: request.sample_rate,
-            layout: request.layout,
-            sample_format: "f32".into(),
-            device_name: "空输出（无声）".into(),
-        };
+        let config = config_for(request, self.fixed_rate);
 
-        let channels = request.layout.count() as usize;
-        let sample_rate = request.sample_rate;
+        let channels = config.layout.count() as usize;
+        let sample_rate = config.sample_rate;
         let frames_per_tick = (sample_rate as u64 * TICK.as_millis() as u64 / 1000) as usize;
         let ramp_step = ramp_step_for(sample_rate);
         let stop = Arc::new(AtomicBool::new(false));

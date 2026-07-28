@@ -9,3 +9,4 @@ rust-version = "1.85"
 [dependencies]
 symphonia = { version = "0.6.0", features = ["mp3", "isomp4", "alac", "aac"] }
 cpal = "0.18.1"
+rubato = "4.0.0"

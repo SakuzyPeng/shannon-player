@@ -286,3 +286,84 @@ fn seek_does_not_count_as_underrun() {
     assert_eq!(engine.stats().underruns, 0, "seek 引起的重缓冲不算欠载");
 }
 
+
+#[test]
+fn resamples_when_device_rate_differs() {
+    // 复现实测场景：设备只给得出 48 kHz，而曲库主力是 44.1 kHz。
+    // 早先这里是直接报错「不支持 44100 Hz」——一首歌都放不了。
+    let seconds = 0.6;
+    let path = corpus("resample_e2e", 2, (RATE as f64 * seconds) as usize);
+    let ended = Arc::new(AtomicBool::new(false));
+    let errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let out_rate = Arc::new(AtomicU64::new(0));
+
+    let engine = {
+        let (ended, errors, out_rate) = (ended.clone(), errors.clone(), out_rate.clone());
+        Engine::spawn(Box::new(NullOutput::with_fixed_rate(48_000)), move |event| match event {
+            EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
+            EngineEvent::Error(e) => errors.lock().unwrap().push(e.to_string()),
+            EngineEvent::Opened { output, .. } => {
+                out_rate.store(output.sample_rate as u64, Ordering::Relaxed)
+            }
+            _ => {}
+        })
+    };
+
+    engine.load(&path, true).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !ended.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    assert!(errors.lock().unwrap().is_empty(), "不该有错误：{:?}", errors.lock().unwrap());
+    assert!(ended.load(Ordering::Relaxed), "重采样后仍应播放到自然结束");
+    assert_eq!(out_rate.load(Ordering::Relaxed), 48_000);
+
+    let stats = engine.stats();
+    assert!(stats.resampled, "插了重采样就必须如实标记");
+
+    // 位置计数记的是输出帧，所以按 48 kHz 换算才对得上音频时长。
+    // 若误用源采样率，0.6 秒会被算成 0.653 秒（快 8.8%）。
+    let played = stats.frames_consumed as f64 / 48_000.0;
+    assert!(
+        (played - seconds).abs() < 0.05,
+        "重采样后的时长应保持不变：算得 {played:.3} 秒，语料 {seconds} 秒"
+    );
+    assert_eq!(stats.underruns, 0, "重采样不该造成欠载");
+}
+
+#[test]
+fn no_resampling_when_rates_match() {
+    let path = corpus("no_resample", 2, RATE as usize / 4);
+    let engine = Engine::spawn(Box::new(NullOutput::with_fixed_rate(RATE)), |_| {});
+    engine.load(&path, true).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!engine.stats().resampled, "采样率一致时不该插入重采样");
+}
+
+#[test]
+fn seek_position_is_correct_under_resampling() {
+    // seek 返回的是源域帧位置，位置计数器要的是输出域。不换算的话，
+    // 44.1 → 48 kHz 时进度会偏 8.8%——拖到 1:00 显示成 1:05。
+    let path = corpus("resample_seek", 2, RATE as usize * 3);
+    let position = Arc::new(AtomicU64::new(0));
+    let engine = {
+        let position = position.clone();
+        Engine::spawn(Box::new(NullOutput::with_fixed_rate(48_000)), move |event| {
+            if let EngineEvent::Progress { position_sec, .. } = event {
+                position.store((position_sec * 1000.0) as u64, Ordering::Relaxed);
+            }
+        })
+    };
+
+    engine.load(&path, true).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    engine.seek(2.0).unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+
+    let ms = position.load(Ordering::Relaxed);
+    assert!(
+        (2_000..2_400).contains(&ms),
+        "定位到 2.0 秒后位置应在 2.0～2.4 秒之间，实际 {ms} ms"
+    );
+}

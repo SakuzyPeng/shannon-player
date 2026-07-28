@@ -58,6 +58,9 @@ pub struct OutputShared {
     rebuffering: AtomicBool,
     /// 设备输出延迟（帧）。播放位置 = 消费帧数 − 该值。
     output_delay_frames: AtomicU64,
+    /// 当前链路是否插入了重采样。回调不读它，放这里只是因为它与输出配置同生命周期，
+    /// 且要跨线程被 stats 查询。
+    resampled: AtomicBool,
 }
 
 impl Default for OutputShared {
@@ -69,6 +72,7 @@ impl Default for OutputShared {
             underruns: AtomicU64::new(0),
             rebuffering: AtomicBool::new(false),
             output_delay_frames: AtomicU64::new(0),
+            resampled: AtomicBool::new(false),
         }
     }
 }
@@ -106,6 +110,14 @@ impl OutputShared {
         self.rebuffering.load(Ordering::Relaxed)
     }
 
+    pub fn set_resampled(&self, value: bool) {
+        self.resampled.store(value, Ordering::Relaxed);
+    }
+
+    pub fn is_resampled(&self) -> bool {
+        self.resampled.load(Ordering::Relaxed)
+    }
+
     pub fn output_delay_frames(&self) -> u64 {
         self.output_delay_frames.load(Ordering::Relaxed)
     }
@@ -127,7 +139,13 @@ pub trait OutputBackend: Send {
     /// 后端名（诊断用）。
     fn name(&self) -> &'static str;
 
-    /// 按请求协商并打开输出流。返回实际生效的配置。
+    /// **预演协商**：只回答「这个请求会落到什么配置上」，不碰设备、不建流。
+    ///
+    /// 分成两步是因为链路后半段（环形缓冲容量、重采样比率、位置计数的时基）都要
+    /// 按**协商结果**而不是请求来搭；先 open 再回头调整意味着缓冲刚建好就得推倒重建。
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig>;
+
+    /// 按请求协商并打开输出流。返回实际生效的配置，须与 [`negotiate`](Self::negotiate) 一致。
     ///
     /// 打开后流处于**已启动**状态：暂停靠 [`OutputShared::set_paused`] 表达，
     /// 而不是拆流（见该字段的说明）。

@@ -13,6 +13,7 @@ pub mod error;
 pub mod layout;
 pub mod mix;
 pub mod output;
+pub mod resample;
 pub mod ring;
 
 pub use engine::{Engine, EngineEvent, EngineStats, PlaybackState, PlayerCmd};

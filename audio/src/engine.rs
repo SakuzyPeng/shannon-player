@@ -12,9 +12,9 @@
 //!
 //! ## 阶段 0 的能力边界
 //!
-//! 只打通立体声路径：源为立体声则直通，单声道复制成双声道，其余报明确的能力错误。
-//! 采样率必须由设备原生支持，否则同样报错——重采样与多声道下混都在阶段 1，
-//! 在此之前静默变调或按猜的系数下混，都属于用户听得见却无从归因的降级。
+//! 只打通立体声路径：源为立体声则直通，单声道复制成双声道，多声道报明确的能力错误
+//! （下混系数依赖布局，按猜的系数混会让声场错乱，用户听得见却无从归因）。
+//! 采样率不受此限——设备给不出源采样率时插入重采样，并在 stats 里如实标记。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,6 +27,7 @@ use crate::decode::{Decoder, SourceSpec};
 use crate::error::{EngineError, ErrorKind, Result, Stage};
 use crate::layout::ChannelLayout;
 use crate::mix::ChannelAdapt;
+use crate::resample::Resampling;
 use crate::output::{OutputBackend, OutputConfig, OutputRequest, OutputShared};
 use crate::ring::RingProducer;
 
@@ -90,8 +91,8 @@ pub struct EngineStats {
     pub underruns: u64,
     pub frames_consumed: u64,
     pub output_delay_frames: u64,
-    /// 链路里是否发生了重采样。阶段 0 恒为 false（不匹配直接报错），
-    /// 但字段先立起来——`bit-perfect` 一类的措辞必须有据可依。
+    /// 链路里是否发生了重采样。`bit-perfect` 一类的措辞必须有据可依，
+    /// 悄悄插了一级转换却仍宣称原样输出是这类播放器最常见的失实描述。
     pub resampled: bool,
 }
 
@@ -169,7 +170,7 @@ impl Engine {
             underruns: self.shared.underruns(),
             frames_consumed: self.shared.frames_consumed(),
             output_delay_frames: self.shared.output_delay_frames(),
-            resampled: false,
+            resampled: self.shared.is_resampled(),
         }
     }
 }
@@ -187,14 +188,23 @@ impl Drop for Engine {
 struct Loaded {
     decoder: Decoder,
     producer: RingProducer,
+    resampler: Resampling,
     adapt: ChannelAdapt,
+    /// 源声道数。重采样在声道适配**之前**做，中间缓冲仍是源声道布局。
+    src_channels: usize,
     out_channels: usize,
-    sample_rate: u32,
-    /// 已解码但还没写进环形缓冲的样本（缓冲满时的剩余）。
+    /// **输出**采样率。环形缓冲、位置计数与进度换算一律用它——
+    /// 重采样之后链路里流动的就是输出域的帧，混用源采样率会让进度按比率走偏。
+    out_rate: u32,
+    /// 重采样后、声道适配前的中间缓冲。
+    resampled: Vec<f32>,
+    /// 已适配但还没写进环形缓冲的样本（缓冲满时的剩余）。
     pending: Vec<f32>,
     pending_pos: usize,
     /// 解码是否已到流末尾。
     eof: bool,
+    /// 重采样器的尾部延迟是否已冲刷。只能冲一次。
+    flushed: bool,
     /// `TrackEnded` 是否已发出，避免排空后反复上报。
     ended_reported: bool,
 }
@@ -331,11 +341,29 @@ impl Worker {
         let adapt = ChannelAdapt::plan(spec.layout, out_layout)?;
 
         let out_channels = out_layout.count() as usize;
-        let capacity_frames = (spec.sample_rate as f64 * RING_SECONDS) as usize;
+
+        // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
+        // 输出域的采样率才是链路后半段的基准。
+        let request = OutputRequest { sample_rate: spec.sample_rate, layout: out_layout };
+        let probe = self.backend.negotiate(&request)?;
+        let out_rate = probe.sample_rate;
+
+        let resampler = Resampling::new(spec.sample_rate, out_rate, spec.layout.count() as usize)?;
+        let capacity_frames = (out_rate as f64 * RING_SECONDS) as usize;
         let (producer, consumer) = crate::ring::ring(capacity_frames, out_channels);
 
-        let request = OutputRequest { sample_rate: spec.sample_rate, layout: out_layout };
         let output = self.backend.open(&request, consumer, self.shared.clone())?;
+        if output.sample_rate != out_rate {
+            // 协商预演与实际打开给出不同结果说明后端实现自相矛盾，
+            // 继续下去链路里的采样率就对不上了——宁可明确报错。
+            self.backend.close();
+            return Err(EngineError::new(
+                Stage::Output,
+                ErrorKind::DeviceConfig,
+                format!("设备协商结果不一致：预演 {out_rate} Hz，实际 {} Hz", output.sample_rate),
+            ));
+        }
+        self.shared.set_resampled(resampler.is_active());
 
         self.shared.reset_position(0);
         self.shared.set_gain(self.volume);
@@ -343,14 +371,18 @@ impl Worker {
         self.shared.set_paused(true);
 
         self.loaded = Some(Loaded {
+            src_channels: spec.layout.count() as usize,
             decoder,
             producer,
+            resampler,
             adapt,
             out_channels,
-            sample_rate: spec.sample_rate,
+            out_rate,
+            resampled: Vec::new(),
             pending: Vec::new(),
             pending_pos: 0,
             eof: false,
+            flushed: false,
             ended_reported: false,
         });
 
@@ -369,7 +401,7 @@ impl Worker {
     /// 填到预缓冲阈值。填不满（短文件）也返回，由 `check_ended` 处理结束。
     fn prebuffer(&mut self) {
         let Some(loaded) = &self.loaded else { return };
-        let target = (loaded.sample_rate as f64 * PREBUFFER_MS / 1000.0) as usize;
+        let target = (loaded.out_rate as f64 * PREBUFFER_MS / 1000.0) as usize;
         for _ in 0..4096 {
             let Some(loaded) = &self.loaded else { return };
             if loaded.producer.queued_frames() >= target || loaded.eof {
@@ -382,13 +414,15 @@ impl Worker {
     }
 
     /// 解码并向环形缓冲喂料。返回是否推进了工作（用于决定要不要休眠）。
+    ///
+    /// 管线：解码 → 重采样（源声道数）→ 声道适配 → 环形缓冲。
     fn pump(&mut self) -> bool {
         let Some(loaded) = self.loaded.as_mut() else { return false };
-        if loaded.eof && loaded.pending_pos >= loaded.pending.len() {
+        if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
             return false;
         }
 
-        let high_water = (loaded.sample_rate as f64 * HIGH_WATER_MS / 1000.0) as usize;
+        let high_water = (loaded.out_rate as f64 * HIGH_WATER_MS / 1000.0) as usize;
         if loaded.producer.queued_frames() >= high_water {
             return false;
         }
@@ -403,25 +437,45 @@ impl Worker {
             }
         }
 
-        self.decode_scratch.clear();
-        let more = match loaded.decoder.next_frames(&mut self.decode_scratch) {
-            Ok(more) => more,
-            Err(err) => {
-                // 解码中途失败：报结构化错误并按流结束处理，由上层决定跳不跳下一首。
-                loaded.eof = true;
-                self.emit(EngineEvent::Error(err));
+        loaded.resampled.clear();
+        if loaded.eof {
+            // 流已读完但重采样器里还压着尾部延迟，冲出来再收工，
+            // 否则结尾会缺几十毫秒——单曲不易察觉，gapless 拼接时正好丢在接缝上。
+            if loaded.flushed {
                 return false;
             }
-        };
-        if !more {
-            loaded.eof = true;
-            return false;
+            loaded.flushed = true;
+            loaded.resampler.flush(&mut loaded.resampled);
+        } else {
+            self.decode_scratch.clear();
+            let more = match loaded.decoder.next_frames(&mut self.decode_scratch) {
+                Ok(more) => more,
+                Err(err) => {
+                    // 解码中途失败：报结构化错误并按流结束处理，由上层决定跳不跳下一首。
+                    loaded.eof = true;
+                    loaded.flushed = true;
+                    self.emit(EngineEvent::Error(err));
+                    return false;
+                }
+            };
+            if more {
+                loaded.resampler.process(&self.decode_scratch, &mut loaded.resampled);
+            } else {
+                loaded.eof = true;
+                loaded.flushed = true;
+                loaded.resampler.flush(&mut loaded.resampled);
+            }
         }
 
-        let in_frames = self.decode_scratch.len() / loaded.decoder.spec().layout.count() as usize;
+        if loaded.resampled.is_empty() {
+            // 重采样器还没攒够一整块，本轮没有可送的数据。
+            return !loaded.eof;
+        }
+
+        let in_frames = loaded.resampled.len() / loaded.src_channels;
         let needed = loaded.adapt.out_samples(in_frames, loaded.out_channels);
         loaded.pending.resize(needed, 0.0);
-        loaded.adapt.apply(&self.decode_scratch, &mut loaded.pending);
+        loaded.adapt.apply(&loaded.resampled, &mut loaded.pending);
         loaded.pending_pos = loaded.producer.write(&loaded.pending);
         true
     }
@@ -436,11 +490,16 @@ impl Worker {
         self.shared.set_rebuffering(true);
         let loaded = self.loaded.as_mut().expect("刚确认过已装载");
         loaded.producer.flush(FLUSH_TIMEOUT);
+        // 重采样器持有跨块的历史样本，不复位会把定位前的尾巴混进定位后的开头。
+        loaded.resampler.reset();
+        loaded.resampled.clear();
         loaded.pending.clear();
         loaded.pending_pos = 0;
         loaded.eof = false;
+        loaded.flushed = false;
         loaded.ended_reported = false;
-        self.shared.reset_position(frames);
+        // 位置计数器记的是输出帧，源帧要按比率换算。
+        self.shared.reset_position(loaded.resampler.src_frames_to_out(frames));
 
         self.prebuffer();
         self.shared.set_rebuffering(false);
@@ -456,7 +515,7 @@ impl Worker {
     /// 最后一秒还在发声时就报播完。
     fn check_ended(&mut self) {
         let Some(loaded) = self.loaded.as_mut() else { return };
-        if !loaded.eof || loaded.ended_reported {
+        if !loaded.eof || !loaded.flushed || loaded.ended_reported {
             return;
         }
         if loaded.pending_pos < loaded.pending.len() || loaded.producer.queued_frames() > 0 {
@@ -475,7 +534,7 @@ impl Worker {
         self.last_progress = Instant::now();
         let Some(loaded) = &self.loaded else { return };
 
-        let rate = loaded.sample_rate as f64;
+        let rate = loaded.out_rate as f64;
         // 位置来自输出回调累计消费的帧数并扣除设备延迟，不用定时器估算。
         let position_sec = self.shared.played_frames() as f64 / rate;
         let buffered_sec = loaded.producer.queued_frames() as f64 / rate;

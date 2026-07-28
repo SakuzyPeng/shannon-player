@@ -7,8 +7,8 @@
 //!
 //! 1. **不假设设备支持 f32**。引擎内部全链是 f32，到设备边界才转成协商出的采样格式，
 //!    转换在回调内完成且不分配（scratch 预分配，超长的回调分块处理）。
-//! 2. **采样率不匹配就报错，不静默变调**。阶段 0 还没有重采样，
-//!    此时唯一正确的行为是报出明确原因——静默按设备采样率播放等于把每首歌都变调。
+//! 2. **声道数必须精确匹配，采样率可以协商**。声道数不符会静默丢声道；采样率不符则
+//!    由引擎插入重采样并在 stats 里标记，不是悄悄按设备采样率播（那等于把每首歌变调）。
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -60,28 +60,51 @@ fn device_label(device: &Device) -> String {
         .unwrap_or_else(|_| "未知设备".into())
 }
 
-/// 在设备支持的配置里挑一个：声道数与采样率都必须**精确匹配**。
+/// 在设备支持的配置里挑一个。
 ///
-/// 不做「最接近」的回退：声道数不符会静默丢声道，采样率不符会静默变调，
-/// 两者都属于用户听得出、却没有任何提示的降级。
+/// **声道数必须精确匹配**——不符会静默丢声道，是听得出却没有提示的降级。
+/// 采样率则允许不一致：设备给不出源采样率时挑一个最合适的，由引擎插入重采样，
+/// 并在 stats 里如实标记（见 [`crate::resample::pick_output_rate`] 的偏好顺序）。
+/// 早先这里是「不匹配就报错」，改掉的原因是实测：本机默认输出设备只提供
+/// 24 与 48 kHz，而曲库主力是 44.1 kHz 的 ALAC——一首都放不了。
 fn negotiate(device: &Device, request: &OutputRequest) -> Result<cpal::SupportedStreamConfig> {
     let channels = request.layout.count();
     let supported = device
         .supported_output_configs()
         .map_err(|e| device_err(ErrorKind::DeviceConfig, format!("读取设备能力失败：{e}")))?;
 
-    let mut saw_channels = false;
-    let mut candidates: Vec<cpal::SupportedStreamConfigRange> = Vec::new();
-    for range in supported {
-        if range.channels() == channels {
-            saw_channels = true;
-            if range.min_sample_rate() <= request.sample_rate
-                && request.sample_rate <= range.max_sample_rate()
-            {
-                candidates.push(range);
-            }
-        }
+    let ranges: Vec<cpal::SupportedStreamConfigRange> =
+        supported.filter(|r| r.channels() == channels).collect();
+    if ranges.is_empty() {
+        let name = device_label(device);
+        return Err(device_err(
+            ErrorKind::DeviceConfig,
+            format!("设备「{name}」不支持 {channels} 声道输出"),
+        ));
     }
+
+    // 候选采样率：每个区间的两端，外加落在区间内的源采样率本身。
+    // macOS 上每个区间都是单点，Windows 的 WASAPI 才会给出真正的区间。
+    let mut rates: Vec<u32> = Vec::new();
+    for r in &ranges {
+        if r.min_sample_rate() <= request.sample_rate && request.sample_rate <= r.max_sample_rate()
+        {
+            rates.push(request.sample_rate);
+        }
+        rates.push(r.min_sample_rate());
+        rates.push(r.max_sample_rate());
+    }
+    let chosen = crate::resample::pick_output_rate(request.sample_rate, &rates).ok_or_else(|| {
+        device_err(
+            ErrorKind::DeviceConfig,
+            format!("设备「{}」没有报出任何可用采样率", device_label(device)),
+        )
+    })?;
+
+    let mut candidates: Vec<cpal::SupportedStreamConfigRange> = ranges
+        .into_iter()
+        .filter(|r| r.min_sample_rate() <= chosen && chosen <= r.max_sample_rate())
+        .collect();
 
     // 优先 f32：引擎内部就是 f32，选中它可以省掉设备边界的格式转换。
     candidates.sort_by_key(|r| match r.sample_format() {
@@ -91,25 +114,16 @@ fn negotiate(device: &Device, request: &OutputRequest) -> Result<cpal::Supported
         _ => 3,
     });
 
-    if let Some(range) = candidates.into_iter().next() {
-        return Ok(range.with_sample_rate(request.sample_rate));
-    }
-
-    let name = device_label(device);
-    if saw_channels {
-        Err(device_err(
-            ErrorKind::DeviceConfig,
-            format!(
-                "设备「{name}」不支持 {} Hz（重采样尚未实现，不按设备采样率强播以免变调）",
-                request.sample_rate
-            ),
-        ))
-    } else {
-        Err(device_err(
-            ErrorKind::DeviceConfig,
-            format!("设备「{name}」不支持 {channels} 声道输出"),
-        ))
-    }
+    candidates
+        .into_iter()
+        .next()
+        .map(|r| r.with_sample_rate(chosen))
+        .ok_or_else(|| {
+            device_err(
+                ErrorKind::DeviceConfig,
+                format!("设备「{}」不支持 {chosen} Hz", device_label(device)),
+            )
+        })
 }
 
 fn build_stream<T>(
@@ -161,9 +175,27 @@ where
         .map_err(|e| device_err(ErrorKind::Stream, format!("创建输出流失败：{e}")))
 }
 
+/// 取默认输出设备。设备选择（切换到指定设备）是阶段 1 的事。
+fn default_device() -> Result<Device> {
+    cpal::default_host()
+        .default_output_device()
+        .ok_or_else(|| device_err(ErrorKind::NoDevice, "没有可用的音频输出设备"))
+}
+
 impl OutputBackend for CpalOutput {
     fn name(&self) -> &'static str {
         "cpal"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        let device = default_device()?;
+        let supported = negotiate(&device, request)?;
+        Ok(OutputConfig {
+            sample_rate: supported.sample_rate(),
+            layout: request.layout,
+            sample_format: format!("{}", supported.sample_format()),
+            device_name: device_label(&device),
+        })
     }
 
     fn open(
@@ -174,10 +206,7 @@ impl OutputBackend for CpalOutput {
     ) -> Result<OutputConfig> {
         self.close();
 
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| device_err(ErrorKind::NoDevice, "没有可用的音频输出设备"))?;
+        let device = default_device()?;
         let device_name = device_label(&device);
 
         let supported = negotiate(&device, request)?;

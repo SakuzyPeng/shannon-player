@@ -60,8 +60,13 @@ fn main() {
                     spec.layout.source(),
                     spec.duration_sec().map(|d| format!(" · {d:.1} 秒")).unwrap_or_default()
                 );
+                let resampled = if output.sample_rate != spec.sample_rate {
+                    format!(" · 已重采样 {} → {} Hz", spec.sample_rate, output.sample_rate)
+                } else {
+                    String::new()
+                };
                 println!(
-                    "输出  {} · {} Hz · {} · {}",
+                    "输出  {} · {} Hz · {} · {}{resampled}",
                     output.device_name,
                     output.sample_rate,
                     output.layout.describe(),
@@ -111,8 +116,11 @@ fn main() {
 
     let stats = engine.stats();
     println!(
-        "\n统计  消费 {} 帧 · 欠载 {} 次 · 设备延迟 {} 帧",
-        stats.frames_consumed, stats.underruns, stats.output_delay_frames
+        "\n统计  消费 {} 帧 · 欠载 {} 次 · 设备延迟 {} 帧 · 重采样 {}",
+        stats.frames_consumed,
+        stats.underruns,
+        stats.output_delay_frames,
+        if stats.resampled { "是" } else { "否" }
     );
 
     if failed.load(Ordering::Relaxed) {
