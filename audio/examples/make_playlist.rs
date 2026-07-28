@@ -84,7 +84,9 @@ const ITEMS: &[Item] = &[
         order: 8,
         title: "08 Vorbis q6",
         ext: "ogg",
-        args: &["-c:a", "vorbis", "-strict", "-2", "-q:a", "6", "-ar", "44100"],
+        args: &[
+            "-c:a", "vorbis", "-strict", "-2", "-q:a", "6", "-ar", "44100",
+        ],
         note: "有损",
     },
     Item {
@@ -110,7 +112,6 @@ const ITEMS: &[Item] = &[
     },
 ];
 
-
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut source: Option<PathBuf> = None;
@@ -130,7 +131,9 @@ fn main() {
     }
 
     let Some(source) = source else {
-        eprintln!("用法：make_playlist <源音频> [--seconds N] [--start N] [--album 名称] [--out DIR]");
+        eprintln!(
+            "用法：make_playlist <源音频> [--seconds N] [--start N] [--album 名称] [--out DIR]"
+        );
         eprintln!("源随便挑一首自己熟的立体声曲目——听不熟的曲子听不出差别。");
         std::process::exit(2);
     };
@@ -216,7 +219,10 @@ fn main() {
     println!("  把上面这个目录加进设置页的音乐文件夹，重新扫描即可。");
     println!("  注意播放引擎尚未接入前端，界面上看得到、点得动，但还不会出声。");
     println!("\n在命令行听（引擎已经能放）：");
-    println!("  cargo run --release -p shannon-audio --example play -- {}", dir.display());
+    println!(
+        "  cargo run --release -p shannon-audio --example play -- {}",
+        dir.display()
+    );
     println!("\n听的时候留意：");
     println!("  · 01 / 02 / 03 / 04 / 05 应当完全一致——无损之间听得出差别就是解码有问题");
     println!("  · 01 与 09 的对比是重采样质量（设备为 48k 时 01 走重采样、09 直通）");
@@ -227,7 +233,14 @@ fn main() {
 /// 读源的某个标签，用来让实测曲目保留「这是哪首歌」的线索。
 fn probe_tag(path: &Path, tag: &str) -> Option<String> {
     let out = Command::new("ffprobe")
-        .args(["-v", "error", "-show_entries", &format!("format_tags={tag}"), "-of", "default=nw=1:nk=1"])
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            &format!("format_tags={tag}"),
+            "-of",
+            "default=nw=1:nk=1",
+        ])
         .arg(path)
         .output()
         .ok()?;
@@ -238,7 +251,16 @@ fn probe_tag(path: &Path, tag: &str) -> Option<String> {
 /// 读源的声道数。读不到就按立体声处理，不为一个提示信息中断整个流程。
 fn probe_channels(path: &Path) -> u32 {
     Command::new("ffprobe")
-        .args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0"])
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=channels",
+            "-of",
+            "csv=p=0",
+        ])
         .arg(path)
         .output()
         .ok()

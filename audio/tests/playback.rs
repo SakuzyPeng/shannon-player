@@ -18,7 +18,11 @@ use shannon_audio::engine::{Engine, EngineEvent, PlaybackState};
 use shannon_audio::layout::ChannelLayout;
 use shannon_audio::mix::ChannelAdapt;
 use shannon_audio::output::null::NullOutput;
-use shannon_audio::{ErrorKind, Stage};
+use shannon_audio::output::{
+    fill_from_ring, OutputBackend, OutputConfig, OutputRequest, OutputShared,
+};
+use shannon_audio::ring::RingConsumer;
+use shannon_audio::{EngineError, ErrorKind, Result, Stage};
 
 const RATE: u32 = 44_100;
 const FREQ: f64 = 440.0;
@@ -125,7 +129,10 @@ fn seek_output_matches_decoding_from_start() {
     while decoder.next_frames(&mut after).unwrap() {}
 
     let offset = frames as usize * 2;
-    assert!(offset + after.len() <= full.len() + 2, "seek 后不应多解出数据");
+    assert!(
+        offset + after.len() <= full.len() + 2,
+        "seek 后不应多解出数据"
+    );
     let compare = after.len().min(full.len() - offset);
     assert!(compare > RATE as usize, "seek 后应还剩接近一秒的音频");
     for i in 0..compare {
@@ -198,6 +205,208 @@ struct Recorder {
     last_position_ms: AtomicU64,
 }
 
+/// `open` 内同步执行第一次回调，稳定复现“后端已启动、控制线程还没设暂停”的竞态。
+/// 不继续消费即可：这个用例只验证装载边界，ring 留在后端里保持生命周期正确。
+struct EagerOpenOutput {
+    config: Option<OutputConfig>,
+    consumer: Option<RingConsumer>,
+}
+
+impl EagerOpenOutput {
+    fn new() -> Self {
+        Self {
+            config: None,
+            consumer: None,
+        }
+    }
+}
+
+impl OutputBackend for EagerOpenOutput {
+    fn name(&self) -> &'static str {
+        "eager-test"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        Ok(OutputConfig {
+            sample_rate: request.sample_rate,
+            layout: request.layout,
+            sample_format: "f32".into(),
+            device_name: "同步首回调测试后端".into(),
+        })
+    }
+
+    fn open(
+        &mut self,
+        request: &OutputRequest,
+        mut consumer: RingConsumer,
+        shared: Arc<OutputShared>,
+    ) -> Result<OutputConfig> {
+        let config = self.negotiate(request)?;
+        let mut out = vec![0.0; 64 * request.layout.count() as usize];
+        let mut gain = 0.0;
+        fill_from_ring(
+            &mut out,
+            request.layout.count() as usize,
+            &mut consumer,
+            &shared,
+            &mut gain,
+            1.0,
+        );
+        self.consumer = Some(consumer);
+        self.config = Some(config.clone());
+        Ok(config)
+    }
+
+    fn close(&mut self) {
+        self.consumer = None;
+        self.config = None;
+    }
+
+    fn config(&self) -> Option<&OutputConfig> {
+        self.config.as_ref()
+    }
+}
+
+/// 包一层空后端，并在测试触发时模拟设备断开。
+struct FailingOutput {
+    inner: NullOutput,
+    fail: Arc<AtomicBool>,
+}
+
+impl OutputBackend for FailingOutput {
+    fn name(&self) -> &'static str {
+        "failing-test"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        self.inner.negotiate(request)
+    }
+
+    fn open(
+        &mut self,
+        request: &OutputRequest,
+        consumer: RingConsumer,
+        shared: Arc<OutputShared>,
+    ) -> Result<OutputConfig> {
+        self.inner.open(request, consumer, shared)
+    }
+
+    fn take_error(&mut self) -> Option<EngineError> {
+        self.fail
+            .swap(false, Ordering::Relaxed)
+            .then(|| EngineError::new(Stage::Output, ErrorKind::Stream, "测试设备已断开"))
+    }
+
+    fn close(&mut self) {
+        self.inner.close();
+    }
+
+    fn config(&self) -> Option<&OutputConfig> {
+        self.inner.config()
+    }
+}
+
+#[test]
+fn output_is_quiescent_before_open_can_invoke_its_first_callback() {
+    let path = corpus("eager_open", 2, RATE as usize);
+    let opened = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let opened = opened.clone();
+        Engine::spawn(Box::new(EagerOpenOutput::new()), move |event| {
+            if matches!(event, EngineEvent::Opened { .. }) {
+                opened.store(true, Ordering::Relaxed);
+            }
+        })
+    };
+
+    engine.load(&path, false).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !opened.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    assert!(opened.load(Ordering::Relaxed), "音源应完成装载");
+    assert_eq!(
+        engine.stats().underruns,
+        0,
+        "open 内立即发生的首回调必须先看到暂停/重缓冲状态"
+    );
+}
+
+#[test]
+fn seek_timeout_reports_stream_error_instead_of_stealing_consumer_index() {
+    let path = corpus("seek_timeout", 2, RATE as usize);
+    let opened = Arc::new(AtomicBool::new(false));
+    let saw_error = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let (opened, saw_error) = (opened.clone(), saw_error.clone());
+        Engine::spawn(Box::new(EagerOpenOutput::new()), move |event| match event {
+            EngineEvent::Opened { .. } => opened.store(true, Ordering::Relaxed),
+            EngineEvent::Error(err) => {
+                assert_eq!(err.kind, ErrorKind::Stream);
+                saw_error.store(true, Ordering::Relaxed);
+            }
+            _ => {}
+        })
+    };
+
+    engine.load(&path, false).unwrap();
+    let open_deadline = Instant::now() + Duration::from_secs(2);
+    while !opened.load(Ordering::Relaxed) && Instant::now() < open_deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(opened.load(Ordering::Relaxed), "音源应完成装载");
+
+    engine.seek(0.5).unwrap();
+    let error_deadline = Instant::now() + Duration::from_secs(2);
+    while !saw_error.load(Ordering::Relaxed) && Instant::now() < error_deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    assert!(saw_error.load(Ordering::Relaxed), "flush 超时必须明确报错");
+}
+
+#[test]
+fn runtime_output_error_is_forwarded_and_stops_playback() {
+    let path = corpus("runtime_output_error", 2, RATE as usize * 3);
+    let fail = Arc::new(AtomicBool::new(false));
+    let saw_error = Arc::new(AtomicBool::new(false));
+    let states = Arc::new(Mutex::new(Vec::new()));
+    let engine = {
+        let (saw_error, states) = (saw_error.clone(), states.clone());
+        Engine::spawn(
+            Box::new(FailingOutput {
+                inner: NullOutput::new(),
+                fail: fail.clone(),
+            }),
+            move |event| match event {
+                EngineEvent::Error(err) => {
+                    assert_eq!(err.kind, ErrorKind::Stream);
+                    saw_error.store(true, Ordering::Relaxed);
+                }
+                EngineEvent::StateChanged(state) => states.lock().unwrap().push(state),
+                _ => {}
+            },
+        )
+    };
+
+    engine.load(&path, true).unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    fail.store(true, Ordering::Relaxed);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !saw_error.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    assert!(saw_error.load(Ordering::Relaxed), "运行期设备错误必须上报");
+    assert_eq!(
+        states.lock().unwrap().last(),
+        Some(&PlaybackState::Error),
+        "设备已经无声时状态不能继续停在 Playing"
+    );
+}
+
 #[test]
 fn plays_to_completion_through_null_backend() {
     let seconds = 0.6;
@@ -211,7 +420,8 @@ fn plays_to_completion_through_null_backend() {
             EngineEvent::TrackEnded => rec.ended.store(true, Ordering::Relaxed),
             EngineEvent::Error(e) => rec.errors.lock().unwrap().push(e.to_string()),
             EngineEvent::Progress { position_sec, .. } => {
-                rec.last_position_ms.store((position_sec * 1000.0) as u64, Ordering::Relaxed);
+                rec.last_position_ms
+                    .store((position_sec * 1000.0) as u64, Ordering::Relaxed);
             }
             EngineEvent::Opened { .. } => {}
         })
@@ -224,11 +434,18 @@ fn plays_to_completion_through_null_backend() {
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    assert!(rec.errors.lock().unwrap().is_empty(), "不该有错误：{:?}", rec.errors.lock().unwrap());
+    assert!(
+        rec.errors.lock().unwrap().is_empty(),
+        "不该有错误：{:?}",
+        rec.errors.lock().unwrap()
+    );
     assert!(rec.ended.load(Ordering::Relaxed), "应当播放到自然结束");
 
     let states = rec.states.lock().unwrap().clone();
-    assert!(states.contains(&PlaybackState::Playing), "状态序列应经过 Playing：{states:?}");
+    assert!(
+        states.contains(&PlaybackState::Playing),
+        "状态序列应经过 Playing：{states:?}"
+    );
     assert_eq!(states.last(), Some(&PlaybackState::Ended));
 
     let stats = engine.stats();
@@ -291,7 +508,6 @@ fn seek_does_not_count_as_underrun() {
     assert_eq!(engine.stats().underruns, 0, "seek 引起的重缓冲不算欠载");
 }
 
-
 #[test]
 fn resamples_when_device_rate_differs() {
     // 复现实测场景：设备只给得出 48 kHz，而曲库主力是 44.1 kHz。
@@ -304,14 +520,17 @@ fn resamples_when_device_rate_differs() {
 
     let engine = {
         let (ended, errors, out_rate) = (ended.clone(), errors.clone(), out_rate.clone());
-        Engine::spawn(Box::new(NullOutput::with_fixed_rate(48_000)), move |event| match event {
-            EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
-            EngineEvent::Error(e) => errors.lock().unwrap().push(e.to_string()),
-            EngineEvent::Opened { output, .. } => {
-                out_rate.store(output.sample_rate as u64, Ordering::Relaxed)
-            }
-            _ => {}
-        })
+        Engine::spawn(
+            Box::new(NullOutput::with_fixed_rate(48_000)),
+            move |event| match event {
+                EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
+                EngineEvent::Error(e) => errors.lock().unwrap().push(e.to_string()),
+                EngineEvent::Opened { output, .. } => {
+                    out_rate.store(output.sample_rate as u64, Ordering::Relaxed)
+                }
+                _ => {}
+            },
+        )
     };
 
     engine.load(&path, true).unwrap();
@@ -320,7 +539,11 @@ fn resamples_when_device_rate_differs() {
         std::thread::sleep(Duration::from_millis(20));
     }
 
-    assert!(errors.lock().unwrap().is_empty(), "不该有错误：{:?}", errors.lock().unwrap());
+    assert!(
+        errors.lock().unwrap().is_empty(),
+        "不该有错误：{:?}",
+        errors.lock().unwrap()
+    );
     assert!(ended.load(Ordering::Relaxed), "重采样后仍应播放到自然结束");
     assert_eq!(out_rate.load(Ordering::Relaxed), 48_000);
 
@@ -354,11 +577,14 @@ fn seek_position_is_correct_under_resampling() {
     let position = Arc::new(AtomicU64::new(0));
     let engine = {
         let position = position.clone();
-        Engine::spawn(Box::new(NullOutput::with_fixed_rate(48_000)), move |event| {
-            if let EngineEvent::Progress { position_sec, .. } = event {
-                position.store((position_sec * 1000.0) as u64, Ordering::Relaxed);
-            }
-        })
+        Engine::spawn(
+            Box::new(NullOutput::with_fixed_rate(48_000)),
+            move |event| {
+                if let EngineEvent::Progress { position_sec, .. } = event {
+                    position.store((position_sec * 1000.0) as u64, Ordering::Relaxed);
+                }
+            },
+        )
     };
 
     engine.load(&path, true).unwrap();

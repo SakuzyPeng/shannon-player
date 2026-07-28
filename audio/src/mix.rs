@@ -33,7 +33,9 @@ pub enum ChannelAdapt {
 impl ChannelAdapt {
     /// 选出适配方案；做不到就报明确的错误，不静默丢声道、也不自行下混。
     pub fn plan(src: ChannelLayout, dst: ChannelLayout) -> Result<Self> {
-        if src.count() == dst.count() {
+        // 声道数相同不代表布局相同：两声道也可能是 FC + LFE，六声道既可能是
+        // 5.1 也可能是 6.0。只有数量与权威掩码都一致时才可原样搬运。
+        if src.count() == dst.count() && src.mask() == dst.mask() {
             return Ok(ChannelAdapt::Passthrough);
         }
         if src.is_mono() && dst.is_stereo() {
@@ -43,8 +45,9 @@ impl ChannelAdapt {
             Stage::Output,
             ErrorKind::Unsupported,
             format!(
-                "{} 需要交由系统输出（多声道不自行下混），平台原生输出后端尚未接入",
-                src.describe()
+                "{} 无法安全映射到 {}，需要交由系统输出；平台原生输出后端尚未接入",
+                src.describe(),
+                dst.describe()
             ),
         ))
     }
@@ -94,11 +97,28 @@ mod tests {
     fn multichannel_is_routed_to_the_platform_backend_not_downmixed() {
         // 多声道不在立体声路径里解决：自行下混会把本可被系统空间化的流提前拍扁，
         // 是用户可见的能力降级。这里要的是明确的路由错误。
-        let err = ChannelAdapt::plan(ChannelLayout::discrete(6), ChannelLayout::STEREO).unwrap_err();
+        let err =
+            ChannelAdapt::plan(ChannelLayout::discrete(6), ChannelLayout::STEREO).unwrap_err();
         assert_eq!(err.kind, ErrorKind::Unsupported);
         assert!(
             err.message.contains("交由系统"),
             "错误要说清这是路由问题而非缺个算法：{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn same_channel_count_with_different_positions_is_not_passthrough() {
+        use symphonia::core::audio::{Channels, Position};
+
+        let center_and_lfe = ChannelLayout::from_symphonia(&Channels::Positioned(
+            Position::FRONT_CENTER | Position::LFE1,
+        ));
+        let err = ChannelAdapt::plan(center_and_lfe, ChannelLayout::STEREO).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Unsupported);
+        assert!(
+            err.message.contains("无法安全映射"),
+            "同为两声道也不能只按数量直通：{}",
             err.message
         );
     }

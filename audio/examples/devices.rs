@@ -7,12 +7,21 @@ use cpal::traits::{DeviceTrait, HostTrait};
 
 fn main() {
     let host = cpal::default_host();
-    let default = host.default_output_device().and_then(|d| d.description().ok());
+    let default = host
+        .default_output_device()
+        .and_then(|d| d.description().ok());
     let default_name = default.as_ref().map(|d| d.name().to_string());
 
     for device in host.output_devices().expect("枚举设备失败") {
-        let name = device.description().map(|d| d.name().to_string()).unwrap_or_default();
-        let mark = if Some(&name) == default_name.as_ref() { " ←默认" } else { "" };
+        let name = device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_default();
+        let mark = if Some(&name) == default_name.as_ref() {
+            " ←默认"
+        } else {
+            ""
+        };
         println!("{name}{mark}");
         match device.supported_output_configs() {
             Ok(configs) => {

@@ -36,8 +36,11 @@ pub struct ChannelLayout {
 }
 
 impl ChannelLayout {
-    pub const MONO: Self =
-        Self { count: 1, mask: Some(Position::FRONT_CENTER.bits()), source: LayoutSource::Explicit };
+    pub const MONO: Self = Self {
+        count: 1,
+        mask: Some(Position::FRONT_CENTER.bits()),
+        source: LayoutSource::Explicit,
+    };
 
     pub const STEREO: Self = Self {
         count: 2,
@@ -47,7 +50,11 @@ impl ChannelLayout {
 
     /// 摆位未知的 n 条离散声道。
     pub fn discrete(count: u16) -> Self {
-        Self { count, mask: None, source: LayoutSource::Unknown }
+        Self {
+            count,
+            mask: None,
+            source: LayoutSource::Unknown,
+        }
     }
 
     /// 从 Symphonia 的声道集转换。
@@ -63,8 +70,14 @@ impl ChannelLayout {
                 source: LayoutSource::Explicit,
             },
             Channels::Discrete(count) => match count {
-                1 => Self { source: LayoutSource::InferredFromCount, ..Self::MONO },
-                2 => Self { source: LayoutSource::InferredFromCount, ..Self::STEREO },
+                1 => Self {
+                    source: LayoutSource::InferredFromCount,
+                    ..Self::MONO
+                },
+                2 => Self {
+                    source: LayoutSource::InferredFromCount,
+                    ..Self::STEREO
+                },
                 _ => Self::discrete(*count),
             },
             // Ambisonic 与 Custom 都不是扬声器位置模型，掩码无从表达。
@@ -153,7 +166,8 @@ mod tests {
         // 实测 Symphonia 的 WAV 读取器把单声道标成 FRONT_LEFT 而非 FRONT_CENTER，
         // 按掩码比对会把它判成非单声道，进而拒播——判据必须是声道数。
         let as_left = ChannelLayout::from_symphonia(&Channels::Positioned(Position::FRONT_LEFT));
-        let as_center = ChannelLayout::from_symphonia(&Channels::Positioned(Position::FRONT_CENTER));
+        let as_center =
+            ChannelLayout::from_symphonia(&Channels::Positioned(Position::FRONT_CENTER));
         assert!(as_left.is_mono());
         assert!(as_center.is_mono());
     }

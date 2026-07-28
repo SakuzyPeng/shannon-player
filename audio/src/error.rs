@@ -63,7 +63,13 @@ pub struct EngineError {
 
 impl EngineError {
     pub fn new(stage: Stage, kind: ErrorKind, message: impl Into<String>) -> Self {
-        Self { stage, kind, container: None, codec: None, message: message.into() }
+        Self {
+            stage,
+            kind,
+            container: None,
+            codec: None,
+            message: message.into(),
+        }
     }
 
     /// 补上探测出的容器与编码。探测之前的失败没有这两项，因此是后置补充而非构造参数。

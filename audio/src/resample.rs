@@ -12,9 +12,8 @@
 //! ## 为什么放在声道适配之前
 //!
 //! 管线顺序是「解码 → 重采样 → 声道适配」：重采样按**源**声道数做。
-//! 单声道上混后再重采样等于把同一条声道算两遍。将来做多声道下混时顺序要反过来
-//! （先把 12 路下混成 2 路再重采样，比重采样 12 路便宜得多）——通则是
-//! **在声道数少的那一侧做重采样**，而不是死记某个固定顺序。
+//! 单声道上混后再重采样等于把同一条声道算两遍。多声道整体交给平台原生后端，
+//! 不进入本转换器；若平台路径需要重采样，由该后端按系统要求决定管线位置。
 
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Indexing, Resampler};
@@ -49,15 +48,20 @@ impl Resampling {
         if src_rate == dst_rate {
             return Ok(Resampling::Passthrough);
         }
-        let resampler =
-            Fft::<f32>::new(src_rate as usize, dst_rate as usize, CHUNK_FRAMES, channels, FixedSync::Input)
-                .map_err(|e| {
-                    EngineError::new(
-                        Stage::Output,
-                        ErrorKind::DeviceConfig,
-                        format!("建不出 {src_rate} → {dst_rate} Hz 的重采样器：{e}"),
-                    )
-                })?;
+        let resampler = Fft::<f32>::new(
+            src_rate as usize,
+            dst_rate as usize,
+            CHUNK_FRAMES,
+            channels,
+            FixedSync::Input,
+        )
+        .map_err(|e| {
+            EngineError::new(
+                Stage::Output,
+                ErrorKind::DeviceConfig,
+                format!("建不出 {src_rate} → {dst_rate} Hz 的重采样器：{e}"),
+            )
+        })?;
         let scratch = vec![0.0; resampler.output_frames_max() * channels];
         Ok(Resampling::Active(Box::new(Active {
             resampler,
@@ -140,12 +144,16 @@ impl Active {
             }
 
             let out_cap = self.scratch.len() / self.channels;
-            let input = InterleavedSlice::new(&self.pending[..need * self.channels], self.channels, need)
-                .expect("输入缓冲已按块大小对齐");
+            let input =
+                InterleavedSlice::new(&self.pending[..need * self.channels], self.channels, need)
+                    .expect("输入缓冲已按块大小对齐");
             let mut output = InterleavedSlice::new_mut(&mut self.scratch, self.channels, out_cap)
                 .expect("输出缓冲按 output_frames_max 预留");
 
-            let indexing = Indexing { partial_len: partial, ..Indexing::new() };
+            let indexing = Indexing {
+                partial_len: partial,
+                ..Indexing::new()
+            };
             let (_read, written) = self
                 .resampler
                 .process_into_buffer(&input, &mut output, Some(&indexing))
@@ -172,11 +180,18 @@ impl Active {
         self.pending.clear();
         self.pending.resize(need * self.channels, 0.0);
         let out_cap = self.scratch.len() / self.channels;
-        let input = InterleavedSlice::new(&self.pending, self.channels, need).expect("静音块尺寸正确");
+        let input =
+            InterleavedSlice::new(&self.pending, self.channels, need).expect("静音块尺寸正确");
         let mut output = InterleavedSlice::new_mut(&mut self.scratch, self.channels, out_cap)
             .expect("输出缓冲按 output_frames_max 预留");
-        let indexing = Indexing { partial_len: Some(0), ..Indexing::new() };
-        if let Ok((_r, written)) = self.resampler.process_into_buffer(&input, &mut output, Some(&indexing)) {
+        let indexing = Indexing {
+            partial_len: Some(0),
+            ..Indexing::new()
+        };
+        if let Ok((_r, written)) =
+            self.resampler
+                .process_into_buffer(&input, &mut output, Some(&indexing))
+        {
             // 只取延迟那么多帧，多出来的是补零本身产生的静音尾巴。
             let take = written.min(delay);
             out.extend_from_slice(&self.scratch[..take * self.channels]);
@@ -290,9 +305,15 @@ mod tests {
     #[test]
     fn prefers_exact_rate_then_integer_multiple() {
         // 精确匹配优先——不转换永远最好。
-        assert_eq!(pick_output_rate(44_100, &[44_100, 48_000, 96_000]), Some(44_100));
+        assert_eq!(
+            pick_output_rate(44_100, &[44_100, 48_000, 96_000]),
+            Some(44_100)
+        );
         // 没有精确匹配时，整数倍优于任意更高值：44.1 → 88.2 的滤波器比 → 48 简单得多。
-        assert_eq!(pick_output_rate(44_100, &[48_000, 88_200, 96_000]), Some(88_200));
+        assert_eq!(
+            pick_output_rate(44_100, &[48_000, 88_200, 96_000]),
+            Some(88_200)
+        );
         // 没有整数倍就取高于源的最小者，不丢高频。
         assert_eq!(pick_output_rate(44_100, &[48_000, 96_000]), Some(48_000));
         // 全都低于源采样率时只能下采样，取最大的少丢一点。

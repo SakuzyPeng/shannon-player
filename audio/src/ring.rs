@@ -11,8 +11,10 @@
 //! 结果是旧音频继续发声，正是 seek 最不能出的毛病。
 //!
 //! 所以约定：**读下标永远只由消费端写**。生产端发 flush 请求（自增计数），
-//! 消费端在回调开头看到请求就丢弃全部未消费数据并回执。生产端等回执，
-//! 等不到就说明输出流没在跑（Idle / 未启动），此时没有并发消费者，自行重置是安全的。
+//! 消费端在回调开头看到请求就丢弃全部未消费数据并回执。生产端只等回执，
+//! **超时也绝不代写读下标**：超时只能说明回调没有及时响应，不能证明它已停止。
+//! 若一个被调度器挂起的回调稍后恢复，生产端越权重置读下标会让两端同时访问同一段
+//! `UnsafeCell` 缓冲，直接破坏本模块 `unsafe impl Sync` 的安全前提。
 //! 暂停不走这条路——暂停时回调仍在向设备写零帧（见架构约束对暂停的定义），回执照常到达。
 
 use std::cell::UnsafeCell;
@@ -62,7 +64,12 @@ pub fn ring(capacity_frames: usize, channels: usize) -> (RingProducer, RingConsu
         flush_ack: AtomicUsize::new(0),
         channels,
     });
-    (RingProducer { shared: shared.clone() }, RingConsumer { shared })
+    (
+        RingProducer {
+            shared: shared.clone(),
+        },
+        RingConsumer { shared },
+    )
 }
 
 impl Shared {
@@ -111,8 +118,8 @@ impl RingProducer {
 
     /// 请求丢弃全部未消费数据，并等待消费端回执。
     ///
-    /// 返回是否等到了回执。等不到（`timeout` 到期）说明输出回调没在运行，
-    /// 此时无并发消费者，函数会自行重置下标——同样达成目的，只是路径不同。
+    /// 返回是否等到了回执。超时只返回 `false`，不会修改消费端拥有的读下标；
+    /// 调用方必须关闭输出流后再丢弃整对 ring，不能靠时间推断消费端已经消失。
     pub fn flush(&mut self, timeout: Duration) -> bool {
         let req = self.shared.flush_req.load(Ordering::Relaxed) + 1;
         self.shared.flush_req.store(req, Ordering::Release);
@@ -125,10 +132,6 @@ impl RingProducer {
             std::thread::yield_now();
         }
 
-        // 回调没在跑：读下标此刻无人写，生产端直接对齐即可。
-        let w = self.shared.write.load(Ordering::Relaxed);
-        self.shared.read.store(w, Ordering::Release);
-        self.shared.flush_ack.store(req, Ordering::Release);
         false
     }
 }
@@ -220,13 +223,14 @@ mod tests {
     }
 
     #[test]
-    fn flush_discards_pending_audio() {
+    fn timed_out_flush_waits_for_consumer_to_discard_audio() {
         let (mut tx, mut rx) = ring(16, 1);
         tx.write(&[1.0; 8]);
-        // 没有并发消费者，走超时自行重置那条路。
+        // 超时不允许生产端越权改读下标；消费端稍后恢复时仍会先处理请求，
+        // 因而旧数据一样不会漏出去，同时不破坏 SPSC 的所有权约束。
         assert!(!tx.flush(Duration::from_millis(1)));
         let mut out = [0.0; 8];
-        assert_eq!(rx.read(&mut out), 0, "flush 后不得再读到旧数据");
+        assert_eq!(rx.read(&mut out), 0, "消费端恢复后不得再读到旧数据");
 
         // flush 之后仍可正常收发。
         tx.write(&[9.0; 4]);

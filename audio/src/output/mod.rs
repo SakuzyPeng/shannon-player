@@ -11,7 +11,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-use crate::error::Result;
+use crate::error::{EngineError, Result};
 use crate::layout::ChannelLayout;
 use crate::ring::RingConsumer;
 
@@ -64,6 +64,9 @@ pub struct OutputShared {
     /// 计进欠载会让这项指标失去诊断价值——它要回答的是「实时性够不够」，
     /// 而不是「用户拖过几次进度条」。
     rebuffering: AtomicBool,
+    /// 源数据已经全部写进环形缓冲，后续不会再生产样本。尾帧不足一个设备回调时
+    /// 补零是正常收尾，不是解码线程跟不上；这个标志让欠载统计能区分两者。
+    source_drained: AtomicBool,
     /// 设备输出延迟（帧）。播放位置 = 消费帧数 − 该值。
     output_delay_frames: AtomicU64,
     /// 当前链路是否插入了重采样。回调不读它，放这里只是因为它与输出配置同生命周期，
@@ -75,11 +78,14 @@ impl Default for OutputShared {
     fn default() -> Self {
         Self {
             gain_bits: AtomicU32::new(1.0f32.to_bits()),
-            paused: AtomicBool::new(false),
+            // 没有装载音源时天然是暂停态。后端 open 会立即启动回调，默认 false 会在
+            // 控制线程来得及设状态之前把空缓冲误记成一次欠载。
+            paused: AtomicBool::new(true),
             position_frames: AtomicU64::new(0),
             total_frames: AtomicU64::new(0),
             underruns: AtomicU64::new(0),
             rebuffering: AtomicBool::new(false),
+            source_drained: AtomicBool::new(false),
             output_delay_frames: AtomicU64::new(0),
             resampled: AtomicBool::new(false),
         }
@@ -88,7 +94,8 @@ impl Default for OutputShared {
 
 impl OutputShared {
     pub fn set_gain(&self, gain: f32) {
-        self.gain_bits.store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.gain_bits
+            .store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     pub fn gain(&self) -> f32 {
@@ -125,6 +132,14 @@ impl OutputShared {
         self.rebuffering.load(Ordering::Relaxed)
     }
 
+    pub fn set_source_drained(&self, value: bool) {
+        self.source_drained.store(value, Ordering::Relaxed);
+    }
+
+    pub fn is_source_drained(&self) -> bool {
+        self.source_drained.load(Ordering::Relaxed)
+    }
+
     pub fn set_resampled(&self, value: bool) {
         self.resampled.store(value, Ordering::Relaxed);
     }
@@ -140,7 +155,8 @@ impl OutputShared {
     /// 已发声的位置（帧）。扣除设备延迟——共享模式的输出延迟普遍达数十毫秒，
     /// 不补偿会让歌词逐字高亮系统性偏早。
     pub fn played_frames(&self) -> u64 {
-        self.position_frames().saturating_sub(self.output_delay_frames())
+        self.position_frames()
+            .saturating_sub(self.output_delay_frames())
     }
 
     /// 重置位置（seek 与切歌后调用）。**只动位置，不动累计量**。
@@ -171,6 +187,12 @@ pub trait OutputBackend: Send {
         shared: std::sync::Arc<OutputShared>,
     ) -> Result<OutputConfig>;
 
+    /// 取出一个输出流运行期错误（设备断开、被独占等）。默认后端没有异步错误源。
+    /// 控制线程每轮轮询并把它转换成 `EngineEvent::Error`，错误回调本身不做重活。
+    fn take_error(&mut self) -> Option<EngineError> {
+        None
+    }
+
     /// 关闭输出流并释放设备。
     fn close(&mut self);
 
@@ -199,7 +221,11 @@ pub fn fill_from_ring(
     // 无条件处理 flush：暂停期间不消费数据，但 seek 的回执不能因此卡住。
     consumer.poll_flush();
 
-    let target = if shared.is_paused() { 0.0 } else { shared.gain() };
+    let target = if shared.is_paused() {
+        0.0
+    } else {
+        shared.gain()
+    };
 
     // 已经静音且处于暂停：只写零帧维持设备时钟，不推进位置。
     if shared.is_paused() && *current_gain <= f32::EPSILON {
@@ -213,7 +239,7 @@ pub fn fill_from_ring(
         out[got..].fill(0.0);
         // 只有正在播放、且不处于重缓冲时的填不满才算欠载；
         // 暂停、播完与 seek 后的重填都是正常状态。
-        if !shared.is_paused() && !shared.is_rebuffering() && got == 0 {
+        if !shared.is_paused() && !shared.is_rebuffering() && !shared.is_source_drained() {
             shared.underruns.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -242,4 +268,38 @@ pub fn fill_from_ring(
 /// 按采样率算出每帧的增益步进。
 pub fn ramp_step_for(sample_rate: u32) -> f32 {
     1.0 / (sample_rate as f32 * GAIN_RAMP_MS / 1000.0).max(1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_callback_is_an_underrun_while_source_is_active() {
+        let (mut producer, mut consumer) = crate::ring::ring(8, 2);
+        producer.write(&[0.25, 0.25]);
+        let shared = OutputShared::default();
+        shared.set_paused(false);
+        let mut out = [0.0; 8];
+        let mut gain = 1.0;
+
+        fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
+
+        assert_eq!(shared.underruns(), 1, "部分补零同样是一次真实欠载");
+    }
+
+    #[test]
+    fn partial_final_callback_is_not_an_underrun_after_source_drains() {
+        let (mut producer, mut consumer) = crate::ring::ring(8, 2);
+        producer.write(&[0.25, 0.25]);
+        let shared = OutputShared::default();
+        shared.set_source_drained(true);
+        shared.set_paused(false);
+        let mut out = [0.0; 8];
+        let mut gain = 1.0;
+
+        fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
+
+        assert_eq!(shared.underruns(), 0, "自然收尾的不足帧不是实时欠载");
+    }
 }

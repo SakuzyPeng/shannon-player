@@ -14,7 +14,8 @@ use crate::cache::{RawTags, RawTrack, ScanCache};
 use crate::cover;
 use crate::id::{album_id, track_id_with, FormatFingerprint};
 use crate::model::{
-    Album, Cover, FieldSource, FieldSources, LibrarySnapshot, ScanProgress, Track,
+    Album, Cover, Encoding, FieldSource, FieldSources, LibrarySnapshot, ScanProgress,
+    SpatialFormat, Track,
 };
 use crate::overrides::Overrides;
 use crate::probe::{self, Probed};
@@ -92,11 +93,12 @@ where
                             .lock()
                             .map(|mut seen| seen.insert(key.to_string()))
                             .unwrap_or(false);
-                        if first && !cover::thumbs_exist(dir, key) {
-                            if cover::write_thumbs(dir, key, pic).is_err() {
-                                // 封面坏了不该让整次扫描失败，界面回落占位渐变；如实计数上报。
-                                cover_failed.fetch_add(1, Ordering::Relaxed);
-                            }
+                        if first
+                            && !cover::thumbs_exist(dir, key)
+                            && cover::write_thumbs(dir, key, pic).is_err()
+                        {
+                            // 封面坏了不该让整次扫描失败，界面回落占位渐变；如实计数上报。
+                            cover_failed.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     Some(raw_track(path.clone(), p))
@@ -471,7 +473,8 @@ fn pick(
 /// 最后比碟号 + 音轨号。同一录音的副本时长一致，而两首不同录音同时长到百分位的
 /// 概率极低。只在同一张专辑内比较，跨专辑的同名曲不会被牵连。
 ///
-/// **三条判据都还要求音频规格一致**（编码、采样率、位深、声道数），这一条是后加的：
+/// **三条判据都还要求音频规格一致**（容器、编码族、编码、采样率、位深、声道数、
+/// 声道掩码、空间音频标记），这一条是后加的：
 /// 只看标题与时长的话，同一首歌的不同**格式**版本会被当成副本折叠掉——
 /// 实测把一段音乐转成 11 种编码放进同一目录，扫出来只剩 4 首。那不是清理，是丢东西。
 ///
@@ -539,7 +542,7 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
     }
     // 并查集：三条判据任一命中就并到一组。
     let mut parent: Vec<usize> = (0..idxs.len()).collect();
-    fn find(parent: &mut Vec<usize>, mut i: usize) -> usize {
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
         while parent[i] != i {
             parent[i] = parent[parent[i]];
             i = parent[i];
@@ -555,12 +558,36 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
     };
 
     /// 音频规格键。规格不同就不是同一份编码，不该被当成副本。
-    fn spec_key(p: &Pending) -> (String, u32, Option<u8>, u8) {
-        let f = &p.raw.format;
-        (f.codec.clone(), f.sample_rate_hz, f.bit_depth, f.channels)
+    ///
+    /// 声道数本身不够：6 声道可能是 5.1 也可能是 6.0；空间音频又与声道维度
+    /// 正交，普通 E-AC-3 与 E-AC-3/JOC 甚至可能报出完全相同的声道数。漏掉这两项
+    /// 会让去重把用户明确保留的环绕/Atmos 版本吞掉。
+    #[derive(Clone, PartialEq, Eq, Hash)]
+    struct SpecKey {
+        container: String,
+        codec: String,
+        encoding: Encoding,
+        sample_rate_hz: u32,
+        bit_depth: Option<u8>,
+        channels: u8,
+        channel_mask: Option<u32>,
+        spatial: Option<SpatialFormat>,
     }
 
-    type SpecKey = (String, u32, Option<u8>, u8);
+    fn spec_key(p: &Pending) -> SpecKey {
+        let f = &p.raw.format;
+        SpecKey {
+            container: f.container.clone(),
+            codec: f.codec.clone(),
+            encoding: f.encoding,
+            sample_rate_hz: f.sample_rate_hz,
+            bit_depth: f.bit_depth,
+            channels: f.channels,
+            channel_mask: f.channel_mask,
+            spatial: f.spatial,
+        }
+    }
+
     let mut by_title: HashMap<(SpecKey, String, i64), usize> = HashMap::new();
     let mut by_title_key: HashMap<(SpecKey, String, i64), usize> = HashMap::new();
     let mut by_slot: HashMap<(SpecKey, u16, u16, i64), usize> = HashMap::new();
@@ -604,9 +631,9 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
     // 先收集重复组。每组的轨位可能冲突，不能只按路径随便留一份：实测同一录音既有
     // `1-05` 又有 `1-11`，而完整副本的多数票能给出正确位置。
     let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
-    for pos in 0..idxs.len() {
+    for (pos, &i) in idxs.iter().enumerate() {
         let root = find(&mut parent, pos);
-        groups.entry(root).or_default().push(idxs[pos]);
+        groups.entry(root).or_default().push(i);
     }
 
     let mut kept = Vec::with_capacity(groups.len());
@@ -729,7 +756,7 @@ fn album_group_key(
 fn merge_groups_by_cover(groups: &[GroupInfo]) -> Vec<usize> {
     // 并查集：parent[i] 指向所属合并组的代表。
     let mut parent: Vec<usize> = (0..groups.len()).collect();
-    fn find(parent: &mut Vec<usize>, mut i: usize) -> usize {
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
         while parent[i] != i {
             parent[i] = parent[parent[i]];
             i = parent[i];
@@ -849,7 +876,7 @@ mod tests {
         fs::write(d.join("b.mp3"), b"x").unwrap();
         fs::write(d.join("cover.jpg"), b"x").unwrap();
         fs::write(d.join("notes.txt"), b"x").unwrap();
-        let files = collect_files(&[d.clone()]);
+        let files = collect_files(std::slice::from_ref(&d));
         assert_eq!(files.len(), 2);
         assert!(files.iter().all(|p| is_scannable(p)));
         let _ = fs::remove_dir_all(d);
@@ -861,7 +888,7 @@ mod tests {
         fs::create_dir_all(d.join("artist/album")).unwrap();
         fs::write(d.join("artist/album/1.flac"), b"x").unwrap();
         fs::write(d.join("top.mp3"), b"x").unwrap();
-        assert_eq!(count_candidates(&[d.clone()]), 2);
+        assert_eq!(count_candidates(std::slice::from_ref(&d)), 2);
         let _ = fs::remove_dir_all(d);
     }
 
@@ -871,7 +898,8 @@ mod tests {
         let d = tmpdir("shannon_scan_failed");
         fs::write(d.join("broken.flac"), b"definitely not flac").unwrap();
         let mut events = 0;
-        let snap = scan_folders(&[d.clone()], None, |_| events += 1).library(&Overrides::default());
+        let snap = scan_folders(std::slice::from_ref(&d), None, |_| events += 1)
+            .library(&Overrides::default());
         assert_eq!(snap.failed, 1);
         assert_eq!(snap.tracks.len(), 0);
         assert!(events > 0, "至少要有一次收尾进度事件");
@@ -881,7 +909,8 @@ mod tests {
     #[test]
     fn empty_folder_yields_empty_snapshot() {
         let d = tmpdir("shannon_scan_empty");
-        let snap = scan_folders(&[d.clone()], None, |_| {}).library(&Overrides::default());
+        let snap = scan_folders(std::slice::from_ref(&d), None, |_| {})
+            .library(&Overrides::default());
         assert!(snap.albums.is_empty() && snap.tracks.is_empty() && snap.failed == 0);
         let _ = fs::remove_dir_all(d);
     }
@@ -893,7 +922,7 @@ mod tests {
         for (artist, album) in [("白鲸电台", "长夜电波"), ("Radiohead", "In Rainbows")] {
             let dir = d.join(artist).join(album);
             fs::create_dir_all(&dir).unwrap();
-            let (a, b) = folder_hint(&dir.join("01.wav"), &[d.clone()]);
+            let (a, b) = folder_hint(&dir.join("01.wav"), std::slice::from_ref(&d));
             assert_eq!(a.as_deref(), Some(artist));
             assert_eq!(b.as_deref(), Some(album));
         }
@@ -905,12 +934,16 @@ mod tests {
     #[test]
     fn scan_root_is_not_used_as_album_or_artist() {
         let root = PathBuf::from("/Users/x/Music");
-        let (artist, album) = folder_hint(&root.join("散装.flac"), &[root.clone()]);
+        let (artist, album) =
+            folder_hint(&root.join("散装.flac"), std::slice::from_ref(&root));
         assert_eq!(album, None, "根目录名不该当专辑名");
         assert_eq!(artist, None, "根目录的上级更不该当歌手名");
 
         // 根下一层仍可作专辑名，但再上一层是根，就不给歌手名。
-        let (artist, album) = folder_hint(&root.join("长夜电波/01.flac"), &[root.clone()]);
+        let (artist, album) = folder_hint(
+            &root.join("长夜电波/01.flac"),
+            std::slice::from_ref(&root),
+        );
         assert_eq!(album.as_deref(), Some("长夜电波"));
         assert_eq!(artist, None);
     }
@@ -1550,15 +1583,94 @@ mod tests {
         // 同一段音乐的不同编码：标题、时长、轨位全都一样，只有规格不同。
         // 只看标题与时长的判据会把它们全折叠掉——实测 11 个格式扫出来只剩 4 首。
         // 用户同时留着 FLAC 与 MP3 是有意为之，不是导入工具的手滑。
+        let mut flac_in_mka = with_spec(
+            probed_at("/m/实测/06.mka", "同一首", "歌手", "格式实测", None),
+            "flac",
+            44100,
+            Some(16),
+        );
+        flac_in_mka.format.container = "mka".into();
         let items = vec![
-            with_spec(probed_at("/m/实测/01.flac", "同一首", "歌手", "格式实测", None), "flac", 44100, Some(16)),
-            with_spec(probed_at("/m/实测/02.m4a", "同一首", "歌手", "格式实测", None), "alac", 44100, Some(16)),
-            with_spec(probed_at("/m/实测/03.mp3", "同一首", "歌手", "格式实测", None), "mp3", 44100, None),
-            with_spec(probed_at("/m/实测/04.flac", "同一首", "歌手", "格式实测", None), "flac", 48000, Some(16)),
-            with_spec(probed_at("/m/实测/05.flac", "同一首", "歌手", "格式实测", None), "flac", 44100, Some(24)),
+            with_spec(
+                probed_at("/m/实测/01.flac", "同一首", "歌手", "格式实测", None),
+                "flac",
+                44100,
+                Some(16),
+            ),
+            with_spec(
+                probed_at("/m/实测/02.m4a", "同一首", "歌手", "格式实测", None),
+                "alac",
+                44100,
+                Some(16),
+            ),
+            with_spec(
+                probed_at("/m/实测/03.mp3", "同一首", "歌手", "格式实测", None),
+                "mp3",
+                44100,
+                None,
+            ),
+            with_spec(
+                probed_at("/m/实测/04.flac", "同一首", "歌手", "格式实测", None),
+                "flac",
+                48000,
+                Some(16),
+            ),
+            with_spec(
+                probed_at("/m/实测/05.flac", "同一首", "歌手", "格式实测", None),
+                "flac",
+                44100,
+                Some(24),
+            ),
+            flac_in_mka,
         ];
         let snap = agg(items, &Overrides::default());
-        assert_eq!(snap.tracks.len(), 5, "不同格式/采样率/位深是不同的东西，不该折叠");
+        assert_eq!(
+            snap.tracks.len(),
+            6,
+            "不同容器/格式/采样率/位深是不同的东西，不该折叠"
+        );
+        assert_eq!(snap.duplicates, 0);
+    }
+
+    #[test]
+    fn different_layouts_and_spatial_versions_are_not_folded() {
+        let mut five_one = with_spec(
+            probed_at("/m/实测/5.1.flac", "环绕版本", "歌手", "格式实测", None),
+            "flac",
+            48000,
+            Some(24),
+        );
+        five_one.format.channels = 6;
+        five_one.format.channel_mask = Some(0x3f);
+
+        let mut six_zero = five_one.clone();
+        six_zero.id = "t-six-zero".into();
+        six_zero.path = PathBuf::from("/m/实测/6.0.flac");
+        six_zero.format.channel_mask = Some(0x70f);
+
+        let mut bed = with_spec(
+            probed_at("/m/实测/bed.m4a", "空间版本", "歌手", "格式实测", None),
+            "eac3",
+            48000,
+            None,
+        );
+        bed.format.channels = 6;
+        bed.format.channel_mask = Some(0x3f);
+
+        let mut atmos = bed.clone();
+        atmos.id = "t-atmos".into();
+        atmos.path = PathBuf::from("/m/实测/atmos.m4a");
+        atmos.format.spatial = Some(SpatialFormat::DolbyAtmos {
+            joc: true,
+            objects: Some(16),
+        });
+
+        let snap = agg(vec![five_one, six_zero, bed, atmos], &Overrides::default());
+        assert_eq!(
+            snap.tracks.len(),
+            4,
+            "同声道数的不同布局、普通声床与对象音频都必须分别保留"
+        );
         assert_eq!(snap.duplicates, 0);
     }
 

@@ -8,7 +8,7 @@ use ts_rs::TS;
 
 /// 采样编码族。决定 `sample_rate_hz` 与 `bit_depth` 的解读方式：
 /// PCM 下是常规采样率 / 位深；DSD 下 sample_rate 是 DSD 码率（DSD64 = 2 822 400），位深恒为 1。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../src/types/generated/audio.ts")]
 #[serde(rename_all = "camelCase")]
 pub enum Encoding {
@@ -44,7 +44,7 @@ pub enum ChannelLayout {
 ///
 /// **与声道维度正交**，不能合并：Atmos 的声道数可能报 5.1 甚至 2，
 /// 真正的信息在容器的对象元数据里。合在一起就永远说不清「5.1 的 Atmos」。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../src/types/generated/audio.ts")]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SpatialFormat {
@@ -89,7 +89,7 @@ pub struct AudioFormat {
 }
 
 /// 当前探测器版本。**增强探测逻辑时必须 +1**，否则无法识别哪些条目需要重扫。
-pub const PROBE_VERSION: u32 = 1;
+pub const PROBE_VERSION: u32 = 2;
 
 /// 封面：占位渐变（首字母）或真实图片。与前端 `Cover` 对齐。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

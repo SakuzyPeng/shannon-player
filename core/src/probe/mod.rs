@@ -301,31 +301,53 @@ mod tests {
         // lofty 读不了标签的合法容器（实测 CAF）不能就此丢文件：读不到标签只意味着
         // 信息少，不意味着这不是一首歌。早先这里是硬失败，一个合法的 CAF 只体现为
         // failed 计数 +1，用户那边就是「文件明明在，曲库里找不到」。
-        let dir = std::env::temp_dir().join("shannon_probe_tagless");
+        let dir =
+            std::env::temp_dir().join(format!("shannon_probe_tagless_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("bare.wav");
+        let path = dir.join("bare.caf");
 
-        let (rate, frames, channels) = (44_100u32, 4_410usize, 1u16);
-        let data_len = (frames * channels as usize * 2) as u32;
+        // 最小的 16-bit little-endian PCM CAF。测试必须真的让 lofty 失败、
+        // symphonia 成功；用“没有标签的 WAV”只是在测 tag 为空，根本进不到回退分支。
+        let (rate, frames, channels) = (44_100u32, 4_410usize, 2u32);
+        let bytes_per_packet = channels * 2;
+        let data_len = frames as u64 * u64::from(bytes_per_packet);
         let mut buf = Vec::new();
-        buf.extend_from_slice(b"RIFF");
-        buf.extend_from_slice(&(36 + data_len).to_le_bytes());
-        buf.extend_from_slice(b"WAVEfmt ");
-        buf.extend_from_slice(&16u32.to_le_bytes());
-        buf.extend_from_slice(&1u16.to_le_bytes());
-        buf.extend_from_slice(&channels.to_le_bytes());
-        buf.extend_from_slice(&rate.to_le_bytes());
-        buf.extend_from_slice(&(rate * channels as u32 * 2).to_le_bytes());
-        buf.extend_from_slice(&(channels * 2).to_le_bytes());
-        buf.extend_from_slice(&16u16.to_le_bytes());
+        buf.extend_from_slice(b"caff");
+        buf.extend_from_slice(&1u16.to_be_bytes());
+        buf.extend_from_slice(&0u16.to_be_bytes());
+        buf.extend_from_slice(b"desc");
+        buf.extend_from_slice(&32i64.to_be_bytes());
+        buf.extend_from_slice(&(rate as f64).to_be_bytes());
+        buf.extend_from_slice(b"lpcm");
+        buf.extend_from_slice(&2u32.to_be_bytes()); // little-endian integer PCM
+        buf.extend_from_slice(&bytes_per_packet.to_be_bytes());
+        buf.extend_from_slice(&1u32.to_be_bytes()); // frames per packet
+        buf.extend_from_slice(&channels.to_be_bytes());
+        buf.extend_from_slice(&16u32.to_be_bytes());
         buf.extend_from_slice(b"data");
-        buf.extend_from_slice(&data_len.to_le_bytes());
-        buf.extend_from_slice(&vec![0u8; data_len as usize]);
+        buf.extend_from_slice(&((data_len + 4) as i64).to_be_bytes());
+        buf.extend_from_slice(&0u32.to_be_bytes()); // edit count
+        buf.resize(buf.len() + data_len as usize, 0);
         std::fs::write(&path, buf).unwrap();
 
+        assert!(
+            lofty::read_from_path(&path).is_err(),
+            "语料必须确实覆盖 lofty 不可读、symphonia 可读的分支"
+        );
         let probed = probe(&path).expect("合法音频不该因为没有标签而被拒绝");
         assert_eq!(probed.format.sample_rate_hz, rate);
         assert!(probed.duration_sec > 0.0, "时长要能从码流推出来，不能是 0");
+        assert!(
+            probed
+                .format
+                .probe_notes
+                .iter()
+                .any(|note| note == "tags:unreadable"),
+            "回退必须留下标签不可读的诊断线索"
+        );
+
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir(dir);
     }
 
     #[test]

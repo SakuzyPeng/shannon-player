@@ -25,8 +25,9 @@ use shannon_audio::output::{cpal_out::CpalOutput, null::NullOutput, OutputBacken
 
 /// 可播放的扩展名。识别与播放能力解耦——这里只是**遍历目录时的筛选**，
 /// 真正能不能放由探测器说了算，扫到不认识的容器会给出明确错误而不是被悄悄跳过。
-const AUDIO_EXT: &[&str] =
-    &["flac", "m4a", "mp4", "mp3", "wav", "aiff", "aif", "caf", "ogg", "oga", "mka", "webm"];
+const AUDIO_EXT: &[&str] = &[
+    "flac", "m4a", "mp4", "mp3", "wav", "aiff", "aif", "caf", "ogg", "oga", "mka", "webm",
+];
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -50,12 +51,17 @@ fn main() {
 
     let tracks = expand(&inputs);
     if tracks.is_empty() {
-        eprintln!("用法：play <文件或目录>… [--each N] [--seconds N] [--seek N] [--volume V] [--null]");
+        eprintln!(
+            "用法：play <文件或目录>… [--each N] [--seconds N] [--seek N] [--volume V] [--null]"
+        );
         std::process::exit(2);
     }
 
-    let backend: Box<dyn OutputBackend> =
-        if use_null { Box::new(NullOutput::new()) } else { Box::new(CpalOutput::new()) };
+    let backend: Box<dyn OutputBackend> = if use_null {
+        Box::new(NullOutput::new())
+    } else {
+        Box::new(CpalOutput::new())
+    };
 
     let ended = Arc::new(AtomicBool::new(false));
     let failed = Arc::new(AtomicBool::new(false));
@@ -66,7 +72,10 @@ fn main() {
         Engine::spawn(backend, move |event| match event {
             EngineEvent::Opened { spec, output } => {
                 let resampled = if output.sample_rate != spec.sample_rate {
-                    format!("  ← 重采样 {} → {} Hz", spec.sample_rate, output.sample_rate)
+                    format!(
+                        "  ← 重采样 {} → {} Hz",
+                        spec.sample_rate, output.sample_rate
+                    )
                 } else {
                     String::new()
                 };
@@ -77,14 +86,20 @@ fn main() {
                     spec.sample_rate,
                     spec.layout.describe(),
                     spec.layout.source(),
-                    spec.duration_sec().map(|d| format!(" · {d:.1} 秒")).unwrap_or_default()
+                    spec.duration_sec()
+                        .map(|d| format!(" · {d:.1} 秒"))
+                        .unwrap_or_default()
                 );
                 println!(
                     "     输出 {} · {} Hz · {}{resampled}",
                     output.device_name, output.sample_rate, output.sample_format
                 );
             }
-            EngineEvent::Progress { position_sec, duration_sec, buffered_sec } => {
+            EngineEvent::Progress {
+                position_sec,
+                duration_sec,
+                buffered_sec,
+            } => {
                 position_ms.store((position_sec * 1000.0) as u64, Ordering::Relaxed);
                 let total = duration_sec.map(|d| format!("/{d:.1}")).unwrap_or_default();
                 print!("\r     {position_sec:6.1}{total} 秒 · 缓冲 {buffered_sec:.2} 秒   ");

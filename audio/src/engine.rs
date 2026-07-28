@@ -28,8 +28,8 @@ use crate::decode::{Decoder, SourceSpec};
 use crate::error::{EngineError, ErrorKind, Result, Stage};
 use crate::layout::ChannelLayout;
 use crate::mix::ChannelAdapt;
-use crate::resample::Resampling;
 use crate::output::{OutputBackend, OutputConfig, OutputRequest, OutputShared};
+use crate::resample::Resampling;
 use crate::ring::RingProducer;
 
 /// 环形缓冲容量。2 秒足够吸收调度抖动，又不至于让 seek 后的重填等太久。
@@ -73,7 +73,10 @@ pub enum PlayerCmd {
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
     /// 音源已打开，附源规格与实际协商到的输出配置。
-    Opened { spec: SourceSpec, output: OutputConfig },
+    Opened {
+        spec: SourceSpec,
+        output: OutputConfig,
+    },
     StateChanged(PlaybackState),
     Progress {
         position_sec: f64,
@@ -131,18 +134,26 @@ impl Engine {
                 .expect("创建引擎线程失败")
         };
 
-        Self { cmd_tx, shared, alive, worker: Some(worker) }
+        Self {
+            cmd_tx,
+            shared,
+            alive,
+            worker: Some(worker),
+        }
     }
 
     /// 投递命令。引擎线程已退出时返回错误。
     pub fn send(&self, cmd: PlayerCmd) -> Result<()> {
-        self.cmd_tx.send(cmd).map_err(|_| {
-            EngineError::new(Stage::Output, ErrorKind::Stream, "引擎线程已停止")
-        })
+        self.cmd_tx
+            .send(cmd)
+            .map_err(|_| EngineError::new(Stage::Output, ErrorKind::Stream, "引擎线程已停止"))
     }
 
     pub fn load(&self, path: impl Into<PathBuf>, autoplay: bool) -> Result<()> {
-        self.send(PlayerCmd::Load { path: path.into(), autoplay })
+        self.send(PlayerCmd::Load {
+            path: path.into(),
+            autoplay,
+        })
     }
 
     pub fn play(&self) -> Result<()> {
@@ -263,6 +274,13 @@ impl Worker {
                 }
             }
 
+            // 设备断开、被其它应用独占等错误从输出回调旁路投递；控制线程负责
+            // 关闭整条链路并发出结构化事件，不能让状态停在一个实际已无声的 Playing。
+            if self.poll_backend_error() {
+                std::thread::sleep(IDLE_TICK);
+                continue;
+            }
+
             let fed = self.pump();
             self.check_ended();
             self.emit_progress();
@@ -275,8 +293,24 @@ impl Worker {
     }
 
     fn teardown(&mut self) {
+        // 先让仍可能执行的最后一次回调只写零，并把其空读排除在欠载之外；
+        // close 返回后消费端已销毁，随后才能安全丢生产端与共享状态。
+        self.shared.set_paused(true);
+        self.shared.set_rebuffering(true);
         self.backend.close();
         self.loaded = None;
+        self.shared.set_source_drained(false);
+        self.shared.set_rebuffering(false);
+    }
+
+    fn poll_backend_error(&mut self) -> bool {
+        let Some(err) = self.backend.take_error() else {
+            return false;
+        };
+        self.teardown();
+        self.set_state(PlaybackState::Error);
+        self.emit(EngineEvent::Error(err));
+        true
     }
 
     fn emit(&self, event: EngineEvent) {
@@ -295,8 +329,7 @@ impl Worker {
             PlayerCmd::Load { path, autoplay } => {
                 self.set_state(PlaybackState::Loading);
                 if let Err(err) = self.load(&path, autoplay) {
-                    self.loaded = None;
-                    self.backend.close();
+                    self.teardown();
                     self.set_state(PlaybackState::Error);
                     self.emit(EngineEvent::Error(err));
                 }
@@ -320,6 +353,7 @@ impl Worker {
             }
             PlayerCmd::Seek(sec) => {
                 if let Err(err) = self.seek(sec) {
+                    self.teardown();
                     self.set_state(PlaybackState::Error);
                     self.emit(EngineEvent::Error(err));
                 }
@@ -334,14 +368,13 @@ impl Worker {
 
     fn load(&mut self, path: &Path, autoplay: bool) -> Result<()> {
         // 换曲先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
-        self.backend.close();
-        self.loaded = None;
+        self.teardown();
 
         let decoder = Decoder::open(path)?;
         let spec = decoder.spec().clone();
 
-        // 阶段 0 的目标布局恒为立体声。多声道要等阶段 1 的下混，
-        // `ChannelAdapt::plan` 会在做不到时给出带布局描述的能力错误。
+        // 阶段 0 的目标布局恒为立体声。多声道整体走平台原生后端；
+        // `ChannelAdapt::plan` 会在当前路径做不到时给出带布局描述的路由错误。
         let out_layout = ChannelLayout::STEREO;
         let adapt = ChannelAdapt::plan(spec.layout, out_layout)?;
 
@@ -349,13 +382,25 @@ impl Worker {
 
         // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
         // 输出域的采样率才是链路后半段的基准。
-        let request = OutputRequest { sample_rate: spec.sample_rate, layout: out_layout };
+        let request = OutputRequest {
+            sample_rate: spec.sample_rate,
+            layout: out_layout,
+        };
         let probe = self.backend.negotiate(&request)?;
         let out_rate = probe.sample_rate;
 
         let resampler = Resampling::new(spec.sample_rate, out_rate, spec.layout.count() as usize)?;
         let capacity_frames = (out_rate as f64 * RING_SECONDS) as usize;
         let (producer, consumer) = crate::ring::ring(capacity_frames, out_channels);
+
+        // `open` 会立即启动设备回调，所有共享状态必须在它之前就准备好。
+        // 早先顺序相反，回调能抢在 set_paused 前读空 ring，把正常启动误记成欠载。
+        self.shared.reset_position(0);
+        self.shared.set_gain(self.volume);
+        self.shared.set_resampled(resampler.is_active());
+        self.shared.set_source_drained(false);
+        self.shared.set_rebuffering(true);
+        self.shared.set_paused(true);
 
         let output = self.backend.open(&request, consumer, self.shared.clone())?;
         if output.sample_rate != out_rate {
@@ -365,16 +410,12 @@ impl Worker {
             return Err(EngineError::new(
                 Stage::Output,
                 ErrorKind::DeviceConfig,
-                format!("设备协商结果不一致：预演 {out_rate} Hz，实际 {} Hz", output.sample_rate),
+                format!(
+                    "设备协商结果不一致：预演 {out_rate} Hz，实际 {} Hz",
+                    output.sample_rate
+                ),
             ));
         }
-        self.shared.set_resampled(resampler.is_active());
-
-        self.shared.reset_position(0);
-        self.shared.set_gain(self.volume);
-        // 先按暂停打开：预缓冲没到阈值就发声会立刻欠载，开头听起来像卡了一下。
-        self.shared.set_paused(true);
-
         self.loaded = Some(Loaded {
             src_channels: spec.layout.count() as usize,
             decoder,
@@ -392,6 +433,7 @@ impl Worker {
         });
 
         self.prebuffer();
+        self.shared.set_rebuffering(false);
         self.emit(EngineEvent::Opened { spec, output });
 
         if autoplay {
@@ -422,8 +464,11 @@ impl Worker {
     ///
     /// 管线：解码 → 重采样（源声道数）→ 声道适配 → 环形缓冲。
     fn pump(&mut self) -> bool {
-        let Some(loaded) = self.loaded.as_mut() else { return false };
+        let Some(loaded) = self.loaded.as_mut() else {
+            return false;
+        };
         if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
+            self.shared.set_source_drained(true);
             return false;
         }
 
@@ -434,6 +479,12 @@ impl Worker {
 
         // 先把上一轮没写完的残余送进去。
         if loaded.pending_pos < loaded.pending.len() {
+            let remaining = loaded.pending.len() - loaded.pending_pos;
+            if loaded.eof && loaded.flushed && remaining <= loaded.producer.writable() {
+                // 先发布“不会再生产”，再发布最后一批样本；回调看到尾帧不足整块时
+                // 才能稳定地把补零识别为自然收尾，而不是偶发欠载。
+                self.shared.set_source_drained(true);
+            }
             let written = loaded.producer.write(&loaded.pending[loaded.pending_pos..]);
             loaded.pending_pos += written;
             if loaded.pending_pos < loaded.pending.len() {
@@ -447,6 +498,7 @@ impl Worker {
             // 流已读完但重采样器里还压着尾部延迟，冲出来再收工，
             // 否则结尾会缺几十毫秒——单曲不易察觉，gapless 拼接时正好丢在接缝上。
             if loaded.flushed {
+                self.shared.set_source_drained(true);
                 return false;
             }
             loaded.flushed = true;
@@ -464,7 +516,9 @@ impl Worker {
                 }
             };
             if more {
-                loaded.resampler.process(&self.decode_scratch, &mut loaded.resampled);
+                loaded
+                    .resampler
+                    .process(&self.decode_scratch, &mut loaded.resampled);
             } else {
                 loaded.eof = true;
                 loaded.flushed = true;
@@ -474,6 +528,9 @@ impl Worker {
 
         if loaded.resampled.is_empty() {
             // 重采样器还没攒够一整块，本轮没有可送的数据。
+            if loaded.eof {
+                self.shared.set_source_drained(true);
+            }
             return !loaded.eof;
         }
 
@@ -481,20 +538,48 @@ impl Worker {
         let needed = loaded.adapt.out_samples(in_frames, loaded.out_channels);
         loaded.pending.resize(needed, 0.0);
         loaded.adapt.apply(&loaded.resampled, &mut loaded.pending);
+        if loaded.eof && loaded.flushed && loaded.pending.len() <= loaded.producer.writable() {
+            self.shared.set_source_drained(true);
+        }
         loaded.pending_pos = loaded.producer.write(&loaded.pending);
+        if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
+            self.shared.set_source_drained(true);
+        }
         true
     }
 
     fn seek(&mut self, seconds: f64) -> Result<()> {
-        let Some(loaded) = self.loaded.as_mut() else { return Ok(()) };
+        if self.loaded.is_none() {
+            return Ok(());
+        }
 
-        let frames = loaded.decoder.seek(seconds)?;
+        let resume = self.state == PlaybackState::Playing;
+        // 准确定位可能触发容器 I/O；先让输出回调进入静音/重缓冲态，避免它在定位期间
+        // 继续把旧 PCM 往外送。回调仍保持运行，所以能处理下面的 flush 请求。
+        self.shared.set_source_drained(false);
+        self.shared.set_rebuffering(true);
+        self.shared.set_paused(true);
+
+        let frames = self
+            .loaded
+            .as_mut()
+            .expect("刚确认过已装载")
+            .decoder
+            .seek(seconds)?;
 
         // 顺序不能反：先丢弃在途 PCM，再重设位置锚点。反过来的话，
         // 旧音频仍会被消费并把位置往前推，界面会看到进度先跳回再乱跳。
-        self.shared.set_rebuffering(true);
         let loaded = self.loaded.as_mut().expect("刚确认过已装载");
-        loaded.producer.flush(FLUSH_TIMEOUT);
+        if !loaded.producer.flush(FLUSH_TIMEOUT) {
+            return Err(EngineError::new(
+                Stage::Output,
+                ErrorKind::Stream,
+                format!(
+                    "输出回调未在 {} ms 内确认清空定位前的缓冲",
+                    FLUSH_TIMEOUT.as_millis()
+                ),
+            ));
+        }
         // 重采样器持有跨块的历史样本，不复位会把定位前的尾巴混进定位后的开头。
         loaded.resampler.reset();
         loaded.resampled.clear();
@@ -504,13 +589,15 @@ impl Worker {
         loaded.flushed = false;
         loaded.ended_reported = false;
         // 位置计数器记的是输出帧，源帧要按比率换算。
-        self.shared.reset_position(loaded.resampler.src_frames_to_out(frames));
+        self.shared
+            .reset_position(loaded.resampler.src_frames_to_out(frames));
 
         self.prebuffer();
         self.shared.set_rebuffering(false);
         if self.state == PlaybackState::Ended {
             self.set_state(PlaybackState::Paused);
         }
+        self.shared.set_paused(!resume);
         Ok(())
     }
 
@@ -519,7 +606,9 @@ impl Worker {
     /// 判据里必须带上「缓冲排空」：解码可以领先播放一秒以上，只看 EOF 会在
     /// 最后一秒还在发声时就报播完。
     fn check_ended(&mut self) {
-        let Some(loaded) = self.loaded.as_mut() else { return };
+        let Some(loaded) = self.loaded.as_mut() else {
+            return;
+        };
         if !loaded.eof || !loaded.flushed || loaded.ended_reported {
             return;
         }
@@ -544,6 +633,10 @@ impl Worker {
         let position_sec = self.shared.played_frames() as f64 / rate;
         let buffered_sec = loaded.producer.queued_frames() as f64 / rate;
         let duration_sec = loaded.decoder.spec().duration_sec();
-        self.emit(EngineEvent::Progress { position_sec, duration_sec, buffered_sec });
+        self.emit(EngineEvent::Progress {
+            position_sec,
+            duration_sec,
+            buffered_sec,
+        });
     }
 }

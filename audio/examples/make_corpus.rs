@@ -30,7 +30,12 @@ struct Target {
 }
 
 const TARGETS: &[Target] = &[
-    Target { name: "flac", file: "stereo.flac", args: &["-c:a", "flac"], lossless: true },
+    Target {
+        name: "flac",
+        file: "stereo.flac",
+        args: &["-c:a", "flac"],
+        lossless: true,
+    },
     Target {
         name: "alac",
         file: "stereo_alac.m4a",
@@ -154,13 +159,20 @@ fn main() {
                     target.name,
                     target.file,
                     size / 1024,
-                    if target.lossless { "  无损" } else { "  有损" }
+                    if target.lossless {
+                        "  无损"
+                    } else {
+                        "  有损"
+                    }
                 );
             }
             _ => {
                 // 某个编码器缺失不该让整个矩阵失败：其余格式仍然可用，
                 // 测试侧按「文件在就测」处理，缺哪个一目了然。
-                println!("  {:<14} 生成失败（编码器可能未编入本机 ffmpeg）", target.name);
+                println!(
+                    "  {:<14} 生成失败（编码器可能未编入本机 ffmpeg）",
+                    target.name
+                );
                 failed.push(target.name);
             }
         }
@@ -175,5 +187,7 @@ fn main() {
 
 /// 语料目录：`audio/tests/corpus/`，已在 .gitignore 里。
 fn corpus_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("corpus")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("corpus")
 }

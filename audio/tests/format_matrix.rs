@@ -34,20 +34,82 @@ struct Case {
 }
 
 const CASES: &[Case] = &[
-    Case { name: "flac", file: "stereo.flac", lossless: true, channels: 2, rate: RATE },
-    Case { name: "alac", file: "stereo_alac.m4a", lossless: true, channels: 2, rate: RATE },
-    Case { name: "aiff", file: "stereo.aiff", lossless: true, channels: 2, rate: RATE },
-    Case { name: "caf", file: "stereo.caf", lossless: true, channels: 2, rate: RATE },
-    Case { name: "flac-in-mka", file: "stereo_flac.mka", lossless: true, channels: 2, rate: RATE },
-    Case { name: "aac", file: "stereo_aac.m4a", lossless: false, channels: 2, rate: RATE },
-    Case { name: "mp3", file: "stereo.mp3", lossless: false, channels: 2, rate: RATE },
-    Case { name: "vorbis", file: "stereo.ogg", lossless: false, channels: 2, rate: RATE },
-    Case { name: "mono-flac", file: "mono.flac", lossless: true, channels: 1, rate: RATE },
-    Case { name: "48k-flac", file: "stereo_48k.flac", lossless: true, channels: 2, rate: 48_000 },
+    Case {
+        name: "flac",
+        file: "stereo.flac",
+        lossless: true,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "alac",
+        file: "stereo_alac.m4a",
+        lossless: true,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "aiff",
+        file: "stereo.aiff",
+        lossless: true,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "caf",
+        file: "stereo.caf",
+        lossless: true,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "flac-in-mka",
+        file: "stereo_flac.mka",
+        lossless: true,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "aac",
+        file: "stereo_aac.m4a",
+        lossless: false,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "mp3",
+        file: "stereo.mp3",
+        lossless: false,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "vorbis",
+        file: "stereo.ogg",
+        lossless: false,
+        channels: 2,
+        rate: RATE,
+    },
+    Case {
+        name: "mono-flac",
+        file: "mono.flac",
+        lossless: true,
+        channels: 1,
+        rate: RATE,
+    },
+    Case {
+        name: "48k-flac",
+        file: "stereo_48k.flac",
+        lossless: true,
+        channels: 2,
+        rate: 48_000,
+    },
 ];
 
 fn corpus_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("corpus")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("corpus")
 }
 
 /// 语料齐备时返回目录，否则打印生成命令并返回 `None`（用例跳过）。
@@ -67,7 +129,10 @@ fn decode_all(path: &Path) -> (Vec<f32>, u32, u16) {
     let rate = decoder.spec().sample_rate;
     let channels = decoder.spec().layout.count();
     let mut out = Vec::new();
-    while decoder.next_frames(&mut out).unwrap_or_else(|e| panic!("解码 {path:?} 失败：{e}")) {}
+    while decoder
+        .next_frames(&mut out)
+        .unwrap_or_else(|e| panic!("解码 {path:?} 失败：{e}"))
+    {}
     (out, rate, channels)
 }
 
@@ -84,7 +149,9 @@ fn rms(samples: &[f32]) -> f64 {
 /// 有偏移搜索是因为编码器会插入前导延迟；直接按下标比对会把「对齐问题」
 /// 误报成「解码错误」，两者的修法完全不同。
 fn best_alignment(a: &[f32], b: &[f32], channels: usize, window: i64) -> (i64, f64) {
-    let compare_frames = 20_000.min(a.len() / channels / 2).min(b.len() / channels / 2);
+    let compare_frames = 20_000
+        .min(a.len() / channels / 2)
+        .min(b.len() / channels / 2);
     let mut best = (0i64, f64::MAX);
     for shift in -window..=window {
         let (ai, bi) = if shift >= 0 {
@@ -136,7 +203,10 @@ fn lossless_formats_match_the_source_sample_for_sample() {
     let Some(dir) = corpus() else { return };
     let (source, _, _) = decode_all(&dir.join("source.wav"));
 
-    for case in CASES.iter().filter(|c| c.lossless && c.channels == 2 && c.rate == RATE) {
+    for case in CASES
+        .iter()
+        .filter(|c| c.lossless && c.channels == 2 && c.rate == RATE)
+    {
         let path = dir.join(case.file);
         if !path.exists() {
             eprintln!("  跳过 {}：语料缺失", case.name);
@@ -188,7 +258,9 @@ fn every_format_seeks_to_the_right_place() {
             continue;
         }
         let mut decoder = Decoder::open(&path).unwrap();
-        let frames = decoder.seek(1.0).unwrap_or_else(|e| panic!("{} 定位失败：{e}", case.name));
+        let frames = decoder
+            .seek(1.0)
+            .unwrap_or_else(|e| panic!("{} 定位失败：{e}", case.name));
         let expect = case.rate as i64;
         assert!(
             (frames as i64 - expect).abs() < case.rate as i64 / 10,
@@ -218,11 +290,14 @@ fn every_format_plays_to_completion() {
             let (ended, errors) = (ended.clone(), errors.clone());
             // 固定 48 kHz：既覆盖 44.1 → 48 的重采样，也让 48k 语料走直通，
             // 一个后端同时验两条路径。
-            Engine::spawn(Box::new(NullOutput::with_fixed_rate(48_000)), move |event| match event {
-                EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
-                EngineEvent::Error(e) => errors.lock().unwrap().push(e.to_string()),
-                _ => {}
-            })
+            Engine::spawn(
+                Box::new(NullOutput::with_fixed_rate(48_000)),
+                move |event| match event {
+                    EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
+                    EngineEvent::Error(e) => errors.lock().unwrap().push(e.to_string()),
+                    _ => {}
+                },
+            )
         };
 
         engine.load(&path, true).unwrap();
@@ -233,8 +308,17 @@ fn every_format_plays_to_completion() {
 
         let errs = errors.lock().unwrap().clone();
         assert!(errs.is_empty(), "{} 播放报错：{errs:?}", case.name);
-        assert!(ended.load(Ordering::Relaxed), "{} 没能播放到自然结束", case.name);
-        assert_eq!(engine.stats().underruns, 0, "{} 播放期间发生欠载", case.name);
+        assert!(
+            ended.load(Ordering::Relaxed),
+            "{} 没能播放到自然结束",
+            case.name
+        );
+        assert_eq!(
+            engine.stats().underruns,
+            0,
+            "{} 播放期间发生欠载",
+            case.name
+        );
     }
 }
 
@@ -245,7 +329,12 @@ fn one_engine_plays_a_mixed_format_playlist() {
     // 输出流、环形缓冲与重采样器必须整套重建。沿用旧配置的话，
     // 轻则音高不对，重则按错误的声道数读缓冲。
     let Some(dir) = corpus() else { return };
-    let playlist = ["stereo.flac", "stereo_48k.flac", "mono.flac", "stereo_alac.m4a"];
+    let playlist = [
+        "stereo.flac",
+        "stereo_48k.flac",
+        "mono.flac",
+        "stereo_alac.m4a",
+    ];
     if playlist.iter().any(|f| !dir.join(f).exists()) {
         eprintln!("  跳过歌单用例：语料缺失");
         return;
@@ -260,9 +349,7 @@ fn one_engine_plays_a_mixed_format_playlist() {
         Engine::spawn(Box::new(NullOutput::new()), move |event| match event {
             EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
             EngineEvent::Error(e) => errors.lock().unwrap().push(e.to_string()),
-            EngineEvent::Opened { output, .. } => {
-                rates.lock().unwrap().push(output.sample_rate)
-            }
+            EngineEvent::Opened { output, .. } => rates.lock().unwrap().push(output.sample_rate),
             _ => {}
         })
     };

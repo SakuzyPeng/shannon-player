@@ -41,12 +41,11 @@ impl Default for CpalOutput {
 
 impl CpalOutput {
     pub fn new() -> Self {
-        Self { stream: None, config: None, errors: None }
-    }
-
-    /// 取出运行期错误（设备被拔出、被独占等）。回调只投递，处置由控制线程决定。
-    pub fn take_error(&self) -> Option<String> {
-        self.errors.as_ref().and_then(|rx| rx.try_recv().ok())
+        Self {
+            stream: None,
+            config: None,
+            errors: None,
+        }
     }
 }
 
@@ -96,12 +95,13 @@ fn negotiate(device: &Device, request: &OutputRequest) -> Result<cpal::Supported
         rates.push(r.min_sample_rate());
         rates.push(r.max_sample_rate());
     }
-    let chosen = crate::resample::pick_output_rate(request.sample_rate, &rates).ok_or_else(|| {
-        device_err(
-            ErrorKind::DeviceConfig,
-            format!("设备「{}」没有报出任何可用采样率", device_label(device)),
-        )
-    })?;
+    let chosen =
+        crate::resample::pick_output_rate(request.sample_rate, &rates).ok_or_else(|| {
+            device_err(
+                ErrorKind::DeviceConfig,
+                format!("设备「{}」没有报出任何可用采样率", device_label(device)),
+            )
+        })?;
 
     let mut candidates: Vec<cpal::SupportedStreamConfigRange> = ranges
         .into_iter()
@@ -153,7 +153,9 @@ where
                 let ts = info.timestamp();
                 let delay = ts.playback.duration_since(ts.callback);
                 let frames = (delay.as_secs_f64() * sample_rate as f64) as u64;
-                shared.output_delay_frames.store(frames, std::sync::atomic::Ordering::Relaxed);
+                shared
+                    .output_delay_frames
+                    .store(frames, std::sync::atomic::Ordering::Relaxed);
 
                 // 回调请求可能超过 scratch，分块处理——分配是绝对禁止的。
                 let chunk_samples = scratch.len();
@@ -161,7 +163,14 @@ where
                 while written < out.len() {
                     let n = (out.len() - written).min(chunk_samples);
                     let block = &mut scratch[..n];
-                    fill_from_ring(block, channels, &mut consumer, &shared, &mut gain, ramp_step);
+                    fill_from_ring(
+                        block,
+                        channels,
+                        &mut consumer,
+                        &shared,
+                        &mut gain,
+                        ramp_step,
+                    );
                     for (dst, src) in out[written..written + n].iter_mut().zip(block.iter()) {
                         *dst = T::from_sample(*src);
                     }
@@ -242,6 +251,13 @@ impl OutputBackend for CpalOutput {
         self.errors = Some(err_rx);
         self.config = Some(out_config.clone());
         Ok(out_config)
+    }
+
+    fn take_error(&mut self) -> Option<EngineError> {
+        self.errors
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+            .map(|message| device_err(ErrorKind::Stream, format!("输出流运行失败：{message}")))
     }
 
     fn close(&mut self) {

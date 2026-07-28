@@ -36,7 +36,8 @@ pub struct SourceSpec {
 
 impl SourceSpec {
     pub fn duration_sec(&self) -> Option<f64> {
-        self.total_frames.map(|f| f as f64 / self.sample_rate as f64)
+        self.total_frames
+            .map(|f| f as f64 / self.sample_rate as f64)
     }
 }
 
@@ -58,9 +59,8 @@ fn open_err(kind: ErrorKind, stage: Stage, msg: impl Into<String>) -> EngineErro
 impl Decoder {
     /// 打开文件并准备解码。
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path).map_err(|e| {
-            open_err(ErrorKind::Io, Stage::Open, format!("打不开文件：{e}"))
-        })?;
+        let file = File::open(path)
+            .map_err(|e| open_err(ErrorKind::Io, Stage::Open, format!("打不开文件：{e}")))?;
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         // 扩展名只是提示，探测仍以内容为准——曲库里改错扩展名的文件并不少见。
@@ -70,9 +70,18 @@ impl Decoder {
         }
 
         let reader = symphonia::default::get_probe()
-            .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
+            .probe(
+                &hint,
+                mss,
+                FormatOptions::default(),
+                MetadataOptions::default(),
+            )
             .map_err(|e| {
-                open_err(ErrorKind::Unsupported, Stage::Probe, format!("识别不出容器格式：{e}"))
+                open_err(
+                    ErrorKind::Unsupported,
+                    Stage::Probe,
+                    format!("识别不出容器格式：{e}"),
+                )
             })?;
 
         let container = reader.format_info().short_name.to_string();
@@ -103,8 +112,12 @@ impl Decoder {
         let decoder = symphonia::default::get_codecs()
             .make_audio_decoder(&params, &opts)
             .map_err(|e| {
-                open_err(ErrorKind::Unsupported, Stage::Decode, format!("没有可用的解码器：{e}"))
-                    .with_format(Some(container.clone()), None)
+                open_err(
+                    ErrorKind::Unsupported,
+                    Stage::Decode,
+                    format!("没有可用的解码器：{e}"),
+                )
+                .with_format(Some(container.clone()), None)
             })?;
 
         let codec = decoder.codec_info().short_name.to_string();
@@ -130,7 +143,14 @@ impl Decoder {
             codec,
         };
 
-        Ok(Self { reader, decoder, track_id, time_base, spec, position_frames: 0 })
+        Ok(Self {
+            reader,
+            decoder,
+            track_id,
+            time_base,
+            spec,
+            position_frames: 0,
+        })
     }
 
     pub fn spec(&self) -> &SourceSpec {
@@ -192,7 +212,10 @@ impl Decoder {
         let seconds = seconds.max(0.0);
         let time = Time::try_from_secs_f64(seconds)
             .ok_or_else(|| self.decode_err(format!("定位时间 {seconds} 秒超出可表示范围")))?;
-        let to = SeekTo::Time { time, track_id: Some(self.track_id) };
+        let to = SeekTo::Time {
+            time,
+            track_id: Some(self.track_id),
+        };
         let seeked = self
             .reader
             .seek(SeekMode::Accurate, to)
@@ -227,8 +250,10 @@ impl Decoder {
     }
 
     fn decode_err(&self, msg: String) -> EngineError {
-        EngineError::new(Stage::Decode, ErrorKind::Decode, msg)
-            .with_format(Some(self.spec.container.clone()), Some(self.spec.codec.clone()))
+        EngineError::new(Stage::Decode, ErrorKind::Decode, msg).with_format(
+            Some(self.spec.container.clone()),
+            Some(self.spec.codec.clone()),
+        )
     }
 }
 

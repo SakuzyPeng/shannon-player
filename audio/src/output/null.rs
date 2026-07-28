@@ -12,7 +12,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::error::Result;
-use crate::output::{fill_from_ring, ramp_step_for, OutputBackend, OutputConfig, OutputRequest, OutputShared};
+use crate::output::{
+    fill_from_ring, ramp_step_for, OutputBackend, OutputConfig, OutputRequest, OutputShared,
+};
 use crate::ring::RingConsumer;
 
 /// 模拟回调的周期。取值贴近常见设备的缓冲区（约 10 ms）。
@@ -50,7 +52,12 @@ impl Default for NullOutput {
 
 impl NullOutput {
     pub fn new() -> Self {
-        Self { config: None, fixed_rate: None, stop: Arc::new(AtomicBool::new(false)), worker: None }
+        Self {
+            config: None,
+            fixed_rate: None,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        }
     }
 
     /// 模拟一台只支持单一采样率的设备，用于验证重采样路径。
@@ -92,7 +99,14 @@ impl OutputBackend for NullOutput {
             let mut gain = 0.0f32;
             let mut next = Instant::now();
             while !stop.load(Ordering::Relaxed) {
-                fill_from_ring(&mut buf, channels, &mut consumer, &shared, &mut gain, ramp_step);
+                fill_from_ring(
+                    &mut buf,
+                    channels,
+                    &mut consumer,
+                    &shared,
+                    &mut gain,
+                    ramp_step,
+                );
                 next += TICK;
                 let now = Instant::now();
                 if next > now {

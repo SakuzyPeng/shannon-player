@@ -272,7 +272,7 @@ Symphonia 管线加自定义解码器注册：
 | Symphonia 版本与 feature 集 | **已定 0.6.0**，实际启用 `mp3` / `isomp4` / `alac` / `aac`（`flac` / `wav` / `pcm` 在 default 内）。与 `shannon-core` 的 0.5.5 **并存**，见下节 |
 | Opus 解码器选型 | **已定 `symphonia-adapter-libopus`**，正是本文设想的集成方式的现成实现；default feature `bundled` 需编译 C 源码，三平台构建待实测 |
 | 是否需要 `ffmpeg-next` | 维持架构约束原判：仅当插件式解码仍覆盖不了且格式收益明确时评估 |
-| CPAL 与平台后端边界 | 以 `OutputBackend` trait 为界：共享模式的立体声与普通多声道归 CPAL；独占、直通、**空间路由**、热插拔归平台实现 |
+| CPAL 与平台后端边界 | 以 `OutputBackend` trait 为界：共享模式的**立体声**（含单声道上混）归 CPAL；一切多声道、独占、直通、空间路由与热插拔归平台实现 |
 | 导入用 FFmpeg 裁剪与打包 | 维持待定，属 ImportService（阶段 3）前的决策点 |
 
 ## 实施阶段
@@ -303,7 +303,7 @@ Symphonia 管线加自定义解码器注册：
 | 多声道输出 | **不在本路径内**——整体划归平台原生后端（阶段 5），当前报明确的路由错误 |
 | store 后继算法、queueRevision、事件桥、MockEngine | 未开始 |
 
-验证方式：`cargo test -p shannon-audio`（37 项，无头，语料现生成不入库）与
+验证方式：`cargo test -p shannon-audio`（44 项，无头，语料现生成不入库）与
 `cargo run -p shannon-audio --example play -- <文件>`。设备诊断用
 `--example devices`。二者均为架构约束允许的开发期工具。
 
