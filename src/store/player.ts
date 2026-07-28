@@ -21,6 +21,9 @@ import type { PlaybackError, PlayerStatus } from "@/types/generated/player";
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
 const nextUid = (): Id => `q-${uidSeq++}`;
+let loadSeq = 0;
+const loadSession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const nextLoadId = (): Id => `load-${loadSession}-${loadSeq++}`;
 let playlistSeq = 0;
 const nextPlaylistId = (): Id => `pl-user-${Date.now()}-${playlistSeq++}`;
 
@@ -68,6 +71,11 @@ interface PlayerState {
    * 实测就是这个：按钮变了，进度一动不动。
    */
   loadedTrackId: Id | null;
+  /**
+   * 当前装载请求的代际 ID。与曲目 ID 分开：单曲循环、失败重试都会连续装载同一首，
+   * 只比曲目 ID 无法识别上一代迟到的状态与结束事件。
+   */
+  activeLoadId: Id | null;
   /**
    * 上一次播放失败的原因；成功装载时清空。
    *
@@ -179,6 +187,44 @@ function shuffled(uids: Id[], first?: Id): Id[] {
 }
 
 /**
+ * 把队列投影成实际播放顺序。随机顺序是权威，但这里会防御性地去掉失效 uid、
+ * 补回漏同步的新项，避免一处旧状态让后继计算直接停住。
+ */
+export function orderedQueue(
+  queue: QueueItem[],
+  order: Id[] | null,
+): QueueItem[] {
+  if (order === null) return queue;
+  const byUid = new Map(queue.map((item) => [item.uid, item]));
+  const seen = new Set<Id>();
+  const ordered: QueueItem[] = [];
+  for (const uid of order) {
+    const item = byUid.get(uid);
+    if (item && !seen.has(uid)) {
+      seen.add(uid);
+      ordered.push(item);
+    }
+  }
+  for (const item of queue) {
+    if (!seen.has(item.uid)) ordered.push(item);
+  }
+  return ordered;
+}
+
+/** 当前项之后真正会播放的队列；面板与 next() 共用同一份顺序事实。 */
+export function upNextItems(
+  queue: QueueItem[],
+  currentIndex: number,
+  order: Id[] | null,
+): QueueItem[] {
+  const ordered = orderedQueue(queue, order);
+  const currentUid = queue[currentIndex]?.uid;
+  if (currentUid === undefined) return ordered;
+  const currentPos = ordered.findIndex((item) => item.uid === currentUid);
+  return currentPos < 0 ? [] : ordered.slice(currentPos + 1);
+}
+
+/**
  * 求下一首的队列下标；没有下一首返回 -1。
  *
  * 随机与顺序的差别只在「排在谁后面」，循环规则完全共用——分开写两套是这类
@@ -192,15 +238,16 @@ function nextIndex(
   wrap: boolean,
 ): number {
   if (queue.length === 0) return -1;
-  if (order === null) {
-    const at = currentIndex + 1;
-    if (at < queue.length) return at;
-    return wrap && repeat === "all" ? 0 : -1;
-  }
+  const ordered = orderedQueue(queue, order);
   const uid = queue[currentIndex]?.uid;
-  const pos = order.indexOf(uid);
+  const pos = ordered.findIndex((item) => item.uid === uid);
+  if (pos < 0) return -1;
   const at = pos + 1;
-  const nextUidValue = at < order.length ? order[at] : wrap && repeat === "all" ? order[0] : undefined;
+  const nextUidValue = at < ordered.length
+    ? ordered[at].uid
+    : wrap && repeat === "all"
+      ? ordered[0]?.uid
+      : undefined;
   if (nextUidValue === undefined) return -1;
   const idx = queue.findIndex((q) => q.uid === nextUidValue);
   return idx;
@@ -209,10 +256,10 @@ function nextIndex(
 /** 求上一首的队列下标；没有上一首返回 -1。 */
 function prevIndex(queue: QueueItem[], currentIndex: number, order: Id[] | null): number {
   if (queue.length === 0) return -1;
-  if (order === null) return currentIndex > 0 ? currentIndex - 1 : -1;
-  const pos = order.indexOf(queue[currentIndex]?.uid);
+  const ordered = orderedQueue(queue, order);
+  const pos = ordered.findIndex((item) => item.uid === queue[currentIndex]?.uid);
   if (pos <= 0) return -1;
-  return queue.findIndex((q) => q.uid === order[pos - 1]);
+  return queue.findIndex((q) => q.uid === ordered[pos - 1].uid);
 }
 
 /** 初始队列：仅放入演示曲目，进度停在 43%（对齐设计稿）。 */
@@ -240,6 +287,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
   status: "idle",
   loadedTrackId: null,
+  activeLoadId: null,
   error: null,
   needsLibrary: false,
 
@@ -291,6 +339,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({
         queue: [...s.queue, item],
         currentIndex: s.queue.length,
+        shuffleOrder: s.shuffleOrder
+          ? [...orderedQueue(s.queue, s.shuffleOrder).map((q) => q.uid), item.uid]
+          : null,
         playing: true,
         progress: freshProgress(track),
       });
@@ -477,15 +528,31 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const track = s.current();
     if (!track) return;
     if (!track.path) {
-      set({ needsLibrary: true, playing: false, status: "idle", error: null, loadedTrackId: null });
+      set({
+        needsLibrary: true,
+        playing: false,
+        status: "idle",
+        error: null,
+        loadedTrackId: null,
+        activeLoadId: null,
+      });
       return;
     }
     // 浏览器预览的假引擎没有文件可读，时长得由这里告诉它。
     hintDuration(track.durationSec);
     // 乐观置 playing：装载到出声有几十毫秒，这期间按钮不该还停在「播放」上。
     // 真正的状态随后由引擎事件校正（装载失败时会被改回来）。
-    set({ needsLibrary: false, error: null, loadedTrackId: track.id, playing: autoplay });
-    void engine.load(track.path, track.id, autoplay);
+    const loadId = nextLoadId();
+    set({
+      needsLibrary: false,
+      error: null,
+      loadedTrackId: track.id,
+      activeLoadId: loadId,
+      playing: autoplay,
+    });
+    // 有效音量与 load 走同一条后端命令，不能拆成两个异步 invoke：后者可能后到，
+    // 让第一首短暂甚至全程使用引擎默认的 1.0。
+    void engine.load(track.path, track.id, loadId, autoplay, s.muted ? 0 : s.volume);
   },
 
   adoptLibrary: (tracks) => {
@@ -499,13 +566,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     // 整库进队列，不是只放第一首：只放一首的话「下一首」会原地打转
     // ——按钮亮着、按下去却什么都没发生，比按钮是灰的还费解。
     // 用户点专辑/歌单时 `playQueue` 会整个替换掉，这只是启动时的默认队列。
+    const queue = tracks.map((track) => ({ uid: nextUid(), track, source: "auto" as const }));
     set({
-      queue: tracks.map((track) => ({ uid: nextUid(), track, source: "auto" as const })),
+      queue,
       currentIndex: 0,
-      shuffleOrder: null,
+      shuffleOrder: s.shuffle ? shuffled(queue.map((item) => item.uid), queue[0]?.uid) : null,
       playing: false,
       status: "idle",
       loadedTrackId: null,
+      activeLoadId: null,
       needsLibrary: false,
       progress: freshProgress(tracks[0]),
     });
@@ -515,7 +584,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     return engine.onEvent((event) => {
       const s = get();
       const currentId = s.current()?.id;
-      // 丢弃过期事件：快速连点两首歌时，前一首的进度会晚于后一首的装载到达。
+      // 以装载代际为第一判据：同一首连续重载时 trackId 相同，只有 loadId 能识别迟到事件。
+      if (event.loadId !== s.activeLoadId) return;
+      // trackId 再做一层契约防御；正常情况下它与当前曲目必然一致。
       if (event.trackId != null && currentId != null && event.trackId !== currentId) return;
 
       switch (event.type) {
@@ -570,17 +641,61 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         case "failed":
           // 播不了就停下并如实说明。**不自动跳下一首**——整库格式不支持时那会变成
           // 一场无声的快进，用户完全不知道发生了什么。
-          set({ status: "error", playing: false, error: event.error, loadedTrackId: null });
+          set({
+            status: "error",
+            playing: false,
+            error: event.error,
+            loadedTrackId: null,
+            activeLoadId: null,
+          });
           break;
       }
     });
   },
 
   clearUpNext: () =>
-    set((s) => ({ queue: s.queue.slice(0, s.currentIndex + 1) })),
+    set((s) => {
+      const currentUid = s.queue[s.currentIndex]?.uid;
+      if (currentUid === undefined) return s;
+      const removed = new Set(upNextItems(s.queue, s.currentIndex, s.shuffleOrder).map((q) => q.uid));
+      const queue = s.queue.filter((item) => !removed.has(item.uid));
+      return {
+        queue,
+        currentIndex: queue.findIndex((item) => item.uid === currentUid),
+        shuffleOrder: s.shuffleOrder
+          ? orderedQueue(queue, s.shuffleOrder).map((item) => item.uid)
+          : null,
+      };
+    }),
 
   reorderUpNext: (items) =>
-    set((s) => ({ queue: [...s.queue.slice(0, s.currentIndex + 1), ...items] })),
+    set((s) => {
+      if (s.shuffleOrder === null) {
+        return { queue: [...s.queue.slice(0, s.currentIndex + 1), ...items] };
+      }
+      const ordered = orderedQueue(s.queue, s.shuffleOrder);
+      const currentUid = s.queue[s.currentIndex]?.uid;
+      const currentPos = ordered.findIndex((item) => item.uid === currentUid);
+      if (currentPos < 0) return s;
+
+      const future = ordered.slice(currentPos + 1);
+      const allowed = new Set(future.map((item) => item.uid));
+      const seen = new Set<Id>();
+      const reordered = items.filter((item) => {
+        if (!allowed.has(item.uid) || seen.has(item.uid)) return false;
+        seen.add(item.uid);
+        return true;
+      });
+      // 拖拽库通常会回传完整 values；仍补回遗漏项，避免一次异常回调等价于删除歌曲。
+      const omitted = future.filter((item) => !seen.has(item.uid));
+      return {
+        shuffleOrder: [
+          ...ordered.slice(0, currentPos + 1).map((item) => item.uid),
+          ...reordered.map((item) => item.uid),
+          ...omitted.map((item) => item.uid),
+        ],
+      };
+    }),
 
   playQueueItem: (uid) => {
     const s = get();
@@ -613,8 +728,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // 而不是丢进乱序里等运气。
       let shuffleOrder = s.shuffleOrder;
       if (shuffleOrder) {
+        shuffleOrder = orderedQueue(s.queue, shuffleOrder).map((q) => q.uid);
         const pos = shuffleOrder.indexOf(s.queue[s.currentIndex]?.uid);
-        shuffleOrder = shuffleOrder.slice();
         shuffleOrder.splice(pos < 0 ? shuffleOrder.length : pos + 1, 0, item.uid);
       }
       return { queue, shuffleOrder };
@@ -625,7 +740,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       const item: QueueItem = { uid: nextUid(), track, source: "auto" };
       return {
         queue: [...s.queue, item],
-        shuffleOrder: s.shuffleOrder ? [...s.shuffleOrder, item.uid] : null,
+        shuffleOrder: s.shuffleOrder
+          ? [...orderedQueue(s.queue, s.shuffleOrder).map((q) => q.uid), item.uid]
+          : null,
       };
     }),
 

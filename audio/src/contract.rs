@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::decode::SourceSpec;
-use crate::engine::{EngineEvent, PlaybackState};
+use crate::engine::{EngineEvent, PlaybackState, StampedEngineEvent};
 use crate::error::{EngineError, ErrorKind, Stage};
 use crate::output::OutputConfig;
 
@@ -146,8 +146,9 @@ impl From<&EngineError> for PlaybackError {
 
 /// 推给前端的播放事件。
 ///
-/// `trackId` 由外壳在装载时记下并原样回带：引擎只认文件路径，而前端的队列以曲目 ID
-/// 为键。不带这个字段的话，一次「快速连点两首歌」就会让迟到的进度事件被记到新曲目上。
+/// `trackId` 与 `loadId` 随装载命令进入引擎，再由产生事件的那个装载代际原样回带。
+/// 不能由外壳读取一个共享的“最新曲目”来盖章：命令入队是异步的，后一首会先覆盖共享值，
+/// 让前一首随后产生的事件冒充后一首。`loadId` 还负责区分同一曲目的连续重载。
 // `rename_all` 在标签枚举上**只作用于 variant 名**，字段名要另外用 `rename_all_fields`。
 // 少了它，序列化出来的是 `track_id` 而前端按 `trackId` 读——每个字段都是 undefined，
 // 且不会有任何编译期或运行期报错。下面那条序列化测试就是为了钉死这一点。
@@ -163,40 +164,51 @@ pub enum PlayerEvent {
     /// 音源已打开，附规格与输出配置。
     Opened {
         track_id: Option<String>,
+        load_id: String,
         format: PlaybackFormat,
     },
     /// 播放状态变化。
     Status {
         track_id: Option<String>,
+        load_id: String,
         status: PlayerStatus,
     },
     /// 进度推进（约 5 Hz）。界面在事件之间自行插值，事件只做重锚定。
     Progress {
         track_id: Option<String>,
+        load_id: String,
         position_sec: f64,
         duration_sec: Option<f64>,
         buffered_sec: f64,
     },
     /// 播放到自然结束。由前端决定下一首——队列策略（循环、随机）是前端的领域，
     /// 引擎只负责放好当前这一首。
-    Ended { track_id: Option<String> },
+    Ended {
+        track_id: Option<String>,
+        load_id: String,
+    },
     /// 播放失败。
     Failed {
         track_id: Option<String>,
+        load_id: String,
         error: PlaybackError,
     },
 }
 
 impl PlayerEvent {
-    /// 把引擎事件转成契约事件。`track_id` 是外壳记下的当前装载曲目。
-    pub fn from_engine(event: &EngineEvent, track_id: Option<String>) -> Self {
-        match event {
+    /// 把已带装载上下文的引擎事件转成前端契约事件。
+    pub fn from_engine(stamped: &StampedEngineEvent) -> Self {
+        let track_id = stamped.context.track_id.clone();
+        let load_id = stamped.context.load_id.clone();
+        match &stamped.event {
             EngineEvent::Opened { spec, output } => Self::Opened {
                 track_id,
+                load_id,
                 format: PlaybackFormat::new(spec, output),
             },
             EngineEvent::StateChanged(state) => Self::Status {
                 track_id,
+                load_id,
                 status: (*state).into(),
             },
             EngineEvent::Progress {
@@ -205,13 +217,15 @@ impl PlayerEvent {
                 buffered_sec,
             } => Self::Progress {
                 track_id,
+                load_id,
                 position_sec: *position_sec,
                 duration_sec: *duration_sec,
                 buffered_sec: *buffered_sec,
             },
-            EngineEvent::TrackEnded => Self::Ended { track_id },
+            EngineEvent::TrackEnded => Self::Ended { track_id, load_id },
             EngineEvent::Error(err) => Self::Failed {
                 track_id,
+                load_id,
                 error: err.into(),
             },
         }
@@ -239,9 +253,14 @@ mod tests {
         // 前端按 `type` 分派；少了它就只能靠字段有无来猜事件种类。
         let event = PlayerEvent::Ended {
             track_id: Some("t-1".into()),
+            load_id: "load-7".into(),
         };
         let json = serde_json::to_string(&event).expect("契约事件必须可序列化");
         assert!(json.contains("\"type\":\"ended\""), "实际 JSON：{json}");
         assert!(json.contains("\"trackId\":\"t-1\""), "字段必须是 camelCase");
+        assert!(
+            json.contains("\"loadId\":\"load-7\""),
+            "装载代际必须随事件回带"
+        );
     }
 }

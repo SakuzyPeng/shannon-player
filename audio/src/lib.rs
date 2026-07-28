@@ -18,6 +18,8 @@ pub mod resample;
 pub mod ring;
 
 pub use contract::{PlaybackError, PlaybackFormat, PlayerEvent, PlayerStatus};
-pub use engine::{Engine, EngineEvent, EngineStats, PlaybackState, PlayerCmd};
+pub use engine::{
+    Engine, EngineEvent, EngineStats, LoadContext, PlaybackState, PlayerCmd, StampedEngineEvent,
+};
 pub use error::{EngineError, ErrorKind, Result, Stage};
 pub use layout::{ChannelLayout, LayoutSource};

@@ -18,7 +18,7 @@
 //! 采样率不受此限——设备给不出源采样率时插入重采样，并在 stats 里如实标记。
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -60,7 +60,14 @@ pub enum PlaybackState {
 /// 控制命令。经通道投递，调用方不阻塞，结果一律走事件。
 #[derive(Debug)]
 pub enum PlayerCmd {
-    Load { path: PathBuf, autoplay: bool },
+    Load {
+        path: PathBuf,
+        autoplay: bool,
+        context: LoadContext,
+        /// 与装载命令原子生效的初始音量。诊断工具传 `None`，沿用引擎当前音量；
+        /// 前端传当前有效音量，避免首次 open 仍使用默认的 1.0。
+        initial_volume: Option<f32>,
+    },
     Play,
     Pause,
     Stop,
@@ -89,6 +96,33 @@ pub enum EngineEvent {
     Error(EngineError),
 }
 
+/// 一次装载请求的不透明上下文。
+///
+/// 引擎不解释曲目 ID 与装载 ID，只保证从 `Load` 起产生的每个事件都原样回带。
+/// 两者都要保留：`track_id` 让前端关联队列曲目，`load_id` 则能区分同一首曲目的
+/// 连续重载，避免上一代迟到事件污染新一代状态。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadContext {
+    pub track_id: Option<String>,
+    pub load_id: String,
+}
+
+impl LoadContext {
+    pub fn new(track_id: Option<String>, load_id: impl Into<String>) -> Self {
+        Self {
+            track_id,
+            load_id: load_id.into(),
+        }
+    }
+}
+
+/// 已盖装载章的引擎事件。外壳应直接使用这里的上下文，不能再读取“最新曲目”共享变量。
+#[derive(Debug, Clone)]
+pub struct StampedEngineEvent {
+    pub context: LoadContext,
+    pub event: EngineEvent,
+}
+
 /// 运行期统计。欠载计数对应架构约束验收条件第 5 条。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EngineStats {
@@ -108,6 +142,7 @@ pub struct Engine {
     cmd_tx: Sender<PlayerCmd>,
     shared: Arc<OutputShared>,
     alive: Arc<AtomicBool>,
+    load_sequence: AtomicU64,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -116,6 +151,15 @@ impl Engine {
     pub fn spawn<F>(backend: Box<dyn OutputBackend>, on_event: F) -> Self
     where
         F: Fn(EngineEvent) + Send + 'static,
+    {
+        Self::spawn_stamped(backend, move |stamped| on_event(stamped.event))
+    }
+
+    /// 起一个会回带装载上下文的引擎线程。Tauri 事件桥使用这一入口；
+    /// 诊断工具与只关心音频行为的测试可继续使用 [`Engine::spawn`]。
+    pub fn spawn_stamped<F>(backend: Box<dyn OutputBackend>, on_event: F) -> Self
+    where
+        F: Fn(StampedEngineEvent) + Send + 'static,
     {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let shared = Arc::new(OutputShared::default());
@@ -138,6 +182,7 @@ impl Engine {
             cmd_tx,
             shared,
             alive,
+            load_sequence: AtomicU64::new(0),
             worker: Some(worker),
         }
     }
@@ -150,9 +195,31 @@ impl Engine {
     }
 
     pub fn load(&self, path: impl Into<PathBuf>, autoplay: bool) -> Result<()> {
+        let sequence = self.load_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        self.load_with_context(
+            path,
+            autoplay,
+            LoadContext::new(None, format!("engine-{sequence}")),
+            None,
+        )
+    }
+
+    /// 装载并把调用方给出的上下文、有效音量与该次请求绑定。
+    ///
+    /// `initial_volume` 放在同一条命令里，而不是先异步 `set_volume` 再 `load`：
+    /// 两次 IPC 的完成顺序没有保证，拆开发送会让第一首偶发以默认满音量打开。
+    pub fn load_with_context(
+        &self,
+        path: impl Into<PathBuf>,
+        autoplay: bool,
+        context: LoadContext,
+        initial_volume: Option<f32>,
+    ) -> Result<()> {
         self.send(PlayerCmd::Load {
             path: path.into(),
             autoplay,
+            context,
+            initial_volume,
         })
     }
 
@@ -228,7 +295,8 @@ struct Loaded {
 struct Worker {
     backend: Box<dyn OutputBackend>,
     shared: Arc<OutputShared>,
-    on_event: Box<dyn Fn(EngineEvent) + Send>,
+    on_event: Box<dyn Fn(StampedEngineEvent) + Send>,
+    context: Option<LoadContext>,
     state: PlaybackState,
     loaded: Option<Loaded>,
     /// 音量与暂停都记在 shared 里，这里只留下用户设定的音量，
@@ -242,12 +310,13 @@ impl Worker {
     fn new(
         backend: Box<dyn OutputBackend>,
         shared: Arc<OutputShared>,
-        on_event: Box<dyn Fn(EngineEvent) + Send>,
+        on_event: Box<dyn Fn(StampedEngineEvent) + Send>,
     ) -> Self {
         Self {
             backend,
             shared,
             on_event,
+            context: None,
             state: PlaybackState::Idle,
             loaded: None,
             volume: 1.0,
@@ -281,9 +350,17 @@ impl Worker {
                 continue;
             }
 
-            let fed = self.pump();
-            self.check_ended();
-            self.emit_progress();
+            let fed = match self.pump() {
+                Ok(fed) => fed,
+                Err(err) => {
+                    self.fail(err);
+                    false
+                }
+            };
+            if self.state != PlaybackState::Error {
+                self.check_ended();
+                self.emit_progress();
+            }
 
             // 喂满了或没在播就让出 CPU；刚喂过料说明还欠着数据，立刻进下一轮。
             if !fed {
@@ -307,14 +384,24 @@ impl Worker {
         let Some(err) = self.backend.take_error() else {
             return false;
         };
-        self.teardown();
-        self.set_state(PlaybackState::Error);
-        self.emit(EngineEvent::Error(err));
+        self.fail(err);
         true
     }
 
     fn emit(&self, event: EngineEvent) {
-        (self.on_event)(event);
+        let context = self
+            .context
+            .clone()
+            .expect("引擎事件必须隶属于一次装载请求");
+        (self.on_event)(StampedEngineEvent { context, event });
+    }
+
+    /// 终止当前装载代际并上报错误。失败不是 EOF：拆掉链路后不会再产生自然结束事件，
+    /// 上层也就不会把损坏文件误当成播完并自动跳到下一首。
+    fn fail(&mut self, err: EngineError) {
+        self.teardown();
+        self.set_state(PlaybackState::Error);
+        self.emit(EngineEvent::Error(err));
     }
 
     fn set_state(&mut self, state: PlaybackState) {
@@ -326,12 +413,20 @@ impl Worker {
 
     fn handle(&mut self, cmd: PlayerCmd) {
         match cmd {
-            PlayerCmd::Load { path, autoplay } => {
+            PlayerCmd::Load {
+                path,
+                autoplay,
+                context,
+                initial_volume,
+            } => {
+                self.context = Some(context);
+                if let Some(volume) = initial_volume {
+                    self.volume = volume.clamp(0.0, 1.0);
+                    self.shared.set_gain(self.volume);
+                }
                 self.set_state(PlaybackState::Loading);
                 if let Err(err) = self.load(&path, autoplay) {
-                    self.teardown();
-                    self.set_state(PlaybackState::Error);
-                    self.emit(EngineEvent::Error(err));
+                    self.fail(err);
                 }
             }
             PlayerCmd::Play => {
@@ -353,9 +448,7 @@ impl Worker {
             }
             PlayerCmd::Seek(sec) => {
                 if let Err(err) = self.seek(sec) {
-                    self.teardown();
-                    self.set_state(PlaybackState::Error);
-                    self.emit(EngineEvent::Error(err));
+                    self.fail(err);
                 }
             }
             PlayerCmd::SetVolume(v) => {
@@ -432,7 +525,7 @@ impl Worker {
             ended_reported: false,
         });
 
-        self.prebuffer();
+        self.prebuffer()?;
         self.shared.set_rebuffering(false);
         self.emit(EngineEvent::Opened { spec, output });
 
@@ -446,35 +539,40 @@ impl Worker {
     }
 
     /// 填到预缓冲阈值。填不满（短文件）也返回，由 `check_ended` 处理结束。
-    fn prebuffer(&mut self) {
-        let Some(loaded) = &self.loaded else { return };
+    fn prebuffer(&mut self) -> Result<()> {
+        let Some(loaded) = &self.loaded else {
+            return Ok(());
+        };
         let target = (loaded.out_rate as f64 * PREBUFFER_MS / 1000.0) as usize;
         for _ in 0..4096 {
-            let Some(loaded) = &self.loaded else { return };
+            let Some(loaded) = &self.loaded else {
+                return Ok(());
+            };
             if loaded.producer.queued_frames() >= target || loaded.eof {
-                return;
+                return Ok(());
             }
-            if !self.pump() {
-                return;
+            if !self.pump()? {
+                return Ok(());
             }
         }
+        Ok(())
     }
 
     /// 解码并向环形缓冲喂料。返回是否推进了工作（用于决定要不要休眠）。
     ///
     /// 管线：解码 → 重采样（源声道数）→ 声道适配 → 环形缓冲。
-    fn pump(&mut self) -> bool {
+    fn pump(&mut self) -> Result<bool> {
         let Some(loaded) = self.loaded.as_mut() else {
-            return false;
+            return Ok(false);
         };
         if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
             self.shared.set_source_drained(true);
-            return false;
+            return Ok(false);
         }
 
         let high_water = (loaded.out_rate as f64 * HIGH_WATER_MS / 1000.0) as usize;
         if loaded.producer.queued_frames() >= high_water {
-            return false;
+            return Ok(false);
         }
 
         // 先把上一轮没写完的残余送进去。
@@ -489,7 +587,7 @@ impl Worker {
             loaded.pending_pos += written;
             if loaded.pending_pos < loaded.pending.len() {
                 // 缓冲满了，下轮继续。
-                return written > 0;
+                return Ok(written > 0);
             }
         }
 
@@ -499,22 +597,13 @@ impl Worker {
             // 否则结尾会缺几十毫秒——单曲不易察觉，gapless 拼接时正好丢在接缝上。
             if loaded.flushed {
                 self.shared.set_source_drained(true);
-                return false;
+                return Ok(false);
             }
             loaded.flushed = true;
             loaded.resampler.flush(&mut loaded.resampled);
         } else {
             self.decode_scratch.clear();
-            let more = match loaded.decoder.next_frames(&mut self.decode_scratch) {
-                Ok(more) => more,
-                Err(err) => {
-                    // 解码中途失败：报结构化错误并按流结束处理，由上层决定跳不跳下一首。
-                    loaded.eof = true;
-                    loaded.flushed = true;
-                    self.emit(EngineEvent::Error(err));
-                    return false;
-                }
-            };
+            let more = loaded.decoder.next_frames(&mut self.decode_scratch)?;
             if more {
                 loaded
                     .resampler
@@ -531,7 +620,7 @@ impl Worker {
             if loaded.eof {
                 self.shared.set_source_drained(true);
             }
-            return !loaded.eof;
+            return Ok(!loaded.eof);
         }
 
         let in_frames = loaded.resampled.len() / loaded.src_channels;
@@ -545,7 +634,7 @@ impl Worker {
         if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
             self.shared.set_source_drained(true);
         }
-        true
+        Ok(true)
     }
 
     fn seek(&mut self, seconds: f64) -> Result<()> {
@@ -592,7 +681,7 @@ impl Worker {
         self.shared
             .reset_position(loaded.resampler.src_frames_to_out(frames));
 
-        self.prebuffer();
+        self.prebuffer()?;
         self.shared.set_rebuffering(false);
         if self.state == PlaybackState::Ended {
             self.set_state(PlaybackState::Paused);

@@ -121,8 +121,17 @@ const EVENT_PLAYER = "player://event";
  * 循环模式在浏览器里全是死的，而这些恰恰是最需要反复看的交互。
  */
 export interface EngineAdapter {
-  /** 装载并（可选）立即播放。`trackId` 用于给事件盖章，见下方 onEvent。 */
-  load(path: string, trackId: string, autoplay: boolean): Promise<void>;
+  /**
+   * 装载并（可选）立即播放。`trackId` / `loadId` 用于给事件盖章；
+   * `initialVolume` 与装载作为一条命令生效，保证首次 open 不会先落到默认满音量。
+   */
+  load(
+    path: string,
+    trackId: string,
+    loadId: string,
+    autoplay: boolean,
+    initialVolume: number,
+  ): Promise<void>;
   play(): Promise<void>;
   pause(): Promise<void>;
   seek(positionSec: number): Promise<void>;
@@ -131,16 +140,16 @@ export interface EngineAdapter {
   /**
    * 订阅播放事件，返回取消订阅函数。
    *
-   * 事件都带 `trackId`：快速连点两首歌时，前一首的进度事件会晚于后一首的装载到达，
-   * 调用方据此丢弃过期事件（否则表现为进度条跳一下）。
+   * 事件都带 `trackId` 与 `loadId`：快速连点两首歌，乃至连续重载同一首时，
+   * 调用方都能丢弃上一代事件（否则表现为进度条或状态跳一下）。
    */
   onEvent(handler: (e: PlayerEvent) => void): Promise<() => void>;
 }
 
 /** 真引擎：命令走 IPC，事件走 Tauri event。 */
 const tauriEngine: EngineAdapter = {
-  load: (path, trackId, autoplay) =>
-    invoke<void>("player_load", { path, trackId, autoplay }),
+  load: (path, trackId, loadId, autoplay, initialVolume) =>
+    invoke<void>("player_load", { path, trackId, loadId, autoplay, initialVolume }),
   play: () => invoke<void>("player_play"),
   pause: () => invoke<void>("player_pause"),
   seek: (positionSec) => invoke<void>("player_seek", { positionSec }),
@@ -160,6 +169,7 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
   const handlers = new Set<(e: PlayerEvent) => void>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let trackId: string | null = null;
+  let loadId = "mock-idle";
   let position = 0;
   let duration = 0;
 
@@ -177,11 +187,11 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
     stopTimer();
     timer = setInterval(() => {
       position = Math.min(position + 0.2, duration);
-      emit({ type: "progress", trackId, positionSec: position, durationSec: duration, bufferedSec: duration });
+      emit({ type: "progress", trackId, loadId, positionSec: position, durationSec: duration, bufferedSec: duration });
       if (position >= duration) {
         stopTimer();
-        emit({ type: "status", trackId, status: "ended" });
-        emit({ type: "ended", trackId });
+        emit({ type: "status", trackId, loadId, status: "ended" });
+        emit({ type: "ended", trackId, loadId });
       }
     }, 200);
   };
@@ -190,13 +200,15 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
     setDuration: (sec) => {
       duration = Math.max(0, sec);
     },
-    load: async (_path, id, autoplay) => {
+    load: async (_path, id, idForLoad, autoplay) => {
       trackId = id;
+      loadId = idForLoad;
       position = 0;
-      emit({ type: "status", trackId, status: "loading" });
+      emit({ type: "status", trackId, loadId, status: "loading" });
       emit({
         type: "opened",
         trackId,
+        loadId,
         format: {
           container: "mock",
           codec: "mock",
@@ -210,26 +222,26 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
           resampled: false,
         },
       });
-      emit({ type: "status", trackId, status: autoplay ? "playing" : "paused" });
+      emit({ type: "status", trackId, loadId, status: autoplay ? "playing" : "paused" });
       if (autoplay) startTimer();
     },
     play: async () => {
-      emit({ type: "status", trackId, status: "playing" });
+      emit({ type: "status", trackId, loadId, status: "playing" });
       startTimer();
     },
     pause: async () => {
       stopTimer();
-      emit({ type: "status", trackId, status: "paused" });
+      emit({ type: "status", trackId, loadId, status: "paused" });
     },
     seek: async (positionSec) => {
       position = Math.max(0, Math.min(positionSec, duration));
-      emit({ type: "progress", trackId, positionSec: position, durationSec: duration, bufferedSec: duration });
+      emit({ type: "progress", trackId, loadId, positionSec: position, durationSec: duration, bufferedSec: duration });
     },
     setVolume: async () => {},
     stop: async () => {
       stopTimer();
       position = 0;
-      emit({ type: "status", trackId, status: "idle" });
+      emit({ type: "status", trackId, loadId, status: "idle" });
     },
     onEvent: async (handler) => {
       handlers.add(handler);

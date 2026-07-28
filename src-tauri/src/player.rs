@@ -1,7 +1,7 @@
 //! 播放引擎的外壳接线：持有引擎、注册命令、把引擎事件转成 Tauri event。
 //!
 //! 与曲库那半边同一套路——**逻辑全在 `shannon-audio`**（零 Tauri 依赖，可无头测试），
-//! 这里只负责三件事：把命令暴露给前端、把引擎回调转成事件、记住「当前装载的是哪首」。
+//! 这里只负责两件事：把命令暴露给前端、把引擎回调转成事件。
 //!
 //! ## 引擎为什么是懒起的
 //!
@@ -9,17 +9,18 @@
 //! 建好它，等于应用一启动就占用声卡——用户可能只是想整理曲库，却发现别的应用抢不到
 //! 独占设备。所以推迟到第一次真正要放东西的时候。
 //!
-//! ## `track_id` 为什么要外壳记
+//! ## `track_id` / `load_id` 为什么要随命令进入引擎
 //!
 //! 引擎只认文件路径，前端的队列以曲目 ID 为键。快速连点两首歌时，前一首的进度事件
-//! 会晚于后一首的装载到达；不带 ID 的话这些迟到事件会被记到新曲目头上，表现为进度条
-//! 跳一下。让外壳在装载时记下 ID 并给每个事件盖章，前端就能把过期事件直接丢掉。
+//! 会晚于后一首的装载请求；如果外壳只保存一个“最新 ID”，后一首会在引擎真正处理前一首
+//! 之前覆盖它，反而给事件盖错章。因此二者作为不透明上下文随 `Load` 进入引擎，由产生事件
+//! 的那个装载代际原样回带。`load_id` 还能区分同一首曲目的连续重载。
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use shannon_audio::contract::PlayerEvent;
 use shannon_audio::output::cpal_out::CpalOutput;
-use shannon_audio::{Engine, PlayerCmd};
+use shannon_audio::{Engine, LoadContext, PlayerCmd};
 use tauri::{Emitter, State};
 
 /// 播放事件名。前端 `listen()` 用同一字符串。
@@ -27,9 +28,7 @@ pub const EVENT_PLAYER: &str = "player://event";
 
 /// 播放器状态。
 ///
-/// `engine` 与 `track_id` 分开加锁会引入一个真实的竞态：装载与「记下 ID」之间若有
-/// 别的命令挤进来，事件就会盖错章。合成一把锁，代价是命令串行——而命令本来就该串行，
-/// 引擎内部也是单线程按序处理的。
+/// 命令经同一把锁串行投递；引擎内部同样由单线程按序处理。
 #[derive(Default)]
 pub struct PlayerState {
     inner: Mutex<Option<Running>>,
@@ -37,8 +36,6 @@ pub struct PlayerState {
 
 struct Running {
     engine: Engine,
-    /// 当前装载曲目的 ID，由事件回调共享读取。
-    track_id: Arc<Mutex<Option<String>>>,
 }
 
 impl PlayerState {
@@ -51,20 +48,17 @@ impl PlayerState {
     ) -> Result<std::sync::MutexGuard<'_, Option<Running>>, String> {
         let mut slot = self.inner.lock().map_err(|e| e.to_string())?;
         if slot.is_none() {
-            let track_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
             let engine = {
                 let app = app.clone();
-                let track_id = track_id.clone();
-                Engine::spawn(Box::new(CpalOutput::new()), move |event| {
+                Engine::spawn_stamped(Box::new(CpalOutput::new()), move |event| {
                     // 这个回调跑在引擎线程上，不能做重活。序列化 + emit 已经是上限；
-                    // 锁只在读一个 Option<String> 的瞬间持有。
-                    let id = track_id.lock().ok().and_then(|g| g.clone());
-                    let payload = PlayerEvent::from_engine(&event, id);
+                    // 装载上下文已经由引擎盖好章，这里不再读取任何“最新 ID”共享状态。
+                    let payload = PlayerEvent::from_engine(&event);
                     // 发送失败（窗口已关）不该让引擎线程 panic。
                     let _ = app.emit(EVENT_PLAYER, &payload);
                 })
             };
-            *slot = Some(Running { engine, track_id });
+            *slot = Some(Running { engine });
         }
         Ok(slot)
     }
@@ -85,22 +79,27 @@ impl PlayerState {
 
 /// 装载并播放一个文件。
 ///
-/// `track_id` 只用来给事件盖章，引擎不认识它。
+/// `track_id` / `load_id` 只作为不透明上下文回带，引擎不解释它们。
 #[tauri::command]
 pub fn player_load(
     app: tauri::AppHandle,
     state: State<'_, PlayerState>,
     path: String,
     track_id: String,
+    load_id: String,
     autoplay: bool,
+    initial_volume: f32,
 ) -> Result<(), String> {
     let slot = state.ensure(&app)?;
     let running = slot.as_ref().expect("ensure 保证已装配");
-    // 先记 ID 再发命令：反过来的话，装载事件会带着上一首的 ID 发出去。
-    *running.track_id.lock().map_err(|e| e.to_string())? = Some(track_id);
     running
         .engine
-        .load(path, autoplay)
+        .load_with_context(
+            path,
+            autoplay,
+            LoadContext::new(Some(track_id), load_id),
+            Some(initial_volume),
+        )
         .map_err(|e| e.to_string())
 }
 

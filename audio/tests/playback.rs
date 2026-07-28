@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use shannon_audio::decode::Decoder;
-use shannon_audio::engine::{Engine, EngineEvent, PlaybackState};
+use shannon_audio::engine::{Engine, EngineEvent, LoadContext, PlaybackState};
 use shannon_audio::layout::ChannelLayout;
 use shannon_audio::mix::ChannelAdapt;
 use shannon_audio::output::null::NullOutput;
@@ -273,6 +273,40 @@ struct FailingOutput {
     fail: Arc<AtomicBool>,
 }
 
+/// 记录每次 open 看到的目标增益，验证初始音量是否与 Load 原子生效。
+struct GainRecordingOutput {
+    inner: NullOutput,
+    gains: Arc<Mutex<Vec<f32>>>,
+}
+
+impl OutputBackend for GainRecordingOutput {
+    fn name(&self) -> &'static str {
+        "gain-recording-test"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        self.inner.negotiate(request)
+    }
+
+    fn open(
+        &mut self,
+        request: &OutputRequest,
+        consumer: RingConsumer,
+        shared: Arc<OutputShared>,
+    ) -> Result<OutputConfig> {
+        self.gains.lock().unwrap().push(shared.gain());
+        self.inner.open(request, consumer, shared)
+    }
+
+    fn close(&mut self) {
+        self.inner.close();
+    }
+
+    fn config(&self) -> Option<&OutputConfig> {
+        self.inner.config()
+    }
+}
+
 impl OutputBackend for FailingOutput {
     fn name(&self) -> &'static str {
         "failing-test"
@@ -334,6 +368,49 @@ fn output_is_quiescent_before_open_can_invoke_its_first_callback() {
 }
 
 #[test]
+fn load_context_stays_with_its_events_and_initial_gain() {
+    // 同一首连续装载两次，track_id 刻意相同：若只按曲目 ID 过滤，上一代事件仍会漏过。
+    // 两条命令紧挨着投递也复现了外壳“共享最新 ID”曾经会盖错章的窗口。
+    let path = corpus("load_context", 2, RATE as usize);
+    let gains = Arc::new(Mutex::new(Vec::new()));
+    let opened = Arc::new(Mutex::new(Vec::<LoadContext>::new()));
+    let engine = {
+        let (gains_for_backend, opened) = (gains.clone(), opened.clone());
+        Engine::spawn_stamped(
+            Box::new(GainRecordingOutput {
+                inner: NullOutput::new(),
+                gains: gains_for_backend,
+            }),
+            move |stamped| {
+                if matches!(stamped.event, EngineEvent::Opened { .. }) {
+                    opened.lock().unwrap().push(stamped.context);
+                }
+            },
+        )
+    };
+
+    let first = LoadContext::new(Some("track-same".into()), "load-1");
+    let second = LoadContext::new(Some("track-same".into()), "load-2");
+    engine
+        .load_with_context(&path, false, first.clone(), Some(0.18))
+        .unwrap();
+    engine
+        .load_with_context(&path, false, second.clone(), Some(0.42))
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while opened.lock().unwrap().len() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    assert_eq!(*opened.lock().unwrap(), vec![first, second]);
+    let actual_gains = gains.lock().unwrap();
+    assert_eq!(actual_gains.len(), 2);
+    assert!((actual_gains[0] - 0.18).abs() < f32::EPSILON);
+    assert!((actual_gains[1] - 0.42).abs() < f32::EPSILON);
+}
+
+#[test]
 fn seek_timeout_reports_stream_error_instead_of_stealing_consumer_index() {
     let path = corpus("seek_timeout", 2, RATE as usize);
     let opened = Arc::new(AtomicBool::new(false));
@@ -371,9 +448,10 @@ fn runtime_output_error_is_forwarded_and_stops_playback() {
     let path = corpus("runtime_output_error", 2, RATE as usize * 3);
     let fail = Arc::new(AtomicBool::new(false));
     let saw_error = Arc::new(AtomicBool::new(false));
+    let ended = Arc::new(AtomicBool::new(false));
     let states = Arc::new(Mutex::new(Vec::new()));
     let engine = {
-        let (saw_error, states) = (saw_error.clone(), states.clone());
+        let (saw_error, ended, states) = (saw_error.clone(), ended.clone(), states.clone());
         Engine::spawn(
             Box::new(FailingOutput {
                 inner: NullOutput::new(),
@@ -385,6 +463,7 @@ fn runtime_output_error_is_forwarded_and_stops_playback() {
                     saw_error.store(true, Ordering::Relaxed);
                 }
                 EngineEvent::StateChanged(state) => states.lock().unwrap().push(state),
+                EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
                 _ => {}
             },
         )
@@ -400,6 +479,11 @@ fn runtime_output_error_is_forwarded_and_stops_playback() {
     }
 
     assert!(saw_error.load(Ordering::Relaxed), "运行期设备错误必须上报");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !ended.load(Ordering::Relaxed),
+        "失败代际不能随后再冒充自然结束，否则前端会自动跳下一首"
+    );
     assert_eq!(
         states.lock().unwrap().last(),
         Some(&PlaybackState::Error),

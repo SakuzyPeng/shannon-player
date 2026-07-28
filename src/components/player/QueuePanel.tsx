@@ -7,7 +7,7 @@ import {
   RepeatControlIcon,
   ShuffleControlIcon,
 } from "@/components/common/PlaybackControlButton";
-import { usePlayerStore } from "@/store/player";
+import { upNextItems, usePlayerStore } from "@/store/player";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
@@ -31,6 +31,7 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
 
   const queue = usePlayerStore((s) => s.queue);
   const currentIndex = usePlayerStore((s) => s.currentIndex);
+  const shuffleOrder = usePlayerStore((s) => s.shuffleOrder);
   const shuffle = usePlayerStore((s) => s.shuffle);
   const repeat = usePlayerStore((s) => s.repeat);
   const favorites = usePlayerStore((s) => s.favorites);
@@ -43,7 +44,8 @@ export function QueuePanel({ open, onDismiss, className }: Props) {
   const removeQueueItem = usePlayerStore((s) => s.removeQueueItem);
 
   const track = currentIndex >= 0 ? (queue[currentIndex]?.track ?? null) : null;
-  const upNext = queue.slice(currentIndex + 1);
+  // 展示顺序就是 next() 真正消费的顺序；随机模式不能再退回物理 queue 下标。
+  const upNext = upNextItems(queue, currentIndex, shuffleOrder);
 
   // 点面板外 / Esc 关闭；触发按钮标 data-queue-trigger，由其自身 onClick 负责开关。
   useEffect(() => {

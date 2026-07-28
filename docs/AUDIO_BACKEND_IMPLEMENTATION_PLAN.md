@@ -8,9 +8,10 @@
   2026-07-28 依据阶段 0 立体声路径与重采样的实际落地修订。
 - 适用范围：实时播放引擎的工程结构、线程模型、队列交接、解码管线、前端接入、
   测试策略与实施阶段。
-- **实现进度**：阶段 0 的引擎侧（`shannon-audio` crate）已落地立体声路径，
-  详见「阶段 0 的实现现状」。队列后继算法、事件桥与前端接入尚未开始。
-  阶段 1 及以后仍为设计。
+- **实现进度**：阶段 0 的立体声路径已从 `shannon-audio` 接入 Tauri 与前端，
+  真实进度、结构化错误、MockEngine、统一后继算法与洗牌顺序均已落地，详见
+  「阶段 0 的实现现状」。next 预解码与 queueRevision 随 gapless 放在阶段 1；
+  阶段 1 及以后其余部分仍为设计。
 
 ## 工程结构
 
@@ -90,12 +91,13 @@ request_id，进度与完成事件回带 generation 与最近 request_id，前�
 
 ## 队列归属与切歌交接
 
-队列权威保留在前端 Zustand store，引擎只建模 current 与 next 两个槽位。
+队列权威保留在前端 Zustand store。阶段 0 引擎只装载 current；阶段 1 加 gapless 时再
+建模 current 与 next 两个槽位。
 
-前置事实：当前 store 的 shuffle 只是布尔开关，`next()` 一律顺序推进，尚不存在真正的
-“下一首”算法。因此“队列逻辑留在前端”不是迁移豁免，而是阶段 0 的实作任务：store 需
-先提供统一的后继计算（shuffle 顺序表、repeat 语义、user/auto 入队优先级归一），
-`set_next` 协议以其输出为输入，本文不假设该逻辑已经存在。
+阶段 0 已有统一后继计算：`shuffleOrder` 保存一次洗好的 uid 排列，`next()`、`prev()`、
+队列面板与队列增删改都消费同一顺序；repeat 语义也共用一套计算。当前曲目自然结束后由
+前端装载下一首，尚无 next 槽位或预解码 PCM，因此此时引入 queueRevision 没有可失效的
+对象。下面从 `set_next` 起的协议随阶段 1 一起落地：
 
 - store 在每次队列、循环或随机状态变化时重算下一首，并调用
   `player_set_next(uid, path, queueRevision)`。
@@ -212,15 +214,19 @@ Symphonia 管线加自定义解码器注册：
 - 前端定义 `EngineAdapter` 接口，两个实现按运行环境选择：`TauriEngine`
   （invoke + 事件订阅）与 `MockEngine`（现 `tick()` 占位时钟改造）。浏览器
   `:1420` 的 Playwright 验证流程因此不受引擎接入影响。
-- 引擎事件走单通道 tagged union，类型镜像进 `src/types/player.ts`；
+- 引擎事件走单通道 tagged union，经 ts-rs 导出到 `src/types/generated/player.ts`；
   `PlaybackProgress.bufferedSec` 由环形缓冲水位换算。
+- 每次装载携带不透明的 `trackId` + `loadId`，事件由产生它的引擎代际原样回带；
+  不能由外壳读取一个共享“最新曲目”盖章，否则后一条异步命令会把前一代事件盖错。
+- 当前有效音量随 `Load` 一起投递，在打开输出流前生效；不能拆成两个无顺序保证的 IPC。
 - 错误事件结构对齐架构约束验收条件第 2 条：容器、编码、失败阶段、可展示信息。
 
 ## 错误与降级契约
 
-- 曲目中途解码失败：发结构化 Error 事件，默认自动跳下一首并给非阻塞提示，不静默停止
-  也不静默换后端。
-- 以 uid × generation 为键限制自动重试次数，避免单曲循环遇上损坏文件形成无限错误循环。
+- 曲目中途解码失败：终止该装载代际并发结构化 Error，不再补发自然结束，也不自动跳下一首；
+  否则整库格式不支持时会变成一场无声快进。界面保留非阻塞提示，不静默换后端。
+- 后续若加入显式重试，以 uid × generation 为键限制次数，避免单曲循环遇上损坏文件形成
+  无限错误循环；当前版本不自动重试。
 - 端点或格式能力不满足时报明确原因，沿用架构约束：不静默降级。
 
 ## 测试策略
@@ -279,8 +285,8 @@ Symphonia 管线加自定义解码器注册：
 
 | 阶段 | 内容 | 出口条件 |
 | --- | --- | --- |
-| 0 | workspace 拆分、引擎骨架、CPAL 输出（设备格式协商）、Symphonia **ALAC/AAC/M4A** + FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine、store 后继算法与 queueRevision；`OutputBackend` trait 与源规格模型自首版即能表达**声道布局与布局来源** | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
-| 1 | gapless、ReplayGain、设备切换、语料测试（重采样与 stats 已在阶段 0 完成） | 验收条件第 5、6 条的无头测试常态化 |
+| 0 | workspace 拆分、引擎骨架、CPAL 输出（设备格式协商）、Symphonia **ALAC/AAC/M4A** + FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine、store 后继算法与洗牌顺序；`OutputBackend` trait 与源规格模型自首版即能表达**声道布局与布局来源** | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
+| 1 | next 槽位、queueRevision、gapless、ReplayGain、设备切换、语料测试（重采样与 stats 已在阶段 0 完成） | 验收条件第 5、6 条的无头测试常态化 |
 | 2 | 曲库扫描（lofty + SQLite）替换种子数据；补齐布局、采样率、位深与对象音频标记的探测 | 前端不再读 `src/data/library.ts` 种子 |
 | 3 | Opus 插件解码、ImportService | 架构约束第一阶段格式表除空间路径外全覆盖 |
 | 4 | 平台独占输出 | 独占/共享切换走显式状态机 |
@@ -301,9 +307,11 @@ Symphonia 管线加自定义解码器注册：
 | 立体声与单声道上混 | 完成（`mix.rs`） |
 | 采样率协商与重采样 | 完成（`resample.rs`），本属阶段 1，因可用性提前 |
 | 多声道输出 | **不在本路径内**——整体划归平台原生后端（阶段 5），当前报明确的路由错误 |
-| store 后继算法、queueRevision、事件桥、MockEngine | 未开始 |
+| Tauri 命令 / 事件桥、前端接入、MockEngine | 完成（事件带 `trackId` + `loadId` 装载章） |
+| store 后继算法、洗牌顺序与队列面板同步 | 完成 |
+| next 预解码与 queueRevision | 阶段 1（当前尚无 next PCM，暂无可失效对象） |
 
-验证方式：`cargo test -p shannon-audio`（44 项，无头，语料现生成不入库）与
+验证方式：`cargo test -p shannon-audio`（51 项，无头，语料现生成不入库）与
 `cargo run -p shannon-audio --example play -- <文件>`。设备诊断用
 `--example devices`。二者均为架构约束允许的开发期工具。
 

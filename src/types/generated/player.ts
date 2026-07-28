@@ -59,10 +59,11 @@ resampled: boolean, };
 /**
  * 推给前端的播放事件。
  *
- * `trackId` 由外壳在装载时记下并原样回带：引擎只认文件路径，而前端的队列以曲目 ID
- * 为键。不带这个字段的话，一次「快速连点两首歌」就会让迟到的进度事件被记到新曲目上。
+ * `trackId` 与 `loadId` 随装载命令进入引擎，再由产生事件的那个装载代际原样回带。
+ * 不能由外壳读取一个共享的“最新曲目”来盖章：命令入队是异步的，后一首会先覆盖共享值，
+ * 让前一首随后产生的事件冒充后一首。`loadId` 还负责区分同一曲目的连续重载。
  */
-export type PlayerEvent = { "type": "opened", trackId: string | null, format: PlaybackFormat, } | { "type": "status", trackId: string | null, status: PlayerStatus, } | { "type": "progress", trackId: string | null, positionSec: number, durationSec: number | null, bufferedSec: number, } | { "type": "ended", trackId: string | null, } | { "type": "failed", trackId: string | null, error: PlaybackError, };
+export type PlayerEvent = { "type": "opened", trackId: string | null, loadId: string, format: PlaybackFormat, } | { "type": "status", trackId: string | null, loadId: string, status: PlayerStatus, } | { "type": "progress", trackId: string | null, loadId: string, positionSec: number, durationSec: number | null, bufferedSec: number, } | { "type": "ended", trackId: string | null, loadId: string, } | { "type": "failed", trackId: string | null, loadId: string, error: PlaybackError, };
 
 /**
  * 播放状态。与 [`PlaybackState`] 一一对应。
