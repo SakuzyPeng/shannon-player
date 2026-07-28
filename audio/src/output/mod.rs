@@ -49,8 +49,15 @@ pub struct OutputShared {
     /// 输出流与设备时钟保持活跃；否则恢复播放要经历设备重启延迟，
     /// 基于消费帧数的位置时钟也会失去参照。
     paused: AtomicBool,
-    /// 累计消费帧数。播放位置以它为准，不用 JavaScript 定时器（不变量第 6 条）。
-    frames_consumed: AtomicU64,
+    /// **当前曲目**的位置基准（帧）。播放位置以它为准，不用 JavaScript 定时器
+    /// （不变量第 6 条）；seek 与切歌时重置。
+    position_frames: AtomicU64,
+    /// 输出回调**累计**消费的帧数，跨曲目单调递增、永不重置。
+    ///
+    /// 与 `position_frames` 分开是必须的：位置每首要归零，而诊断要的是「一共送出去多少」。
+    /// 合成一个字段的话，「这首播了多少帧」只能靠前后差值算，而差值会被归零抹平——
+    /// 实测表现为歌单里第二首起每首都显示消费 0 帧。
+    total_frames: AtomicU64,
     /// 欠载次数。原子累加，经 stats 暴露（验收条件第 5 条）。
     underruns: AtomicU64,
     /// 重缓冲中。seek 与切歌后缓冲被清空，此时的「取不到数据」是**预期**的，
@@ -69,7 +76,8 @@ impl Default for OutputShared {
         Self {
             gain_bits: AtomicU32::new(1.0f32.to_bits()),
             paused: AtomicBool::new(false),
-            frames_consumed: AtomicU64::new(0),
+            position_frames: AtomicU64::new(0),
+            total_frames: AtomicU64::new(0),
             underruns: AtomicU64::new(0),
             rebuffering: AtomicBool::new(false),
             output_delay_frames: AtomicU64::new(0),
@@ -95,8 +103,14 @@ impl OutputShared {
         self.paused.load(Ordering::Relaxed)
     }
 
-    pub fn frames_consumed(&self) -> u64 {
-        self.frames_consumed.load(Ordering::Relaxed)
+    /// 当前曲目的位置（帧，未扣设备延迟）。
+    pub fn position_frames(&self) -> u64 {
+        self.position_frames.load(Ordering::Relaxed)
+    }
+
+    /// 跨曲目累计消费的帧数，单调递增。
+    pub fn total_frames(&self) -> u64 {
+        self.total_frames.load(Ordering::Relaxed)
     }
 
     pub fn underruns(&self) -> u64 {
@@ -126,12 +140,12 @@ impl OutputShared {
     /// 已发声的位置（帧）。扣除设备延迟——共享模式的输出延迟普遍达数十毫秒，
     /// 不补偿会让歌词逐字高亮系统性偏早。
     pub fn played_frames(&self) -> u64 {
-        self.frames_consumed().saturating_sub(self.output_delay_frames())
+        self.position_frames().saturating_sub(self.output_delay_frames())
     }
 
-    /// 重置位置计数（seek 与切歌后调用）。
+    /// 重置位置（seek 与切歌后调用）。**只动位置，不动累计量**。
     pub fn reset_position(&self, frames: u64) {
-        self.frames_consumed.store(frames, Ordering::Relaxed);
+        self.position_frames.store(frames, Ordering::Relaxed);
     }
 }
 
@@ -220,7 +234,9 @@ pub fn fill_from_ring(
     }
     *current_gain = g;
 
-    shared.frames_consumed.fetch_add((got / channels) as u64, Ordering::Relaxed);
+    let frames = (got / channels) as u64;
+    shared.position_frames.fetch_add(frames, Ordering::Relaxed);
+    shared.total_frames.fetch_add(frames, Ordering::Relaxed);
 }
 
 /// 按采样率算出每帧的增益步进。

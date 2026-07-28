@@ -372,3 +372,45 @@ fn seek_position_is_correct_under_resampling() {
         "定位到 2.0 秒后位置应在 2.0～2.4 秒之间，实际 {ms} ms"
     );
 }
+
+#[test]
+fn per_track_frame_count_survives_track_changes() {
+    // 位置与累计消费是两个量：位置每首归零，累计跨曲目单调递增。
+    // 合成一个字段的话「这首播了多少帧」只能靠差值算，而差值会被归零抹平——
+    // 实测表现为歌单里第二首起每首都显示消费 0 帧。
+    let path = corpus("per_track_frames", 2, (RATE as f64 * 0.4) as usize);
+    let ended = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let ended = ended.clone();
+        Engine::spawn(Box::new(NullOutput::new()), move |event| {
+            if matches!(event, EngineEvent::TrackEnded) {
+                ended.store(true, Ordering::Relaxed);
+            }
+        })
+    };
+
+    let mut last_total = 0u64;
+    for round in 1..=3 {
+        ended.store(false, Ordering::Relaxed);
+        engine.load(&path, true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ended.load(Ordering::Relaxed) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(ended.load(Ordering::Relaxed), "第 {round} 遍没播完");
+
+        let stats = engine.stats();
+        let this_track = stats.frames_consumed - last_total;
+        last_total = stats.frames_consumed;
+        assert!(
+            this_track > RATE as u64 / 4,
+            "第 {round} 遍的单曲消费量算成了 {this_track} 帧——累计计数被换曲清零了"
+        );
+        // 位置则相反：每首从头开始，不会累加到三倍。
+        assert!(
+            stats.position_frames < RATE as u64,
+            "第 {round} 遍的位置累加到了 {} 帧，换曲应当归零",
+            stats.position_frames
+        );
+    }
+}

@@ -39,6 +39,8 @@ cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打
 cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
 cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数与采样率
 cargo run -p shannon-audio --example make_corpus          # 用 ffmpeg 生成格式矩阵测试语料（需 ffmpeg）
+cargo run -p shannon-audio --example make_playlist -- <源音频>  # 生成多格式实测歌单（给耳朵听的）
+cargo run -p shannon-audio --example play -- audio/playlist   # 连续播放整个歌单
 ```
 
 格式矩阵测试（`audio/tests/format_matrix.rs`）验证每种启用的编码真的解得对、放得完，

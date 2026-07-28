@@ -90,7 +90,10 @@ pub enum EngineEvent {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EngineStats {
     pub underruns: u64,
+    /// 跨曲目累计消费的帧数，单调递增；换曲不清零，因此可用前后差值算单曲用量。
     pub frames_consumed: u64,
+    /// 当前曲目的播放位置（帧，未扣设备延迟）。
+    pub position_frames: u64,
     pub output_delay_frames: u64,
     /// 链路里是否发生了重采样。`bit-perfect` 一类的措辞必须有据可依，
     /// 悄悄插了一级转换却仍宣称原样输出是这类播放器最常见的失实描述。
@@ -169,7 +172,8 @@ impl Engine {
     pub fn stats(&self) -> EngineStats {
         EngineStats {
             underruns: self.shared.underruns(),
-            frames_consumed: self.shared.frames_consumed(),
+            frames_consumed: self.shared.total_frames(),
+            position_frames: self.shared.position_frames(),
             output_delay_frames: self.shared.output_delay_frames(),
             resampled: self.shared.is_resampled(),
         }
