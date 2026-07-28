@@ -19,6 +19,10 @@ cargo test -p shannon-core                                # 后端单测；同�
 cargo test -p shannon-core id_survives_rename             # 跑单个测试（标准 cargo 名字过滤）
 cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的完整规格与字段来源
 cargo run -p shannon-core --example warm_cache -- <目录> <缓存路径>  # 预热扫描缓存，用于验证「重启免重扫」
+
+cargo test -p shannon-audio                               # 播放引擎测试（无头，语料现生成不入库）
+cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
+cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数/采样率/采样格式
 ```
 
 `pnpm build` 会被 pnpm 的 minimumReleaseAge 策略挡在依赖检查这一步（Radix 的新版本刚发布不久）。绕过办法是直接调本地二进制：`./node_modules/.bin/tsc --noEmit` 与 `./node_modules/.bin/vite build`，校验效果一致。
@@ -45,6 +49,7 @@ window.__shannon.library.getState().setLibrary(snap);
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
 - **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原）、把 core 的进度回调转成 Tauri event（`library://scan-progress`）、用 `LibraryState` 持有扫描缓存与覆盖层、把两者落到应用数据目录（`library-cache.json` / `metadata-overrides.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 两份落盘数据的重要性不同：缓存可重建（损坏就重扫），**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）。
 - **`core/`（crate `shannon-core`）** —— 曲库扫描、音频规格探测、稳定 ID、元数据覆盖层。**刻意不依赖 Tauri 与任何 GUI 库**，因此能在无图形环境 `cargo test`；副作用（进度上报）通过回调注入，由外壳决定落地方式。新增后端能力优先放这里，让外壳保持薄。
+- **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**阶段 0 的立体声路径**：ALAC / AAC / FLAC / MP3 / WAV 经 Symphonia 解码 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡；**多声道下混与重采样尚未实现，遇到就报明确的能力错误**。尚未接进 Tauri 与前端，播放条走的仍是占位时钟。
 
 **扫描分三步，别把它们揉在一起**：`scan::scan_folders` 只产出 `ScanCache`（原始探测结果，不含封面字节只留指纹）→ `ScanCache::library(&Overrides)` 套用用户覆盖并聚合成 `LibrarySnapshot`（纯内存，毫秒级）→ 外壳把两者分别落盘。分开的理由是「改一次元数据不该重扫整库，重启也不该」：归组依据（原始标签、封面指纹、路径）在聚合后的快照里已经丢失，只留快照就只能回头重读文件。
 
@@ -103,9 +108,11 @@ window.__shannon.library.getState().setLibrary(snap);
 
 ### 音频后端边界（动手前必读）
 
-播放引擎尚未实现，但边界已经定死在文档里，改音频相关代码前先读 `docs/AUDIO_BACKEND_ARCHITECTURE.md`（架构约束，决策已接受）与 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md`（实现级设计：工程结构、线程模型、队列交接、实施阶段）；两者冲突以架构约束为准，**要偏离就先改文档再动代码**。最硬的几条：实时播放链（播放/暂停/seek/解码/DSP/重采样/输出）必须全部在应用进程内，不得用 FFmpeg 管道、mpv 或任何**外部**播放器兜底，遇到不支持的格式就返回明确的能力错误；子进程只允许出现在非实时导入路径（用户自装的 `yt-dlp`、必要时的 FFmpeg 转封装）、开发期诊断工具，以及**自身可执行文件的隔离 worker**（仅限有明确崩溃隔离理由时，如平台 OEM 解码器在 teardown 阶段会拖垮整个进程，须共享内存通信、父进程掌握生命周期并记录隔离原因）；容器 / 编码 / 声道布局 / 输出端点能力分别建模，不许合并成一个松散的「播放格式」字段。
+播放引擎已开工（`audio/`，阶段 0 的立体声路径，进度见实现计划的「阶段 0 的实现现状」），边界定死在文档里，改音频相关代码前先读 `docs/AUDIO_BACKEND_ARCHITECTURE.md`（架构约束，决策已接受）与 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md`（实现级设计：工程结构、线程模型、队列交接、实施阶段）；两者冲突以架构约束为准，**要偏离就先改文档再动代码**。最硬的几条：实时播放链（播放/暂停/seek/解码/DSP/重采样/输出）必须全部在应用进程内，不得用 FFmpeg 管道、mpv 或任何**外部**播放器兜底，遇到不支持的格式就返回明确的能力错误；子进程只允许出现在非实时导入路径（用户自装的 `yt-dlp`、必要时的 FFmpeg 转封装）、开发期诊断工具，以及**自身可执行文件的隔离 worker**（仅限有明确崩溃隔离理由时，如平台 OEM 解码器在 teardown 阶段会拖垮整个进程，须共享内存通信、父进程掌握生命周期并记录隔离原因）；容器 / 编码 / 声道布局 / 输出端点能力分别建模，不许合并成一个松散的「播放格式」字段。
 
 **空间音频是平台强相关的，别指望一套抽象盖住**：解码与输出各自按运行时能力探测选后端，同一条规则在不同平台会得出相反结论（macOS 系统解码器覆盖 APAC 与 E-AC-3/JOC，而实测 Windows 的 Opus MFT 只吃单/双声道，多声道一律拒绝，必须自己解）。两条硬约束：① **空间输出不走 CPAL**——CPAL 的配置只有声道数、表达不了布局，而布局标签正是系统判断能否空间化的依据；macOS 走 `AVSampleBufferAudioRenderer` + `AudioChannelLayoutTag`，Windows 走 `ISpatialAudioClient`。② **应用自己双耳化 = 关掉系统空间音频**——那样系统只看到一条立体声，AirPods 上的空间音频开关会显示「不可用」，头部追踪更无从谈起（渲染发生在头动之前），这是用户直接看得见的降级。另有一条 macOS 平台例外：**对象音频路径上解码器被锁定为 AVPlayer**，系统的全景声标识由上游解码链路决定而非交给渲染器的 PCM，换解码器标识就没了——这是能力有无的问题，不是质量取舍。**系统标识只能交叉印证，不能当判据**：是否为对象音频要由码流层面的 JOC 标记判定，不得因为系统显示了「杜比全景声」就在界面上跟着这么说（验收条件第 7 条）。`docs/` 下的 `ATMOS_DECODING_NOTES.md`、`AC4_INTERNAL_METADATA_NOTES.md`、`WINDOWS_SPATIAL_PLAYBACK_NOTES.md`（Windows 侧）与 `MACOS_SPATIAL_PLAYBACK_NOTES.md`（macOS 侧）是概念验证记录，是后续能力探测与验收指标的依据，**不代表当前版本已有对应播放能力**，写文档时不要把它们说成已交付功能。macOS 那份还有一条未结：两条输出路径的**听感未比对**，结论未定之前不得据此描述能力。
+
+阶段 0 落地时踩出来的三条，改播放链路前要记得：① **单声道的判据是声道数不是掩码位置**——Symphonia 的 WAV 读取器把单声道标成 `FRONT_LEFT` 而非 `FRONT_CENTER`，按掩码比对会拒播最简单的文件；② **位置换算一律走整数**，先转秒再乘采样率会因浮点截断差一帧，进度条上看不出来，却会让「seek 后的输出等于从头解码的对应后缀」失守；③ **验证位置的测试语料必须无周期**——定频正弦每 100 帧重复一次相位，差整数个周期的偏移会被伪装成「误差为零」，上面那个 off-by-one 就是这么逃过第一轮诊断的，位置类断言一律用扫频信号。另有一条产品性质的实测：**默认输出设备不一定支持源采样率**（本机默认设备只有 24 / 48 kHz，而曲库主力是 44.1 kHz），所以重采样不是锦上添花而是可用性前提。
 
 ### 设计来源
 

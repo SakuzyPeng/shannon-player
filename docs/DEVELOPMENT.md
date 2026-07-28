@@ -19,7 +19,7 @@
 ## 环境要求
 
 - Node ≥ 20、pnpm ≥ 10
-- Rust stable ≥ 1.77、`cargo tauri`（`cargo install tauri-cli` 或使用 `pnpm tauri`）
+- Rust stable ≥ 1.85（`shannon-audio` 的 Symphonia 0.6 要求；其余 crate 只需 1.77）、`cargo tauri`（`cargo install tauri-cli` 或使用 `pnpm tauri`）
 - macOS：Xcode Command Line Tools
 
 ## 常用命令
@@ -30,6 +30,14 @@ pnpm tauri dev        # 启动 Tauri（自动拉起 Vite dev server 于 :1420 �
 pnpm dev              # 仅前端，浏览器预览 http://localhost:1420
 pnpm build            # 前端类型检查（tsc）+ 产物构建（vite）
 pnpm tauri build      # 打包桌面应用
+```
+
+```bash
+cargo test -p shannon-core                                # 曲库扫描与稳定 ID；同时重新导出 ts-rs 契约类型
+cargo test -p shannon-audio                               # 播放引擎；无头运行，语料现生成不入库
+cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的规格与字段来源
+cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
+cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数与采样率
 ```
 
 ## 目录结构
@@ -43,9 +51,15 @@ src/                    前端 React 应用
   data/                  曲库种子数据（后期由 Rust 后端扫描替换）
   hooks/                 useApplyTheme（主题）、useElasticScroll（原生滚动 + 自绘滚动条）
   index.css              Tailwind 入口 + 设计 Token
-src-tauri/               Tauri Rust 外壳（窗口、权限、后续音频后端）
+core/                    曲库（crate shannon-core）：扫描、音频规格探测、稳定 ID、元数据覆盖层
+audio/                   播放引擎（crate shannon-audio）：解码、PCM 管线、输出后端
+src-tauri/               Tauri Rust 外壳（窗口、权限、命令与事件桥）
 docs/                    开发文档
 ```
+
+`core/` 与 `audio/` 都**不依赖 Tauri 与任何 GUI 库**，因此能在无图形、无声卡的环境
+`cargo test`；副作用（扫描进度、播放事件）经回调注入，由外壳决定落地方式。
+业务逻辑不写在 `src-tauri/`。
 
 ## 约定
 
@@ -55,7 +69,10 @@ docs/                    开发文档
 
 ## 音频后端架构与研究
 
-真实音频后端尚未接入主程序。目标分层、实时播放零子进程约束、解码后端优先级与链接导入边界
+播放引擎已开工但**尚未接入主程序**：`audio/`（crate `shannon-audio`）已打通阶段 0 的
+立体声路径——ALAC / AAC / FLAC / MP3 / WAV 经 Symphonia 解码 → 声道适配 → 无锁环形缓冲
+→ CPAL 共享输出，含播放 / 暂停 / seek / 音量；多声道下混与重采样尚未实现，遇到即报明确的
+能力错误。界面上的播放条走的仍是占位时钟。目标分层、实时播放零子进程约束、解码后端优先级与链接导入边界
 见 [音频后端架构约束](AUDIO_BACKEND_ARCHITECTURE.md)；工程结构、线程模型、队列交接、
 测试策略与实施阶段见 [音频后端实现设计](AUDIO_BACKEND_IMPLEMENTATION_PLAN.md)。
 
