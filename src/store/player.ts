@@ -15,6 +15,8 @@ import {
   SEED_FAVORITE_TRACKS,
 } from "@/data/library";
 import { PLAYLISTS } from "@/data/playlists";
+import { engine, hintDuration } from "@/lib/backend";
+import type { PlaybackError, PlayerStatus } from "@/types/generated/player";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
@@ -36,6 +38,14 @@ interface PlayerState {
   queue: QueueItem[];
   /** 当前播放项在 queue 中的下标（-1 表示空）。 */
   currentIndex: number;
+  /**
+   * 随机播放顺序（队列项 uid 的排列）。`null` = 顺序播放。
+   *
+   * 存一份顺序而不是「每次 next 随机取一首」：后者会重复、会漏，
+   * 一个 10 首的队列放到第 10 首时仍有约 35% 的曲目一次没放过。
+   * 洗一次牌再按牌序走，才是用户以为的「随机播放」。
+   */
+  shuffleOrder: Id[] | null;
 
   /** ---- 播放状态 ---- */
   playing: boolean;
@@ -47,6 +57,32 @@ interface PlayerState {
 
   /** ---- 进度（秒） ---- */
   progress: PlaybackProgress;
+  /** 引擎状态。与 `playing` 的区别：它还能表达装载中、播完、出错。 */
+  status: PlayerStatus;
+  /**
+   * 引擎当前装载的曲目 ID；从未装载则为 null。
+   *
+   * 必须单独记，不能用 `current()` 推断：播放条显示哪首歌与引擎装载了哪首歌是
+   * 两件事。曲库恢复后队列里换上了真实曲目，而引擎那边还是空的——此时按播放，
+   * `engine.play()` 打在空引擎上是 no-op，界面却已经把图标切成了暂停。
+   * 实测就是这个：按钮变了，进度一动不动。
+   */
+  loadedTrackId: Id | null;
+  /**
+   * 上一次播放失败的原因；成功装载时清空。
+   *
+   * 单独存而不是塞进 `status: "error"`：界面既要知道「出错了」，也要知道
+   * 「错在哪一步」才能给出可操作的提示——找不到文件、格式不支持、设备被占用，
+   * 用户要做的事完全不同。
+   */
+  error: PlaybackError | null;
+  /**
+   * 当前曲目没有本地文件路径（种子演示曲库就是这样）。
+   *
+   * 与 `error` 分开，因为它根本不是故障：用户还没扫描过曲库而已，
+   * 提示语该是「去添加音乐文件夹」而不是「播放失败」。
+   */
+  needsLibrary: boolean;
 
   /** ---- 收藏（用户数据，后期由后端持久化） ---- */
   favorites: Record<Id, boolean>;
@@ -94,13 +130,17 @@ interface PlayerState {
   setVolume: (v: number) => void;
   toggleMuted: () => void;
   seek: (positionSec: number) => void;
-  /** 供音频引擎/定时器回灌进度。 */
+  /** 供音频引擎回灌进度。 */
   setProgress: (p: Partial<PlaybackProgress>) => void;
+  /** 把当前曲目送进引擎。切歌后调用；`autoplay` 决定装载完是否立即出声。 */
+  loadCurrent: (autoplay: boolean) => void;
   /**
-   * 模拟播放推进 dt 秒（真实音频引擎接入前的占位时钟）：
-   * 到曲尾时按循环模式切曲，队列播完则停在末尾。
+   * 真实曲库到位后接管队列：队列仍是种子演示曲目时换成曲库第一首。
+   * **只换不播**——启动即出声是没人要的行为。
    */
-  tick: (dtSec: number) => void;
+  adoptLibrary: (tracks: Track[]) => void;
+  /** 订阅引擎事件并接管播放状态。返回取消订阅函数；由 `App` 在挂载时调用一次。 */
+  attachEngine: () => Promise<() => void>;
   /** 清空当前曲目之后的队列（歌词页队列面板「清除」）。 */
   clearUpNext: () => void;
   /** 用新顺序替换「接下来」队列（拖拽重排）。 */
@@ -123,6 +163,58 @@ function freshProgress(track: Track): PlaybackProgress {
   return { positionSec: 0, durationSec: track.durationSec, bufferedSec: track.durationSec };
 }
 
+/**
+ * 洗牌（Fisher-Yates），把 `first` 固定在首位。
+ *
+ * 固定当前曲目是必须的：开随机时正在放的那首不该被换掉——用户按的是「之后随机」，
+ * 不是「立刻换一首」。
+ */
+function shuffled(uids: Id[], first?: Id): Id[] {
+  const rest = uids.filter((u) => u !== first);
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j], rest[i]];
+  }
+  return first !== undefined && uids.includes(first) ? [first, ...rest] : rest;
+}
+
+/**
+ * 求下一首的队列下标；没有下一首返回 -1。
+ *
+ * 随机与顺序的差别只在「排在谁后面」，循环规则完全共用——分开写两套是这类
+ * 播放器最容易长出不一致行为的地方（比如随机模式下「单曲循环」失效）。
+ */
+function nextIndex(
+  queue: QueueItem[],
+  currentIndex: number,
+  order: Id[] | null,
+  repeat: RepeatMode,
+  wrap: boolean,
+): number {
+  if (queue.length === 0) return -1;
+  if (order === null) {
+    const at = currentIndex + 1;
+    if (at < queue.length) return at;
+    return wrap && repeat === "all" ? 0 : -1;
+  }
+  const uid = queue[currentIndex]?.uid;
+  const pos = order.indexOf(uid);
+  const at = pos + 1;
+  const nextUidValue = at < order.length ? order[at] : wrap && repeat === "all" ? order[0] : undefined;
+  if (nextUidValue === undefined) return -1;
+  const idx = queue.findIndex((q) => q.uid === nextUidValue);
+  return idx;
+}
+
+/** 求上一首的队列下标；没有上一首返回 -1。 */
+function prevIndex(queue: QueueItem[], currentIndex: number, order: Id[] | null): number {
+  if (queue.length === 0) return -1;
+  if (order === null) return currentIndex > 0 ? currentIndex - 1 : -1;
+  const pos = order.indexOf(queue[currentIndex]?.uid);
+  if (pos <= 0) return -1;
+  return queue.findIndex((q) => q.uid === order[pos - 1]);
+}
+
 /** 初始队列：仅放入演示曲目，进度停在 43%（对齐设计稿）。 */
 const initialQueue: QueueItem[] = [
   { uid: nextUid(), track: DEMO_TRACK, source: "user" },
@@ -131,8 +223,11 @@ const initialQueue: QueueItem[] = [
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   queue: initialQueue,
   currentIndex: 0,
+  shuffleOrder: null,
 
-  playing: true,
+  // 初始不自动播放：应用一启动就出声是没人要的行为，
+  // 何况此时引擎尚未装载任何文件，`playing: true` 只会是个骗人的图标。
+  playing: false,
   repeat: "off",
   shuffle: false,
   volume: 0.68,
@@ -143,6 +238,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     durationSec: DEMO_TRACK.durationSec,
     bufferedSec: DEMO_TRACK.durationSec,
   },
+  status: "idle",
+  loadedTrackId: null,
+  error: null,
+  needsLibrary: false,
 
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
@@ -163,49 +262,104 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       : null;
   },
 
-  play: (track) =>
-    set((s) => {
-      if (!track) return { playing: true };
-      const idx = s.queue.findIndex((q) => q.track.id === track.id);
-      if (idx >= 0) return { currentIndex: idx, playing: true, progress: freshProgress(track) };
+  play: (track) => {
+    if (!track) {
+      const s = get();
+      const cur = s.current();
+      // 引擎装的不是当前这首（启动后第一次按播放就是这种情况）——先装载。
+      if (cur && s.loadedTrackId !== cur.id) {
+        get().loadCurrent(true);
+        return;
+      }
+      // 播完之后再按则从头开始，否则用户只能眼看着按钮没反应。
+      if (s.status === "ended") {
+        void engine.seek(0);
+        void engine.play();
+        set({ playing: true, progress: { ...s.progress, positionSec: 0 } });
+        return;
+      }
+      void engine.play();
+      set({ playing: true });
+      return;
+    }
+    const s = get();
+    const idx = s.queue.findIndex((q) => q.track.id === track.id);
+    if (idx >= 0) {
+      set({ currentIndex: idx, playing: true, progress: freshProgress(track) });
+    } else {
       const item: QueueItem = { uid: nextUid(), track, source: "user" };
-      return {
+      set({
         queue: [...s.queue, item],
         currentIndex: s.queue.length,
         playing: true,
         progress: freshProgress(track),
+      });
+    }
+    get().loadCurrent(true);
+  },
+
+  playQueue: (tracks, startIndex = 0) => {
+    if (tracks.length === 0) return;
+    const queue: QueueItem[] = tracks.map((track) => ({ uid: nextUid(), track, source: "user" }));
+    const idx = Math.max(0, Math.min(startIndex, queue.length - 1));
+    // 换队列要重洗牌：沿用旧顺序的话，随机模式下会跳到一首已经不在队列里的歌。
+    const shuffleOrder = get().shuffle ? shuffled(queue.map((q) => q.uid), queue[idx].uid) : null;
+    set({ queue, currentIndex: idx, shuffleOrder, playing: true, progress: freshProgress(queue[idx].track) });
+    get().loadCurrent(true);
+  },
+
+  pause: () => {
+    void engine.pause();
+    set({ playing: false });
+  },
+
+  togglePlay: () => {
+    const s = get();
+    if (s.playing) {
+      s.pause();
+    } else {
+      s.play();
+    }
+  },
+
+  next: () => {
+    const s = get();
+    if (s.queue.length === 0) return;
+    // 手动切歌时「单曲循环」不该困住用户——他按的是下一首，就给下一首。
+    // 自然播完的循环由引擎事件那条路处理（见 attachEngine）。
+    const idx = nextIndex(s.queue, s.currentIndex, s.shuffleOrder, "all", true);
+    if (idx < 0) return;
+    set({ currentIndex: idx, progress: freshProgress(s.queue[idx].track) });
+    get().loadCurrent(true);
+  },
+
+  prev: () => {
+    const s = get();
+    if (s.queue.length === 0) return;
+    // 3 秒内回退到上一首，否则回到本曲开头。
+    if (s.progress.positionSec > 3) {
+      void engine.seek(0);
+      set({ progress: { ...s.progress, positionSec: 0 } });
+      return;
+    }
+    const idx = prevIndex(s.queue, s.currentIndex, s.shuffleOrder);
+    if (idx < 0) {
+      void engine.seek(0);
+      set({ progress: { ...s.progress, positionSec: 0 } });
+      return;
+    }
+    set({ currentIndex: idx, progress: freshProgress(s.queue[idx].track) });
+    get().loadCurrent(true);
+  },
+
+  toggleShuffle: () =>
+    set((s) => {
+      const on = !s.shuffle;
+      return {
+        shuffle: on,
+        shuffleOrder: on ? shuffled(s.queue.map((q) => q.uid), s.queue[s.currentIndex]?.uid) : null,
       };
     }),
-
-  playQueue: (tracks, startIndex = 0) =>
-    set(() => {
-      if (tracks.length === 0) return {};
-      const queue: QueueItem[] = tracks.map((track) => ({ uid: nextUid(), track, source: "user" }));
-      const idx = Math.max(0, Math.min(startIndex, queue.length - 1));
-      return { queue, currentIndex: idx, playing: true, progress: freshProgress(queue[idx].track) };
-    }),
-
-  pause: () => set({ playing: false }),
-  togglePlay: () => set((s) => ({ playing: !s.playing })),
-
-  next: () =>
-    set((s) => {
-      if (s.queue.length === 0) return s;
-      if (s.repeat === "one") return { progress: { ...s.progress, positionSec: 0 } };
-      const atEnd = s.currentIndex >= s.queue.length - 1;
-      const nextIdx = atEnd ? (s.repeat === "all" ? 0 : s.currentIndex) : s.currentIndex + 1;
-      return { currentIndex: nextIdx, progress: freshProgress(s.queue[nextIdx].track) };
-    }),
-
-  prev: () =>
-    set((s) => {
-      // 3 秒内回退到上一首，否则回到本曲开头。
-      if (s.progress.positionSec > 3) return { progress: { ...s.progress, positionSec: 0 } };
-      const prevIdx = s.currentIndex <= 0 ? 0 : s.currentIndex - 1;
-      return { currentIndex: prevIdx, progress: freshProgress(s.queue[prevIdx].track) };
-    }),
-
-  toggleShuffle: () => set((s) => ({ shuffle: !s.shuffle })),
   cycleRepeat: () =>
     set((s) => ({ repeat: REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(s.repeat) + 1) % 3] })),
 
@@ -287,34 +441,140 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return { playlists: s.playlists.filter((p) => p.id !== playlistId), favoritePlaylists };
     }),
 
-  setVolume: (v) => set({ volume: Math.max(0, Math.min(1, v)), muted: v === 0 }),
-  toggleMuted: () => set((s) => ({ muted: !s.muted })),
+  setVolume: (v) => {
+    const volume = Math.max(0, Math.min(1, v));
+    void engine.setVolume(volume);
+    set({ volume, muted: volume === 0 });
+  },
 
-  seek: (positionSec) =>
-    set((s) => ({
-      progress: {
-        ...s.progress,
-        positionSec: Math.max(0, Math.min(positionSec, s.progress.durationSec)),
-      },
-    })),
+  toggleMuted: () =>
+    set((s) => {
+      const muted = !s.muted;
+      // 静音送 0 而不是记着音量不发命令：引擎那边的音量斜坡（15 ms）才是防爆音的地方。
+      void engine.setVolume(muted ? 0 : s.volume);
+      return { muted };
+    }),
+
+  seek: (positionSec) => {
+    const s = get();
+    const target = Math.max(0, Math.min(positionSec, s.progress.durationSec));
+    void engine.seek(target);
+    // 乐观更新：等引擎的进度事件回来要 200 ms，拖动进度条时那是看得见的滞后。
+    set({ progress: { ...s.progress, positionSec: target } });
+  },
 
   setProgress: (p) => set((s) => ({ progress: { ...s.progress, ...p } })),
 
-  tick: (dtSec) =>
-    set((s) => {
-      if (!s.playing || s.currentIndex < 0) return s;
-      const pos = s.progress.positionSec + dtSec;
-      if (pos < s.progress.durationSec) {
-        return { progress: { ...s.progress, positionSec: pos } };
+  /**
+   * 把当前曲目送进引擎。
+   *
+   * 没有 `path` 的曲目（种子演示曲库）不是错误：用户只是还没扫描过。
+   * 这时置 `needsLibrary` 让界面去提示「添加音乐文件夹」，而不是报一个
+   * 让人以为文件坏了的播放失败。
+   */
+  loadCurrent: (autoplay) => {
+    const s = get();
+    const track = s.current();
+    if (!track) return;
+    if (!track.path) {
+      set({ needsLibrary: true, playing: false, status: "idle", error: null, loadedTrackId: null });
+      return;
+    }
+    // 浏览器预览的假引擎没有文件可读，时长得由这里告诉它。
+    hintDuration(track.durationSec);
+    // 乐观置 playing：装载到出声有几十毫秒，这期间按钮不该还停在「播放」上。
+    // 真正的状态随后由引擎事件校正（装载失败时会被改回来）。
+    set({ needsLibrary: false, error: null, loadedTrackId: track.id, playing: autoplay });
+    void engine.load(track.path, track.id, autoplay);
+  },
+
+  adoptLibrary: (tracks) => {
+    if (tracks.length === 0) return;
+    const s = get();
+    // 只在用户还没自己选过曲目时接管。判据是「队列里的曲目都没有 path」——
+    // 种子曲库没有真实文件，而真实曲目一定有。用「队列长度是否为 1」之类的
+    // 结构判据会在用户手动播过一首演示曲后失灵。
+    const untouched = s.queue.every((q) => !q.track.path);
+    if (!untouched) return;
+    // 整库进队列，不是只放第一首：只放一首的话「下一首」会原地打转
+    // ——按钮亮着、按下去却什么都没发生，比按钮是灰的还费解。
+    // 用户点专辑/歌单时 `playQueue` 会整个替换掉，这只是启动时的默认队列。
+    set({
+      queue: tracks.map((track) => ({ uid: nextUid(), track, source: "auto" as const })),
+      currentIndex: 0,
+      shuffleOrder: null,
+      playing: false,
+      status: "idle",
+      loadedTrackId: null,
+      needsLibrary: false,
+      progress: freshProgress(tracks[0]),
+    });
+  },
+
+  attachEngine: async () => {
+    return engine.onEvent((event) => {
+      const s = get();
+      const currentId = s.current()?.id;
+      // 丢弃过期事件：快速连点两首歌时，前一首的进度会晚于后一首的装载到达。
+      if (event.trackId != null && currentId != null && event.trackId !== currentId) return;
+
+      switch (event.type) {
+        case "opened":
+          // 时长以**引擎读到的**为准：标签里的时长未必与实际码流一致，
+          // 而进度条的量程必须跟发声的那份对齐，否则拖到末尾会差一截。
+          set((st) => ({
+            status: "loading",
+            error: null,
+            progress: { ...st.progress, durationSec: event.format.durationSec ?? st.progress.durationSec },
+          }));
+          break;
+
+        case "status":
+          set({
+            status: event.status,
+            // `playing` 是给界面用的派生量；以引擎的状态为准，避免图标与实际不符。
+            playing: event.status === "playing",
+            ...(event.status === "error" ? {} : { needsLibrary: false }),
+          });
+          break;
+
+        case "progress":
+          set((st) => ({
+            progress: {
+              positionSec: event.positionSec,
+              durationSec: event.durationSec ?? st.progress.durationSec,
+              bufferedSec: event.bufferedSec,
+            },
+          }));
+          break;
+
+        case "ended": {
+          // 自然播完才走循环规则；手动 next() 不经过这里（见 next 的注释）。
+          if (s.repeat === "one") {
+            void engine.seek(0);
+            void engine.play();
+            set({ playing: true, progress: { ...s.progress, positionSec: 0 } });
+            return;
+          }
+          const idx = nextIndex(s.queue, s.currentIndex, s.shuffleOrder, s.repeat, true);
+          if (idx < 0) {
+            // 队列到头：停在末尾而不是跳回开头，"off" 的含义就是不要再放了。
+            set({ playing: false, status: "ended" });
+            return;
+          }
+          set({ currentIndex: idx, progress: freshProgress(s.queue[idx].track) });
+          get().loadCurrent(true);
+          break;
+        }
+
+        case "failed":
+          // 播不了就停下并如实说明。**不自动跳下一首**——整库格式不支持时那会变成
+          // 一场无声的快进，用户完全不知道发生了什么。
+          set({ status: "error", playing: false, error: event.error, loadedTrackId: null });
+          break;
       }
-      if (s.repeat === "one") return { progress: { ...s.progress, positionSec: 0 } };
-      const atEnd = s.currentIndex >= s.queue.length - 1;
-      if (atEnd && s.repeat === "off") {
-        return { playing: false, progress: { ...s.progress, positionSec: s.progress.durationSec } };
-      }
-      const nextIdx = atEnd ? 0 : s.currentIndex + 1;
-      return { currentIndex: nextIdx, progress: freshProgress(s.queue[nextIdx].track) };
-    }),
+    });
+  },
 
   clearUpNext: () =>
     set((s) => ({ queue: s.queue.slice(0, s.currentIndex + 1) })),
@@ -322,12 +582,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   reorderUpNext: (items) =>
     set((s) => ({ queue: [...s.queue.slice(0, s.currentIndex + 1), ...items] })),
 
-  playQueueItem: (uid) =>
-    set((s) => {
-      const idx = s.queue.findIndex((q) => q.uid === uid);
-      if (idx < 0) return s;
-      return { currentIndex: idx, playing: true, progress: freshProgress(s.queue[idx].track) };
-    }),
+  playQueueItem: (uid) => {
+    const s = get();
+    const idx = s.queue.findIndex((q) => q.uid === uid);
+    if (idx < 0) return;
+    set({ currentIndex: idx, playing: true, progress: freshProgress(s.queue[idx].track) });
+    get().loadCurrent(true);
+  },
 
   removeQueueItem: (uid) =>
     set((s) => {
@@ -335,7 +596,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       // 当前播放项不可移除：移除它等于「跳到下一首」，语义应由 next() 承担。
       if (idx < 0 || idx === s.currentIndex) return s;
       const queue = s.queue.filter((q) => q.uid !== uid);
-      return { queue, currentIndex: idx < s.currentIndex ? s.currentIndex - 1 : s.currentIndex };
+      return {
+        queue,
+        currentIndex: idx < s.currentIndex ? s.currentIndex - 1 : s.currentIndex,
+        // 随机顺序里也要摘掉，否则轮到它时会找不到对应队列项而直接停住。
+        shuffleOrder: s.shuffleOrder?.filter((u) => u !== uid) ?? null,
+      };
     }),
 
   enqueueNext: (track) =>
@@ -343,13 +609,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       const item: QueueItem = { uid: nextUid(), track, source: "user" };
       const queue = s.queue.slice();
       queue.splice(s.currentIndex + 1, 0, item);
-      return { queue };
+      // 「下一首播放」在随机模式下也该是下一首——插到随机序列的当前项之后，
+      // 而不是丢进乱序里等运气。
+      let shuffleOrder = s.shuffleOrder;
+      if (shuffleOrder) {
+        const pos = shuffleOrder.indexOf(s.queue[s.currentIndex]?.uid);
+        shuffleOrder = shuffleOrder.slice();
+        shuffleOrder.splice(pos < 0 ? shuffleOrder.length : pos + 1, 0, item.uid);
+      }
+      return { queue, shuffleOrder };
     }),
 
   enqueue: (track) =>
-    set((s) => ({
-      queue: [...s.queue, { uid: nextUid(), track, source: "auto" }],
-    })),
+    set((s) => {
+      const item: QueueItem = { uid: nextUid(), track, source: "auto" };
+      return {
+        queue: [...s.queue, item],
+        shuffleOrder: s.shuffleOrder ? [...s.shuffleOrder, item.uid] : null,
+      };
+    }),
 
   setActiveDevice: (id) => set({ activeDeviceId: id }),
 }));

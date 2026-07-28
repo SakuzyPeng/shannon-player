@@ -10,3 +10,10 @@ rust-version = "1.85"
 symphonia = { version = "0.6.0", features = ["mp3", "isomp4", "alac", "aac", "aiff", "caf"] }
 cpal = "0.18.1"
 rubato = "4.0.0"
+# 前端契约（`contract.rs`）。serde 与 ts-rs 都不是 GUI 依赖，
+# 因此「零 Tauri 依赖、可无头测试」的约束不受影响。
+serde = { version = "1.0", features = ["derive"] }
+ts-rs = { version = "10.1.0", features = ["no-serde-warnings"] }
+
+[dev-dependencies]
+serde_json = "1.0"

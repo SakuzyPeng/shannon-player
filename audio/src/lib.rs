@@ -7,6 +7,7 @@
 //! 边界见 `docs/AUDIO_BACKEND_ARCHITECTURE.md`：实时播放链全部在应用进程内，
 //! 不用外部播放器兜底，遇到做不了的格式返回明确的能力错误。
 
+pub mod contract;
 pub mod decode;
 pub mod engine;
 pub mod error;
@@ -16,6 +17,7 @@ pub mod output;
 pub mod resample;
 pub mod ring;
 
+pub use contract::{PlaybackError, PlaybackFormat, PlayerEvent, PlayerStatus};
 pub use engine::{Engine, EngineEvent, EngineStats, PlaybackState, PlayerCmd};
 pub use error::{EngineError, ErrorKind, Result, Stage};
 pub use layout::{ChannelLayout, LayoutSource};

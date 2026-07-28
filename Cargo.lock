@@ -3523,7 +3523,10 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "rubato",
+ "serde",
+ "serde_json",
  "symphonia 0.6.0",
+ "ts-rs",
 ]
 
 [[package]]
@@ -3548,6 +3551,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "shannon-audio",
  "shannon-core",
  "tauri",
  "tauri-build",

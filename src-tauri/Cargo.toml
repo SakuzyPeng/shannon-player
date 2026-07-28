@@ -26,3 +26,4 @@ tauri = { version = "2.9.2", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2.7.2"
 shannon-core = { path = "../core" }
+shannon-audio = { path = "../audio" }

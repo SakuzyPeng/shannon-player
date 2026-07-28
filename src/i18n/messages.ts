@@ -258,6 +258,18 @@ export interface Messages {
   "player.volume": string;
   "player.mute": string;
   "player.unmute": string;
+  /* 播放失败提示。按错误类别分开措辞——用户要做的事完全不同：
+     文件没了要去找文件，格式不支持要去转码，设备被占用要去关别的应用。 */
+  "player.error.title": string;
+  "player.error.io": string;
+  "player.error.unsupported": string;
+  "player.error.decode": string;
+  "player.error.noDevice": string;
+  "player.error.deviceConfig": string;
+  "player.error.stream": string;
+  "player.error.dismiss": string;
+  /* 演示曲库没有真实文件时的提示。这不是故障，措辞不能像故障。 */
+  "player.needsLibrary": string;
 
   "window.close": string;
   "window.minimize": string;
@@ -511,6 +523,15 @@ const zhHans: Messages = {
   "player.volume": "音量",
   "player.mute": "静音",
   "player.unmute": "恢复音量",
+  "player.error.title": "播放失败",
+  "player.error.io": "找不到文件，它可能被移动或删除了",
+  "player.error.unsupported": "暂不支持这个格式（{codec}）",
+  "player.error.decode": "文件解码失败，可能已损坏",
+  "player.error.noDevice": "找不到音频输出设备",
+  "player.error.deviceConfig": "输出设备不支持这首歌的声道配置",
+  "player.error.stream": "音频输出中断，设备可能已被拔出或被其它应用占用",
+  "player.error.dismiss": "知道了",
+  "player.needsLibrary": "这是演示曲目。添加音乐文件夹后即可播放你自己的音乐。",
 
   "window.close": "关闭",
   "window.minimize": "最小化",
@@ -762,6 +783,15 @@ const zhHant: Messages = {
   "player.volume": "音量",
   "player.mute": "靜音",
   "player.unmute": "恢復音量",
+  "player.error.title": "播放失敗",
+  "player.error.io": "找不到檔案，它可能被移動或刪除了",
+  "player.error.unsupported": "暫不支援這個格式（{codec}）",
+  "player.error.decode": "檔案解碼失敗，可能已損壞",
+  "player.error.noDevice": "找不到音訊輸出裝置",
+  "player.error.deviceConfig": "輸出裝置不支援這首歌的聲道配置",
+  "player.error.stream": "音訊輸出中斷，裝置可能已被拔除或被其它應用佔用",
+  "player.error.dismiss": "知道了",
+  "player.needsLibrary": "這是示範曲目。加入音樂資料夾後即可播放你自己的音樂。",
 
   "window.close": "關閉",
   "window.minimize": "最小化",
@@ -1013,6 +1043,15 @@ const en: Messages = {
   "player.volume": "Volume",
   "player.mute": "Mute",
   "player.unmute": "Unmute",
+  "player.error.title": "Playback failed",
+  "player.error.io": "File not found — it may have been moved or deleted",
+  "player.error.unsupported": "This format isn't supported yet ({codec})",
+  "player.error.decode": "Could not decode the file; it may be damaged",
+  "player.error.noDevice": "No audio output device found",
+  "player.error.deviceConfig": "The output device doesn't support this track's channel layout",
+  "player.error.stream": "Audio output stopped — the device may have been unplugged or taken by another app",
+  "player.error.dismiss": "Got it",
+  "player.needsLibrary": "This is a demo track. Add a music folder to play your own library.",
 
   "window.close": "Close",
   "window.minimize": "Minimize",
@@ -1264,6 +1303,15 @@ const ja: Messages = {
   "player.volume": "音量",
   "player.mute": "ミュート",
   "player.unmute": "ミュート解除",
+  "player.error.title": "再生できませんでした",
+  "player.error.io": "ファイルが見つかりません。移動または削除された可能性があります",
+  "player.error.unsupported": "この形式にはまだ対応していません（{codec}）",
+  "player.error.decode": "ファイルをデコードできません。破損している可能性があります",
+  "player.error.noDevice": "オーディオ出力デバイスが見つかりません",
+  "player.error.deviceConfig": "出力デバイスがこの曲のチャンネル構成に対応していません",
+  "player.error.stream": "オーディオ出力が中断されました。デバイスが取り外されたか、他のアプリが使用中の可能性があります",
+  "player.error.dismiss": "了解",
+  "player.needsLibrary": "これはデモ曲です。音楽フォルダを追加すると自分のライブラリを再生できます。",
 
   "window.close": "閉じる",
   "window.minimize": "最小化",

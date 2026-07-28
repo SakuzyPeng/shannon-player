@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { LibrarySnapshot, ScanProgress } from "@/types/generated/library";
 import type { TrackMetadataPatch } from "@/types/generated/overrides";
+import type { PlayerEvent } from "@/types/generated/player";
 
 /**
  * Rust 后端适配层。
@@ -103,4 +104,149 @@ export async function onScanProgress(
   if (!isTauri()) return () => {};
   const unlisten = await listen<ScanProgress>(EVENT_SCAN_PROGRESS, (e) => handler(e.payload));
   return unlisten;
+}
+
+/* ============================================================
+   播放引擎
+   ============================================================ */
+
+/** 播放事件名，与 `src-tauri/src/player.rs` 的 EVENT_PLAYER 一致。 */
+const EVENT_PLAYER = "player://event";
+
+/**
+ * 播放引擎适配器。
+ *
+ * 两套实现的分工与本文件其余部分一致：Tauri 里走真引擎，浏览器预览走 Mock。
+ * **Mock 不是摆设**——`pnpm dev` 的界面开发依赖它，没有它则进度条、切歌、
+ * 循环模式在浏览器里全是死的，而这些恰恰是最需要反复看的交互。
+ */
+export interface EngineAdapter {
+  /** 装载并（可选）立即播放。`trackId` 用于给事件盖章，见下方 onEvent。 */
+  load(path: string, trackId: string, autoplay: boolean): Promise<void>;
+  play(): Promise<void>;
+  pause(): Promise<void>;
+  seek(positionSec: number): Promise<void>;
+  setVolume(volume: number): Promise<void>;
+  stop(): Promise<void>;
+  /**
+   * 订阅播放事件，返回取消订阅函数。
+   *
+   * 事件都带 `trackId`：快速连点两首歌时，前一首的进度事件会晚于后一首的装载到达，
+   * 调用方据此丢弃过期事件（否则表现为进度条跳一下）。
+   */
+  onEvent(handler: (e: PlayerEvent) => void): Promise<() => void>;
+}
+
+/** 真引擎：命令走 IPC，事件走 Tauri event。 */
+const tauriEngine: EngineAdapter = {
+  load: (path, trackId, autoplay) =>
+    invoke<void>("player_load", { path, trackId, autoplay }),
+  play: () => invoke<void>("player_play"),
+  pause: () => invoke<void>("player_pause"),
+  seek: (positionSec) => invoke<void>("player_seek", { positionSec }),
+  setVolume: (volume) => invoke<void>("player_set_volume", { volume }),
+  stop: () => invoke<void>("player_stop"),
+  onEvent: async (handler) => listen<PlayerEvent>(EVENT_PLAYER, (e) => handler(e.payload)),
+};
+
+/**
+ * 浏览器预览用的假引擎：不出声，但把状态机与时钟完整跑一遍。
+ *
+ * 时长从哪来是个真问题——它没有文件可读。约定由调用方在 `load` 前经
+ * `mockEngine.setDuration` 告知（前端队列里本来就有曲目时长）。拿不到就按 0 处理，
+ * 于是「装载即结束」，这比让进度条跑一个编出来的时长要诚实。
+ */
+function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } {
+  const handlers = new Set<(e: PlayerEvent) => void>();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let trackId: string | null = null;
+  let position = 0;
+  let duration = 0;
+
+  const emit = (e: PlayerEvent) => handlers.forEach((h) => h(e));
+
+  const stopTimer = () => {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+
+  // 与真引擎同频（约 5 Hz）：界面在事件之间自行插值，两边的插值手感因此一致。
+  const startTimer = () => {
+    stopTimer();
+    timer = setInterval(() => {
+      position = Math.min(position + 0.2, duration);
+      emit({ type: "progress", trackId, positionSec: position, durationSec: duration, bufferedSec: duration });
+      if (position >= duration) {
+        stopTimer();
+        emit({ type: "status", trackId, status: "ended" });
+        emit({ type: "ended", trackId });
+      }
+    }, 200);
+  };
+
+  return {
+    setDuration: (sec) => {
+      duration = Math.max(0, sec);
+    },
+    load: async (_path, id, autoplay) => {
+      trackId = id;
+      position = 0;
+      emit({ type: "status", trackId, status: "loading" });
+      emit({
+        type: "opened",
+        trackId,
+        format: {
+          container: "mock",
+          codec: "mock",
+          sampleRate: 44100,
+          channels: 2,
+          layout: "stereo",
+          durationSec: duration,
+          deviceName: "浏览器预览（无声）",
+          outputSampleRate: 44100,
+          sampleFormat: "f32",
+          resampled: false,
+        },
+      });
+      emit({ type: "status", trackId, status: autoplay ? "playing" : "paused" });
+      if (autoplay) startTimer();
+    },
+    play: async () => {
+      emit({ type: "status", trackId, status: "playing" });
+      startTimer();
+    },
+    pause: async () => {
+      stopTimer();
+      emit({ type: "status", trackId, status: "paused" });
+    },
+    seek: async (positionSec) => {
+      position = Math.max(0, Math.min(positionSec, duration));
+      emit({ type: "progress", trackId, positionSec: position, durationSec: duration, bufferedSec: duration });
+    },
+    setVolume: async () => {},
+    stop: async () => {
+      stopTimer();
+      position = 0;
+      emit({ type: "status", trackId, status: "idle" });
+    },
+    onEvent: async (handler) => {
+      handlers.add(handler);
+      return () => handlers.delete(handler);
+    },
+  };
+}
+
+export const mockEngine = createMockEngine();
+
+/** 当前环境该用的引擎。调用点不写环境判断，与本文件其余部分一致。 */
+export const engine: EngineAdapter = isTauri() ? tauriEngine : mockEngine;
+
+/**
+ * 浏览器预览下把时长告知假引擎。Tauri 环境是 no-op——真引擎自己从文件读，
+ * 前端记的时长只是标签里的值，未必与实际码流一致。
+ */
+export function hintDuration(sec: number): void {
+  if (!isTauri()) mockEngine.setDuration(sec);
 }

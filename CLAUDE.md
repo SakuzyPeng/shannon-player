@@ -53,9 +53,9 @@ window.__shannon.library.getState().setLibrary(snap);
 三层结构：前端 + Tauri 薄壳 + 纯逻辑 Rust core，cargo workspace（`Cargo.toml` 成员 `core`、`src-tauri`）与 pnpm scripts 串联。
 
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
-- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原）、把 core 的进度回调转成 Tauri event（`library://scan-progress`）、用 `LibraryState` 持有扫描缓存与覆盖层、把两者落到应用数据目录（`library-cache.json` / `metadata-overrides.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 两份落盘数据的重要性不同：缓存可重建（损坏就重扫），**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）。
+- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原 / 播放控制）、把 core 与 audio 的回调转成 Tauri event（`library://scan-progress`、`player://event`）、用 `LibraryState` 持有扫描缓存与覆盖层、把两者落到应用数据目录（`library-cache.json` / `metadata-overrides.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 两份落盘数据的重要性不同：缓存可重建（损坏就重扫），**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）。
 - **`core/`（crate `shannon-core`）** —— 曲库扫描、音频规格探测、稳定 ID、元数据覆盖层。**刻意不依赖 Tauri 与任何 GUI 库**，因此能在无图形环境 `cargo test`；副作用（进度上报）通过回调注入，由外壳决定落地方式。新增后端能力优先放这里，让外壳保持薄。
-- **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**阶段 0 的立体声路径**：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis 经 Symphonia 解码 → 重采样 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡。**多声道不走这条路**——下混与空间化都交给系统（见下），平台原生后端尚未接入，当前遇到多声道报明确的路由错误。尚未接进 Tauri 与前端，播放条走的仍是占位时钟。
+- **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**阶段 0 的立体声路径**：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis 经 Symphonia 解码 → 重采样 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡。**多声道不走这条路**——下混与空间化都交给系统（见下），平台原生后端尚未接入，当前遇到多声道报明确的路由错误。已接进 Tauri 与前端（命令 + `player://event` 事件桥），播放条走的是引擎上报的真实位置。
 
 管线里有三处顺序是想清楚才这么定的，改动前先看 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md` 的「管线顺序」：① **音量在输出回调里做，不在管线里**——管线领先播放一秒半，在那儿改增益意味着按下静音要等一秒半才生效；② **重采样在声道适配之前**（按源声道数做），通则是在声道数少的那一侧重采样，所以将来加多声道下混时顺序要反过来；③ **协商与打开流分成两步**（`OutputBackend::negotiate` 只预演不碰设备），因为环形缓冲容量、重采样比率、位置计数的时基都要按协商结果搭。另外**位置计数一律记输出域的帧**——`Decoder::seek` 返回的是源域帧位置，混用会让进度按比率走偏（44.1 → 48 kHz 快 8.8%）。
 
@@ -92,6 +92,14 @@ window.__shannon.library.getState().setLibrary(snap);
 **缺失值的表达**：判不出的字段一律留空而不是填哨兵值——`Album.year` 是 `Option`，因为填 0 会一路漏到界面上显示成「0 年」。界面拼接元信息用 `src/lib/meta.ts` 的 `metaJoin`，它会跳过缺失项，避免出现「白鲸电台 · 」这种孤零零的分隔符。多碟专辑的曲目列表按碟分节、组内用真实音轨号（`AlbumDetailScreen` 的 `discs`）：序号若用列表索引，两张碟拼起来第二碟第一首就会显示成 16。**音轨号缺失时显示 `·` 而不是退回序位**——序位是个会撞号的哨兵值，同一张专辑里只要有几首缺标签，编出来的号就会与其它曲目的真实音轨号重号（实测一张 11 首的专辑同时出现两个「10」和两个「11」）。
 
 **元数据覆盖层（`core/src/overrides.rs`）**：只要存在兜底推断就会猜错，就必须让用户能改。三条规矩：① 键用曲目 ID，专辑级编辑写入时展开成逐曲记录；② 只存被改过的字段，`None` = 不覆盖，这样重扫读到更好的标签时用户没碰过的字段仍会更新；③ 字段三态——没动 / 显式清空（文本空串、数字 `null`）撤销该字段 / 改值，只有两态用户就只能整条还原。三态靠**补丁与落盘分开建模**实现：落盘的 `TrackOverride` 只需两态，请求用的 `TrackMetadataPatch` 才要三态，其中数字用 `Option<Option<u16>>` 经 serde 区分「字段缺席」与「显式 null」——数字没有空字符串可借，只用一层 Option 会让碟号、音轨号只能改不能撤销。**不写回音频文件**：写标签是破坏性操作，不该是「编辑信息」的副作用。前端对应 `src/components/common/EditMetadataDialog.tsx`（含 `useMetadataEditor` hook，各页菜单接入用它），界面同样**只提交用户真正动过的输入框**，否则等于把「猜的」固化成「用户指定的」。
+
+**播放引擎接进前端的三处要点（`audio/src/contract.rs` + `src-tauri/src/player.rs` + `src/store/player.ts`）**：① **契约类型放产生它的那一层**——`PlayerEvent` 定义在 audio crate 并经 ts-rs 导出到 `src/types/generated/player.ts`，与 `ScanProgress` 放在 core 同理；放进外壳会让本该薄的它承担领域建模，而那个定义再也无法被无头测试覆盖。注意 `#[serde(tag = "...")]` 的 `rename_all` **只作用于 variant 名**，字段名要另外写 `rename_all_fields`，否则序列化出 `track_id` 而前端按 `trackId` 读，每个字段都是 `undefined` 且不报任何错。② **每个事件都盖 `trackId` 的章**：引擎只认文件路径，前端队列以曲目 ID 为键，快速连点两首歌时前一首的进度事件会晚于后一首的装载到达，不盖章就会记到新曲目头上。③ **引擎懒起**：`Engine::spawn` 到首次 `load` 才打开输出设备，在 `setup` 里就建好等于应用一启动就占声卡。
+
+**播放状态有两个，别用一个推另一个**：`loadedTrackId`（引擎装载的是哪首）与 `current()`（播放条显示的是哪首）是两件事。曲库恢复后队列换上了真实曲目而引擎那边还是空的，此时按播放，`engine.play()` 打在空引擎上是 no-op，界面却已乐观地把图标切成暂停——实测就是按钮变了、进度一动不动。同源的一条：**曲库到位后要把种子演示队列换掉**（`adoptLibrary`），否则一个已经扫描过的用户开门见到的仍是演示曲目，按下播放得到「这是演示曲目」——他明明有音乐，播放器却说他没有。换的时候**整库入队**而不是只放第一首，只放一首会让「下一首」原地打转，按钮亮着却什么都不发生。
+
+**随机播放要洗牌，不要每次随机取一首**：后者会重复、会漏，一个 10 首的队列放到第 10 首时仍有约 35% 的曲目一次没放过。`shuffleOrder` 存的是一次洗好的 uid 排列，且**把当前曲目固定在首位**——用户按的是「之后随机」，不是「立刻换一首」。队列增删要同步维护它，否则轮到一个已被移除的项时会直接停住。
+
+**播放失败不自动跳下一首**：整库格式不支持时那会变成一场无声的快进，用户完全不知道发生了什么。失败要停下并按 `kind` 分类说明（找不到文件 / 格式不支持 / 设备被占用，用户要做的事完全不同），见 `src/components/player/PlaybackNotice.tsx`。
 
 **共享元素过渡的副作用**：`layoutId`（专辑卡 ↔ 详情页大封面的共享过渡）会**顺带开启 layout 动画**，于是同一页内任何导致该元素位移的布局变化——比如歌手页展开/收起歌曲列表——都会被逐个做成 spring 动画，低阻尼参数下还会过冲成「弹跳」。修法是 `layoutDependency={不变的值}`：位置变化不再触发重新测量，而靠 `layoutId` 配对的跨组件共享过渡照常工作。给带 `layoutId` 的元素所在区域加可展开/折叠的内容时，都要留意这一点。
 

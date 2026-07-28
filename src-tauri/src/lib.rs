@@ -1,8 +1,10 @@
 //! Tauri 外壳：窗口 + 命令注册 + 状态持有。
 //!
-//! 业务逻辑全在 `shannon-core`（不依赖 Tauri，可在无图形环境下测试），
-//! 这里只做四件事：把命令暴露给前端、把扫描进度转成 Tauri event、
-//! 持有曲库状态、把状态落到应用数据目录。
+//! 业务逻辑全在 `shannon-core` 与 `shannon-audio`（都不依赖 Tauri，可在无图形环境下
+//! 测试），这里只做四件事：把命令暴露给前端、把进度与播放事件转成 Tauri event、
+//! 持有曲库与播放器状态、把状态落到应用数据目录。
+//!
+//! 播放那半边在 `player.rs`。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -12,6 +14,9 @@ use shannon_core::model::{LibrarySnapshot, ScanProgress};
 use shannon_core::overrides::{Overrides, TrackMetadataPatch};
 use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
+
+mod player;
+use player::PlayerState;
 
 /// 扫描进度事件名。前端 `listen()` 用同一字符串。
 pub const EVENT_SCAN_PROGRESS: &str = "library://scan-progress";
@@ -247,6 +252,9 @@ pub fn run() {
             let state = LibraryState::default();
             restore(app.handle(), &state);
             app.manage(state);
+            // 播放器状态是空壳，引擎推迟到第一次真要放东西时才起——
+            // 否则应用一启动就占住声卡（理由见 `player.rs` 模块头）。
+            app.manage(PlayerState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -258,7 +266,13 @@ pub fn run() {
             set_track_metadata,
             set_album_metadata,
             reset_track_metadata,
-            reset_album_metadata
+            reset_album_metadata,
+            player::player_load,
+            player::player_play,
+            player::player_pause,
+            player::player_seek,
+            player::player_set_volume,
+            player::player_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
