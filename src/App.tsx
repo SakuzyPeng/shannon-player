@@ -7,6 +7,7 @@ import { PlaybackNotice } from "@/components/player/PlaybackNotice";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
+import { usePersistSession } from "@/hooks/usePersistSession";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
 import { getCoverDir, getLibrary, getMusicFolders } from "@/lib/backend";
 import { useLibraryStore } from "@/store/library";
@@ -99,14 +100,16 @@ function useRestoreLibrary() {
       useLibraryStore.getState().setCoverDir(coverDir);
       if (!snapshot) return;
       setLibrary(snapshot);
-      // 队列还停在种子演示曲目时，换成曲库里的第一首。
+      // 队列的恢复顺序：先试上次的会话，没有才回落到「整库入队」。
       //
-      // 不换的话，一个**已经扫描过**的用户开门见到的仍是演示曲目，按下播放得到的是
-      // 「这是演示曲目」——他明明有音乐，播放器却说他没有。演示曲目的作用是让界面
-      // 在空库时不至于空着，曲库一到位它就该让位。
+      // 会话只存曲目 ID，所以**必须等到这里**——曲库就绪之后才查得回曲目本体。
+      // 回落那条路解决的是另一个问题：一个已经扫描过的用户开门见到的若仍是种子演示
+      // 曲目，按下播放得到「这是演示曲目」——他明明有音乐，播放器却说他没有。
       //
-      // 只换不放：启动即出声是没人要的行为。
-      usePlayerStore.getState().adoptLibrary(snapshot.tracks);
+      // 两条路都只换不放：启动即出声是没人要的行为。
+      const byId = new Map(snapshot.tracks.map((t) => [t.id, t]));
+      const restored = await usePlayerStore.getState().restoreSession((id) => byId.get(id));
+      if (!restored) usePlayerStore.getState().adoptLibrary(snapshot.tracks);
       // 设置页显示真实扫描目录；曲目数按路径前缀统计，文件监听尚未实现，一律标为已扫描。
       useUiStore.getState().setMusicFolders(
         roots.map((path) => ({
@@ -123,6 +126,7 @@ export default function App() {
   useApplyTheme();
   useWindowChrome();
   usePlaybackTicker();
+  usePersistSession();
   useRestoreLibrary();
   useGlobalHotkeys();
 

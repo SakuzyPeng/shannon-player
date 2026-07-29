@@ -15,15 +15,18 @@ import {
   SEED_FAVORITE_TRACKS,
 } from "@/data/library";
 import { PLAYLISTS } from "@/data/playlists";
-import { engine, hintDuration } from "@/lib/backend";
+import { engine, hintDuration, loadSession, saveSession } from "@/lib/backend";
+import { fromSession, toSession } from "@/lib/session";
 import type { PlaybackError, PlayerStatus } from "@/types/generated/player";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
 const nextUid = (): Id => `q-${uidSeq++}`;
 let loadSeq = 0;
-const loadSession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-const nextLoadId = (): Id => `load-${loadSession}-${loadSeq++}`;
+// 本次运行的随机盐，让装载 ID 跨进程唯一。**不要叫 session**——那个词现在专指
+// 持久化的播放会话（`@/lib/session`），两个概念混在一起会让人以为 loadId 也会落盘。
+const runSalt = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const nextLoadId = (): Id => `load-${runSalt}-${loadSeq++}`;
 let playlistSeq = 0;
 const nextPlaylistId = (): Id => `pl-user-${Date.now()}-${playlistSeq++}`;
 
@@ -71,6 +74,26 @@ interface PlayerState {
    * 实测就是这个：按钮变了，进度一动不动。
    */
   loadedTrackId: Id | null;
+  /**
+   * 恢复会话后待补的播放位置（秒）。
+   *
+   * 会话恢复时引擎并未装载任何东西——启动即出声是没人要的行为。所以位置先记在这里，
+   * 等用户按下播放、`opened` 事件到达后再 seek 过去。直接在恢复时 seek 会打在
+   * 空引擎上，什么也不会发生。
+   */
+  pendingSeekSec: number | null;
+  /**
+   * 会话恢复流程是否已经跑完（无论恢复成功还是回落到整库入队）。
+   *
+   * **在此之前一律不许写会话**。启动早期队列里是种子演示曲目，把它存下来会覆盖掉
+   * 用户上次的真实会话——而种子曲目的 ID 在真实曲库里查不到，下次恢复就会整个失败，
+   * 表现为「队列每次重启都回到第一首」。
+   *
+   * 这不是假想：React StrictMode 在开发模式下会 mount → unmount → mount，
+   * `usePersistSession` 卸载时那句「退出前补存一次」于是在**应用刚启动**时就触发了，
+   * 存下的正是种子队列。实测复现，一次就把会话打回原形。
+   */
+  sessionReady: boolean;
   /**
    * 当前装载请求的代际 ID。与曲目 ID 分开：单曲循环、失败重试都会连续装载同一首，
    * 只比曲目 ID 无法识别上一代迟到的状态与结束事件。
@@ -147,6 +170,15 @@ interface PlayerState {
    * **只换不播**——启动即出声是没人要的行为。
    */
   adoptLibrary: (tracks: Track[]) => void;
+  /**
+   * 从持久化的会话恢复队列与播放状态。**必须在曲库就绪之后调用**——
+   * 会话只存曲目 ID，曲目本体要按 ID 回查曲库。
+   *
+   * 返回是否恢复成功；失败时调用方回落到 `adoptLibrary`。
+   */
+  restoreSession: (lookup: (id: Id) => Track | undefined) => Promise<boolean>;
+  /** 把当前会话写回后端。由 `usePersistSession` 节流调用，业务代码不用管。 */
+  persistSession: () => void;
   /** 订阅引擎事件并接管播放状态。返回取消订阅函数；由 `App` 在挂载时调用一次。 */
   attachEngine: () => Promise<() => void>;
   /** 清空当前曲目之后的队列（歌词页队列面板「清除」）。 */
@@ -288,6 +320,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   status: "idle",
   loadedTrackId: null,
   activeLoadId: null,
+  pendingSeekSec: null,
+  sessionReady: false,
   error: null,
   needsLibrary: false,
 
@@ -578,8 +612,63 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       loadedTrackId: null,
       activeLoadId: null,
       needsLibrary: false,
+      sessionReady: true,
       progress: freshProgress(tracks[0]),
     });
+  },
+
+  restoreSession: async (lookup) => {
+    const json = await loadSession();
+    const restored = json ? fromSession(json, lookup) : null;
+    if (!restored) {
+      // 没有会话、或会话已失效：流程照样算跑完了，调用方会回落到整库入队。
+      // 不置位的话，后续状态变化永远不会被保存，用户这一程的队列到退出时全丢。
+      return false;
+    }
+
+    const queue: QueueItem[] = restored.tracks.map((track) => ({
+      uid: nextUid(),
+      track,
+      source: "auto" as const,
+    }));
+    const idx = Math.min(restored.currentIndex, queue.length - 1);
+    set({
+      queue,
+      currentIndex: idx,
+      // 存的是下标排列，这里映射回本次运行新生成的 uid。
+      shuffleOrder: restored.shuffleOrder?.map((i) => queue[i]?.uid).filter((u): u is Id => !!u) ?? null,
+      shuffle: restored.shuffle,
+      repeat: restored.repeat,
+      volume: restored.volume,
+      muted: restored.muted,
+      // 恢复不自动播放，但进度条要显示上次的位置。
+      playing: false,
+      status: "idle",
+      loadedTrackId: null,
+      activeLoadId: null,
+      needsLibrary: false,
+      error: null,
+      progress: {
+        positionSec: restored.positionSec,
+        durationSec: queue[idx]?.track.durationSec ?? 0,
+        bufferedSec: 0,
+      },
+      pendingSeekSec: restored.positionSec > 0 ? restored.positionSec : null,
+      sessionReady: true,
+    });
+    // 音量要立刻同步给引擎：它是与装载无关的全局设置，
+    // 等到第一次 load 才带过去的话，用户开播前调音量会打在默认值上。
+    void engine.setVolume(restored.muted ? 0 : restored.volume);
+    return true;
+  },
+
+  persistSession: () => {
+    const s = get();
+    // 恢复流程没跑完就一个字都不写：此刻队列里是种子演示曲目，存下去会覆盖用户
+    // 上次的真实会话，而种子 ID 在曲库里查不到，下次恢复必然失败。
+    if (!s.sessionReady) return;
+    if (s.queue.length === 0 || s.currentIndex < 0) return;
+    void saveSession(JSON.stringify(toSession(s)));
   },
 
   attachEngine: async () => {
@@ -592,7 +681,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (event.trackId != null && currentId != null && event.trackId !== currentId) return;
 
       switch (event.type) {
-        case "opened":
+        case "opened": {
           // 时长以**引擎读到的**为准：标签里的时长未必与实际码流一致，
           // 而进度条的量程必须跟发声的那份对齐，否则拖到末尾会差一截。
           set((st) => ({
@@ -600,7 +689,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             error: null,
             progress: { ...st.progress, durationSec: event.format.durationSec ?? st.progress.durationSec },
           }));
+          // 上次退出时停在哪，这时候才补得上——装载之前引擎里没有可定位的东西。
+          // 只补一次：补完清空，否则用户手动 seek 之后再切回这首又会被拽回旧位置。
+          const pending = s.pendingSeekSec;
+          if (pending != null && pending > 0) {
+            set({ pendingSeekSec: null });
+            void engine.seek(pending);
+          }
           break;
+        }
 
         case "status":
           set({

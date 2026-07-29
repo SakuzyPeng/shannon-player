@@ -16,15 +16,20 @@ installNativeChrome();
 //   __shannon.library.getState().setLibrary(s);
 // 仅 dev 构建存在，生产产物里会被摇掉。
 if (import.meta.env.DEV) {
-  void Promise.all([import("@/store/library"), import("@/store/player"), import("@/store/ui")]).then(
-    ([library, player, ui]) => {
-      (window as unknown as Record<string, unknown>).__shannon = {
-        library: library.useLibraryStore,
-        player: player.usePlayerStore,
-        ui: ui.useUiStore,
-      };
-    },
-  );
+  void Promise.all([
+    import("@/store/library"),
+    import("@/store/player"),
+    import("@/store/ui"),
+    import("@/lib/session"),
+  ]).then(([library, player, ui, session]) => {
+    (window as unknown as Record<string, unknown>).__shannon = {
+      library: library.useLibraryStore,
+      player: player.usePlayerStore,
+      ui: ui.useUiStore,
+      // 会话的解析是纯函数，挂出来便于拿真实 JSON 当场验证恢复逻辑。
+      session,
+    };
+  });
 }
 
 createRoot(document.getElementById("root")!).render(

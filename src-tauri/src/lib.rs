@@ -4,7 +4,7 @@
 //! 测试），这里只做四件事：把命令暴露给前端、把进度与播放事件转成 Tauri event、
 //! 持有曲库与播放器状态、把状态落到应用数据目录。
 //!
-//! 播放那半边在 `player.rs`。
+//! 播放那半边在 `player.rs`，播放会话的落盘在 `session.rs`。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -16,6 +16,7 @@ use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
 
 mod player;
+mod session;
 use player::PlayerState;
 
 /// 扫描进度事件名。前端 `listen()` 用同一字符串。
@@ -272,7 +273,9 @@ pub fn run() {
             player::player_pause,
             player::player_seek,
             player::player_set_volume,
-            player::player_stop
+            player::player_stop,
+            session::save_session,
+            session::load_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

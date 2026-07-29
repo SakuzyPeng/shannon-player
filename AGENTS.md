@@ -54,7 +54,7 @@ window.__shannon.library.getState().setLibrary(snap);
 三层结构：前端 + Tauri 薄壳 + 纯逻辑 Rust core，cargo workspace（`Cargo.toml` 成员 `core`、`src-tauri`）与 pnpm scripts 串联。
 
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
-- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原 / 播放控制）、把 core 与 audio 的回调转成 Tauri event（`library://scan-progress`、`player://event`）、用 `LibraryState` 持有扫描缓存与覆盖层、把两者落到应用数据目录（`library-cache.json` / `metadata-overrides.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 两份落盘数据的重要性不同：缓存可重建（损坏就重扫），**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）。
+- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原 / 播放控制）、把 core 与 audio 的回调转成 Tauri event（`library://scan-progress`、`player://event`）、用 `LibraryState` 持有扫描缓存与覆盖层、把状态落到应用数据目录（`library-cache.json` / `metadata-overrides.json` / `playback-session.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 三份落盘数据的重要性不同，处理方式也不同：缓存可重建（损坏就重扫）；**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）；播放会话可重建但用户会在意（丢了重新点一次歌，可每次重启都丢很烦），读取失败一律**静默当作没有会话**——为一份能随手重建的数据弹错误框，打扰的成本高于它本身的价值。
 - **`core/`（crate `shannon-core`）** —— 曲库扫描、音频规格探测、稳定 ID、元数据覆盖层。**刻意不依赖 Tauri 与任何 GUI 库**，因此能在无图形环境 `cargo test`；副作用（进度上报）通过回调注入，由外壳决定落地方式。新增后端能力优先放这里，让外壳保持薄。
 - **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**阶段 0 的立体声路径**：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis 经 Symphonia 解码 → 重采样 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡。**多声道不走这条路**——下混与空间化都交给系统（见下），平台原生后端尚未接入，当前遇到多声道报明确的路由错误。已接进 Tauri 与前端（命令 + `player://event` 事件桥），播放条走的是引擎上报的真实位置。
 
@@ -103,6 +103,10 @@ window.__shannon.library.getState().setLibrary(snap);
 **随机播放要洗牌，不要每次随机取一首**：后者会重复、会漏，一个 10 首的队列放到第 10 首时仍有约 35% 的曲目一次没放过。`shuffleOrder` 存的是一次洗好的 uid 排列，且**把当前曲目固定在首位**——用户按的是「之后随机」，不是「立刻换一首」。队列增删要同步维护它，否则轮到一个已被移除的项时会直接停住。
 
 **播放失败不自动跳下一首**：整库格式不支持时那会变成一场无声的快进，用户完全不知道发生了什么。失败要停下并按 `kind` 分类说明（找不到文件 / 格式不支持 / 设备被占用，用户要做的事完全不同），见 `src/components/player/PlaybackNotice.tsx`。
+
+**播放会话持久化（`src/lib/session.ts` + `src-tauri/src/session.rs`）**：队列、当前曲目、播放位置、循环与随机状态跨重启保留。三条规矩：① **只存曲目 ID，不存 `Track` 对象**——曲目信息的权威在曲库，存副本会让用户改完元数据重启后队列里还是旧标题（他刚改过，这种不一致最让人怀疑软件坏了）；顺带省下整库入队时抄一遍曲库的体积，且文件删除 / 重扫后 ID 变化时自然剔除。代价是**恢复必须等曲库就绪之后**，因为要按 ID 回查。② 随机顺序存的是**下标排列**而非曲目 ID——队列允许同一首歌多次入队，用 ID 表达顺序会有歧义。③ 后端只负责原子存取一段文本，schema 与版本号由前端拥有：会话是**前端拥有**的状态，后端在其中没有领域判断可做，给它定义 Rust 结构只会让每加一个字段都要改两处、重跑契约导出。
+
+**「卸载时保存」在 StrictMode 下会变成「启动时保存未初始化状态」**：React StrictMode 开发模式下 mount → unmount → mount，于是 `usePersistSession` cleanup 里那句「退出前补存一次」在**应用刚启动**时就执行了，把种子演示队列写进了会话文件，覆盖掉用户上次的真实会话；而种子曲目的 ID 在真实曲库里查不到，下次恢复整个失败，表现为「队列每次重启都回到第一首」。实测复现。挡住它的是 store 里的 `sessionReady` 守卫——**恢复流程跑完之前一个字都不写**。教训是通用的：不能指望「卸载」一定意味着「用完了」，凡是在 cleanup 里做持久化的地方都要问一遍这个。
 
 **共享元素过渡的副作用**：`layoutId`（专辑卡 ↔ 详情页大封面的共享过渡）会**顺带开启 layout 动画**，于是同一页内任何导致该元素位移的布局变化——比如歌手页展开/收起歌曲列表——都会被逐个做成 spring 动画，低阻尼参数下还会过冲成「弹跳」。修法是 `layoutDependency={不变的值}`：位置变化不再触发重新测量，而靠 `layoutId` 配对的跨组件共享过渡照常工作。给带 `layoutId` 的元素所在区域加可展开/折叠的内容时，都要留意这一点。
 

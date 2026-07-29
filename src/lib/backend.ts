@@ -274,3 +274,22 @@ export const engine: EngineAdapter = isTauri() ? tauriEngine : mockEngine;
 export function hintDuration(sec: number): void {
   if (!isTauri()) mockEngine.setDuration(sec);
 }
+
+/* ============================================================
+   播放会话（队列 / 进度 / 循环与随机状态）
+   ============================================================ */
+
+/**
+ * 保存播放会话。浏览器预览下是 no-op——dev 环境每次刷新都该是干净的起点，
+ * 把种子曲库的队列存进 localStorage 只会让「我明明改了代码怎么还是旧的」更难查。
+ */
+export async function saveSession(json: string): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("save_session", { json });
+}
+
+/** 读回播放会话；没有或读不出来都是 null。 */
+export async function loadSession(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("load_session");
+}
