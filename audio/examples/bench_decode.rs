@@ -42,6 +42,9 @@ struct Options {
 }
 
 struct FileResult {
+    /// 保留路径是为了让「不可测」能指名道姓。一个「4% 不可测」的统计若说不出是哪些
+    /// 文件，就没法判断那是真静音、是隐藏轨，还是分析器用错了——统计会掩盖问题。
+    path: PathBuf,
     audio_sec: f64,
     wall_sec: f64,
     codec: String,
@@ -254,6 +257,7 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
     let loudness = loudness.as_ref().map(finish_loudness).transpose()?;
     let audio_sec = samples as f64 / channels.max(1) as f64 / rate as f64;
     Ok(FileResult {
+        path: path.to_path_buf(),
         audio_sec,
         wall_sec: started.elapsed().as_secs_f64(),
         codec,
@@ -326,6 +330,7 @@ fn applied_gain_db(integrated_lufs: f64, true_peak_dbtp: f64) -> f64 {
 fn print_loudness_summary(results: &[FileResult]) {
     let mut measured = 0usize;
     let mut unmeasurable = 0usize;
+    let mut unmeasurable_paths: Vec<&Path> = Vec::new();
     let mut loudness_min = f64::INFINITY;
     let mut loudness_max = f64::NEG_INFINITY;
     let mut peak_max = f64::NEG_INFINITY;
@@ -346,11 +351,19 @@ fn print_loudness_summary(results: &[FileResult]) {
                 gain_min = gain_min.min(*applied_gain_db);
                 gain_max = gain_max.max(*applied_gain_db);
             }
-            LoudnessOutcome::Unmeasurable => unmeasurable += 1,
+            LoudnessOutcome::Unmeasurable => {
+                unmeasurable += 1;
+                unmeasurable_paths.push(result.path.as_path());
+            }
         }
     }
 
     println!("响度可测 {measured} 首 · 不可测 {unmeasurable} 首");
+    // 逐个列出：这类文件要么真静音、要么触到了门限的边界条件，值得逐个看过
+    // 再决定 `unmeasurable` 该不该缓存成永久结论。
+    for path in &unmeasurable_paths {
+        println!("  不可测  {}", path.display());
+    }
     if measured > 0 {
         println!(
             "响度 {loudness_min:.1}…{loudness_max:.1} LUFS · 最高真峰值 {peak_max:.1} dBTP · 应用增益 {gain_min:.1}…{gain_max:.1} dB"
