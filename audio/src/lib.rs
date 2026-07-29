@@ -12,6 +12,7 @@ pub mod decode;
 pub mod engine;
 pub mod error;
 pub mod layout;
+pub mod loudness;
 pub mod mix;
 pub mod output;
 pub mod resample;
@@ -23,3 +24,4 @@ pub use engine::{
 };
 pub use error::{EngineError, ErrorKind, Result, Stage};
 pub use layout::{ChannelLayout, LayoutSource};
+pub use loudness::{LoudnessAnalyzer, LoudnessOutcome};

@@ -20,19 +20,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use ebur128::{Channel, EbuR128, Mode};
 use shannon_audio::decode::Decoder;
-use shannon_audio::ChannelLayout;
+use shannon_audio::loudness::{self, LoudnessAnalyzer, LoudnessOutcome};
 use walkdir::WalkDir;
 
 const AUDIO_EXT: &[&str] = &[
     "flac", "m4a", "mp4", "mp3", "wav", "aiff", "aif", "caf", "ogg", "oga", "mka", "webm",
 ];
 
-/// ReplayGain 2.0 的参考响度；不是广播用 EBU R128 的 -23 LUFS。
-const REPLAYGAIN_REFERENCE_LUFS: f64 = -18.0;
-/// 不上 limiter，只把固定增益压低到真峰值不超过该上限。
-const TRUE_PEAK_CEILING_DBTP: f64 = -1.0;
+// 目标响度、峰值上限与增益公式都取自 `shannon_audio::loudness`，
+// **不在这里另抄一份**：基准工具一旦与产品用不同的常量，它测出的就不是产品的负载。
 
 struct Options {
     inputs: Vec<PathBuf>,
@@ -49,16 +46,6 @@ struct FileResult {
     wall_sec: f64,
     codec: String,
     loudness: Option<LoudnessOutcome>,
-}
-
-enum LoudnessOutcome {
-    Measured {
-        integrated_lufs: f64,
-        true_peak_dbtp: f64,
-        applied_gain_db: f64,
-    },
-    /// 全静音、短于第一个 400 ms 门限块等情况没有可用 integrated loudness。
-    Unmeasurable,
 }
 
 fn main() {
@@ -93,7 +80,9 @@ fn main() {
 
     let mode = if options.loudness {
         format!(
-            "完整响度分析（目标 {REPLAYGAIN_REFERENCE_LUFS:.0} LUFS · 真峰值上限 {TRUE_PEAK_CEILING_DBTP:.0} dBTP）"
+            "完整响度分析（目标 {:.0} LUFS · 真峰值上限 {:.0} dBTP）",
+            loudness::TARGET_LUFS,
+            loudness::TRUE_PEAK_CEILING_DBTP
         )
     } else {
         "仅解码".into()
@@ -232,9 +221,11 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
     let rate = decoder.spec().sample_rate;
     let layout = decoder.spec().layout;
     let channels = layout.count();
-    let mut loudness = measure_loudness
-        .then(|| loudness_analyzer(layout, rate))
-        .transpose()?;
+    // 布局不支持时 `new` 给 None；此处按「不测」处理，与产品路径的 UnsupportedLayout 同义。
+    let mut loudness = match measure_loudness {
+        true => LoudnessAnalyzer::new(layout, rate).map_err(|e| e.to_string())?,
+        false => None,
+    };
 
     let mut buf = Vec::new();
     let mut samples = 0u64;
@@ -244,9 +235,7 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
             Ok(true) => {
                 samples += buf.len() as u64;
                 if let Some(analyzer) = loudness.as_mut() {
-                    analyzer
-                        .add_frames_f32(&buf)
-                        .map_err(|e| format!("响度分析失败：{e}"))?;
+                    analyzer.feed(&buf).map_err(|e| e.to_string())?;
                 }
             }
             Ok(false) => break,
@@ -254,7 +243,10 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
         }
     }
 
-    let loudness = loudness.as_ref().map(finish_loudness).transpose()?;
+    let loudness = loudness
+        .as_ref()
+        .map(|a| a.finish().map_err(|e| e.to_string()))
+        .transpose()?;
     let audio_sec = samples as f64 / channels.max(1) as f64 / rate as f64;
     Ok(FileResult {
         path: path.to_path_buf(),
@@ -265,72 +257,12 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
     })
 }
 
-/// 阶段 1 只对当前能播放的单/双声道路径做响度分析，绝不按声道数猜多声道布局。
-fn loudness_analyzer(layout: ChannelLayout, rate: u32) -> Result<EbuR128, String> {
-    let channel_map: &[Channel] = if layout.is_mono() {
-        // 当前播放管线把单声道复制到左右两路；DualMono 会按两只扬声器的实际能量计权。
-        &[Channel::DualMono]
-    } else if layout.is_stereo() {
-        &[Channel::Left, Channel::Right]
-    } else {
-        return Err(format!(
-            "响度分析暂不支持 {}；多声道必须先给出经过验证的显式映射",
-            layout.describe()
-        ));
-    };
-
-    let mut analyzer = EbuR128::new(channel_map.len() as u32, rate, Mode::I | Mode::TRUE_PEAK)
-        .map_err(|e| format!("无法创建响度分析器：{e}"))?;
-    analyzer
-        .set_channel_map(channel_map)
-        .map_err(|e| format!("无法设置响度声道映射：{e}"))?;
-    Ok(analyzer)
-}
-
-fn finish_loudness(analyzer: &EbuR128) -> Result<LoudnessOutcome, String> {
-    let integrated_lufs = analyzer
-        .loudness_global()
-        .map_err(|e| format!("无法读取 integrated loudness：{e}"))?;
-    if !integrated_lufs.is_finite() {
-        return Ok(LoudnessOutcome::Unmeasurable);
-    }
-
-    let true_peak = (0..analyzer.channels()).try_fold(0.0f64, |peak, channel| {
-        let candidate = analyzer
-            .true_peak(channel)
-            .map_err(|e| format!("无法读取 true peak：{e}"))?;
-        if !candidate.is_finite() {
-            return Err("true peak 不是有限数".into());
-        }
-        Ok::<_, String>(peak.max(candidate))
-    })?;
-    let true_peak_dbtp = if true_peak > 0.0 {
-        20.0 * true_peak.log10()
-    } else {
-        f64::NEG_INFINITY
-    };
-    let applied_gain_db = applied_gain_db(integrated_lufs, true_peak_dbtp);
-    Ok(LoudnessOutcome::Measured {
-        integrated_lufs,
-        true_peak_dbtp,
-        applied_gain_db,
-    })
-}
-
-/// 只施加整曲常量增益：若目标增益会越过真峰值上限，就直接少增益，不上 limiter。
-fn applied_gain_db(integrated_lufs: f64, true_peak_dbtp: f64) -> f64 {
-    let requested = REPLAYGAIN_REFERENCE_LUFS - integrated_lufs;
-    if true_peak_dbtp.is_finite() {
-        requested.min(TRUE_PEAK_CEILING_DBTP - true_peak_dbtp)
-    } else {
-        requested
-    }
-}
-
 fn print_loudness_summary(results: &[FileResult]) {
     let mut measured = 0usize;
     let mut unmeasurable = 0usize;
     let mut unmeasurable_paths: Vec<&Path> = Vec::new();
+    let mut unsupported = 0usize;
+    let mut unsupported_paths: Vec<&Path> = Vec::new();
     let mut loudness_min = f64::INFINITY;
     let mut loudness_max = f64::NEG_INFINITY;
     let mut peak_max = f64::NEG_INFINITY;
@@ -339,11 +271,13 @@ fn print_loudness_summary(results: &[FileResult]) {
 
     for result in results {
         match result.loudness.as_ref().expect("响度模式必有分析结果") {
-            LoudnessOutcome::Measured {
+            outcome @ LoudnessOutcome::Measured {
                 integrated_lufs,
                 true_peak_dbtp,
-                applied_gain_db,
             } => {
+                // 增益由模块按同一公式现算，不再随结果一起存——目标响度属播放策略，
+                // 改策略应能立即重算而不必重新解码（见实现计划「结果的存储与失效」）。
+                let applied_gain_db = &outcome.gain_db();
                 measured += 1;
                 loudness_min = loudness_min.min(*integrated_lufs);
                 loudness_max = loudness_max.max(*integrated_lufs);
@@ -355,14 +289,23 @@ fn print_loudness_summary(results: &[FileResult]) {
                 unmeasurable += 1;
                 unmeasurable_paths.push(result.path.as_path());
             }
+            // 布局不支持是**确定状态**，不是失败：多声道要等平台原生后端，
+            // 混进「不可测」会让那个数字说不清到底是曲目太短还是我们暂时做不了。
+            LoudnessOutcome::UnsupportedLayout => {
+                unsupported += 1;
+                unsupported_paths.push(result.path.as_path());
+            }
         }
     }
 
-    println!("响度可测 {measured} 首 · 不可测 {unmeasurable} 首");
+    println!("响度可测 {measured} 首 · 不可测 {unmeasurable} 首 · 布局不支持 {unsupported} 首");
     // 逐个列出：这类文件要么真静音、要么触到了门限的边界条件，值得逐个看过
     // 再决定 `unmeasurable` 该不该缓存成永久结论。
     for path in &unmeasurable_paths {
         println!("  不可测  {}", path.display());
+    }
+    for path in &unsupported_paths {
+        println!("  布局不支持  {}", path.display());
     }
     if measured > 0 {
         println!(

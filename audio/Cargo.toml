@@ -14,10 +14,11 @@ rubato = "4.0.0"
 # 因此「零 Tauri 依赖、可无头测试」的约束不受影响。
 serde = { version = "1.0", features = ["derive"] }
 ts-rs = { version = "10.1.0", features = ["no-serde-warnings"] }
+# 响度测量（`loudness.rs`）。**锁定版本**：换版本可能改变真峰值结果，
+# 而结果是要长期缓存的——见 `loudness::ANALYSIS_VERSION`。
+ebur128 = { version = "=0.1.10", features = ["precision-true-peak"] }
 
 [dev-dependencies]
-# `bench_decode --loudness` 必须跑与阶段 1 计划一致的完整负载，不能再以纯解码代替。
-ebur128 = { version = "=0.1.10", features = ["precision-true-peak"] }
 serde_json = "1.0"
 # 诊断工具遍历真实曲库时禁止跟随符号链接，避免目录环无限递归。
 walkdir = "2.5.0"
