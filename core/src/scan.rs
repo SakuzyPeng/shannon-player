@@ -157,13 +157,76 @@ fn raw_track(path: PathBuf, p: Probed) -> RawTrack {
     }
 }
 
-/// 遍历给定根目录，收集候选音频文件。跟随符号链接但不重复访问。
+/// 应当跳过的**包目录**扩展名（小写，不含点）。
+///
+/// macOS 的「包」在 Finder 里显示为单个文件，用户并不认为它是一个装着音乐的文件夹。
+/// 递归进去会把音源素材、工程录音片段当成曲目收进曲库——实测 `~/Music` 下除 954 个
+/// 音乐文件外，另有 56 个音频躺在 `Logic Pro Library.bundle` 的采样库里（单周期波形、
+/// 打击乐短音），`.logicx` 工程包里还有母带片段。把它们收进来，与把 `.app` 里的
+/// 提示音收进来是同一类错误。
+///
+/// **不做平台判断**：这些扩展名的目录在任何系统上都不是用户的音乐文件夹，
+/// 从 Mac 拷到 Windows 的工程包同样不该扫。
+///
+/// 媒体库包（`.musiclibrary` 等）里是数据库而非音频——实测本机 4 个 `.musiclibrary`
+/// 中音频数均为 0，真正的音乐在同级的 `Media.localized/` 普通目录下，因此跳过它们
+/// 不会漏掉曲目，只会少读一堆数据库文件。
+/// 只收**目录**形态的扩展名。`.dmg` / `.als` / `.ptx` 这类是单个文件，
+/// 列在这里不会生效，只会让人误以为它们是包目录。
+const PACKAGE_DIR_EXTS: &[&str] = &[
+    // 通用包与应用
+    "app",
+    "bundle",
+    "framework",
+    "plugin",
+    "kext",
+    "component",
+    "pkg",
+    "mpkg",
+    "rtfd",
+    "sparsebundle",
+    // 音频插件（AU 就是 .component，已在上面）
+    "vst",
+    "vst3",
+    "aax",
+    // DAW 工程包
+    "logicx",
+    "logic",
+    "band",
+    // 媒体库（内含数据库而非音频）
+    "musiclibrary",
+    "photoslibrary",
+    "tvlibrary",
+    "aplibrary",
+    "photolibrary",
+    "imovielibrary",
+    "theater",
+];
+
+/// 该目录项是否为应当跳过的包目录。
+fn is_package_dir(entry: &walkdir::DirEntry) -> bool {
+    entry.file_type().is_dir()
+        && entry
+            .path()
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| PACKAGE_DIR_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+            .unwrap_or(false)
+}
+
+/// 遍历给定根目录，收集候选音频文件。不跟随符号链接，跳过包目录。
 fn collect_files(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for root in roots {
         for entry in WalkDir::new(root)
             .follow_links(false)
             .into_iter()
+            // 剪枝发生在**进入之前**，因此包内成千上万的素材文件根本不会被 stat。
+            //
+            // `depth() > 0` 是要点：用户**显式指定**为扫描根的目录一律照扫。
+            // 想把某个采样包当曲库是他的自由，我们只是不替他做这个决定；
+            // 跳过的只是递归途中撞见的包。
+            .filter_entry(|e| e.depth() == 0 || !is_package_dir(e))
             .filter_map(|e| e.ok())
         {
             if entry.file_type().is_file() && probe::is_audio_file(entry.path()) {
@@ -937,6 +1000,43 @@ mod tests {
         let files = collect_files(std::slice::from_ref(&d));
         assert_eq!(files.len(), 2);
         assert!(files.iter().all(|p| is_scannable(p)));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn package_directories_are_not_recursed_into() {
+        // 实测起因：`~/Music` 下除 954 个音乐文件外，另有 56 个音频躺在
+        // `Logic Pro Library.bundle` 的采样库里（单周期波形只有几毫秒），
+        // `.logicx` 工程包里还有母带片段——它们一度被当成曲目收进曲库。
+        let d = tmpdir("shannon_scan_packages");
+        fs::write(d.join("real.flac"), b"x").unwrap();
+
+        for pkg in [
+            "Logic Pro Library.bundle",
+            "未命名.logicx",
+            "Some.app",
+            "L.musiclibrary",
+        ] {
+            fs::create_dir_all(d.join(pkg).join("Media")).unwrap();
+            fs::write(d.join(pkg).join("Media").join("sample.aiff"), b"x").unwrap();
+        }
+
+        let files = collect_files(std::slice::from_ref(&d));
+        assert_eq!(files.len(), 1, "包目录里的音频不该进曲库：{files:?}");
+        assert!(files[0].ends_with("real.flac"));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_package_given_as_an_explicit_root_is_still_scanned() {
+        // 跳过的只是**递归途中撞见**的包。用户把某个采样包指定为曲库根目录是他的自由，
+        // 我们只是不替他做这个决定——否则设置页里加了目录却扫出 0 首，无从解释。
+        let d = tmpdir("shannon_scan_pkg_root");
+        let pkg = d.join("Sampler.bundle");
+        fs::create_dir_all(&pkg).unwrap();
+        fs::write(pkg.join("one.flac"), b"x").unwrap();
+
+        assert_eq!(count_candidates(std::slice::from_ref(&pkg)), 1);
         let _ = fs::remove_dir_all(d);
     }
 
