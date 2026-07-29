@@ -527,7 +527,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     const track = s.current();
     if (!track) return;
-    if (!track.path) {
+    // 只有真引擎才需要文件。假引擎不读文件，种子曲库在浏览器预览里照样能放，
+    // 否则 `pnpm dev` 里的播放、切歌、循环模式会全是死的。
+    if (!track.path && engine.requiresPath) {
       set({
         needsLibrary: true,
         playing: false,
@@ -552,7 +554,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
     // 有效音量与 load 走同一条后端命令，不能拆成两个异步 invoke：后者可能后到，
     // 让第一首短暂甚至全程使用引擎默认的 1.0。
-    void engine.load(track.path, track.id, loadId, autoplay, s.muted ? 0 : s.volume);
+    void engine.load(track.path ?? "", track.id, loadId, autoplay, s.muted ? 0 : s.volume);
   },
 
   adoptLibrary: (tracks) => {

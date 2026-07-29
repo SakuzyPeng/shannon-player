@@ -122,6 +122,15 @@ const EVENT_PLAYER = "player://event";
  */
 export interface EngineAdapter {
   /**
+   * 这个引擎是否需要真实的本地文件。
+   *
+   * 判据必须问引擎，不能问曲目有没有 `path`：种子曲库**全都**没有路径，
+   * 而假引擎根本不读文件。按曲目判会把浏览器预览的播放整个挡死——
+   * 实测就是如此，点播放只得到「这是演示曲目」，进度纹丝不动，
+   * 而这正是阶段 0 出口条件里「浏览器验证流程不回退」要防的。
+   */
+  readonly requiresPath: boolean;
+  /**
    * 装载并（可选）立即播放。`trackId` / `loadId` 用于给事件盖章；
    * `initialVolume` 与装载作为一条命令生效，保证首次 open 不会先落到默认满音量。
    */
@@ -148,6 +157,7 @@ export interface EngineAdapter {
 
 /** 真引擎：命令走 IPC，事件走 Tauri event。 */
 const tauriEngine: EngineAdapter = {
+  requiresPath: true,
   load: (path, trackId, loadId, autoplay, initialVolume) =>
     invoke<void>("player_load", { path, trackId, loadId, autoplay, initialVolume }),
   play: () => invoke<void>("player_play"),
@@ -197,6 +207,8 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
   };
 
   return {
+    // 假引擎不读文件，因此种子曲库照样能跑完整个状态机与时钟。
+    requiresPath: false,
     setDuration: (sec) => {
       duration = Math.max(0, sec);
     },
