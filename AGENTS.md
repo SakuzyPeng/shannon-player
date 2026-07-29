@@ -25,6 +25,7 @@ cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件
 cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数/采样率/采样格式
 cargo run -p shannon-audio --example make_corpus          # 用 ffmpeg 生成格式矩阵测试语料
 cargo run -p shannon-audio --example make_playlist -- <源音频>  # 生成多格式实测歌单（给耳朵听的）
+cargo run --release -p shannon-audio --example bench_decode -- <目录> [--jobs N]  # 解码吞吐基准（判断离线分析要跑多久）
 ```
 
 `pnpm build` 会被 pnpm 的 minimumReleaseAge 策略挡在依赖检查这一步（Radix 的新版本刚发布不久）。绕过办法是直接调本地二进制：`./node_modules/.bin/tsc --noEmit` 与 `./node_modules/.bin/vite build`，校验效果一致。
