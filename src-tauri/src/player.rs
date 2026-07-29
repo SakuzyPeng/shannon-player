@@ -79,16 +79,17 @@ impl PlayerState {
 
 /// 装载并播放一个文件。
 ///
-/// `track_id` / `load_id` 只作为不透明上下文回带，引擎不解释它们。
+/// `track_id` / `load_id` 只作为不透明上下文回带，引擎不解释它们。有效音量与可选的
+/// 初始位置随同一条命令进入引擎，避免多次 IPC 乱序造成满音量开播或先漏出曲首 PCM。
 #[tauri::command]
 pub fn player_load(
     app: tauri::AppHandle,
     state: State<'_, PlayerState>,
     path: String,
-    track_id: String,
-    load_id: String,
+    context: LoadContext,
     autoplay: bool,
     initial_volume: f32,
+    initial_position_sec: Option<f64>,
 ) -> Result<(), String> {
     let slot = state.ensure(&app)?;
     let running = slot.as_ref().expect("ensure 保证已装配");
@@ -97,8 +98,9 @@ pub fn player_load(
         .load_with_context(
             path,
             autoplay,
-            LoadContext::new(Some(track_id), load_id),
+            context,
             Some(initial_volume),
+            initial_position_sec,
         )
         .map_err(|e| e.to_string())
 }

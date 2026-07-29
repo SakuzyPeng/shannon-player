@@ -67,6 +67,9 @@ pub enum PlayerCmd {
         /// 与装载命令原子生效的初始音量。诊断工具传 `None`，沿用引擎当前音量；
         /// 前端传当前有效音量，避免首次 open 仍使用默认的 1.0。
         initial_volume: Option<f32>,
+        /// 可选的初始播放位置。播放会话续播必须在预缓冲与解除暂停之前完成定位，
+        /// 不能等 `Opened` 跨 IPC 回到前端后再补发 `Seek`。
+        initial_position_sec: Option<f64>,
     },
     Play,
     Pause,
@@ -101,7 +104,8 @@ pub enum EngineEvent {
 /// 引擎不解释曲目 ID 与装载 ID，只保证从 `Load` 起产生的每个事件都原样回带。
 /// 两者都要保留：`track_id` 让前端关联队列曲目，`load_id` 则能区分同一首曲目的
 /// 连续重载，避免上一代迟到事件污染新一代状态。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LoadContext {
     pub track_id: Option<String>,
     pub load_id: String,
@@ -201,25 +205,28 @@ impl Engine {
             autoplay,
             LoadContext::new(None, format!("engine-{sequence}")),
             None,
+            None,
         )
     }
 
-    /// 装载并把调用方给出的上下文、有效音量与该次请求绑定。
+    /// 装载并把调用方给出的上下文、有效音量与初始位置绑定到同一条命令。
     ///
-    /// `initial_volume` 放在同一条命令里，而不是先异步 `set_volume` 再 `load`：
-    /// 两次 IPC 的完成顺序没有保证，拆开发送会让第一首偶发以默认满音量打开。
+    /// `initial_volume` / `initial_position_sec` 不能拆成单独命令：多次 IPC 的完成顺序
+    /// 没有保证，前者会让第一首偶发以默认满音量打开，后者会让续播先漏出曲首 PCM。
     pub fn load_with_context(
         &self,
         path: impl Into<PathBuf>,
         autoplay: bool,
         context: LoadContext,
         initial_volume: Option<f32>,
+        initial_position_sec: Option<f64>,
     ) -> Result<()> {
         self.send(PlayerCmd::Load {
             path: path.into(),
             autoplay,
             context,
             initial_volume,
+            initial_position_sec: initial_position_sec.filter(|sec| sec.is_finite() && *sec > 0.0),
         })
     }
 
@@ -418,6 +425,7 @@ impl Worker {
                 autoplay,
                 context,
                 initial_volume,
+                initial_position_sec,
             } => {
                 self.context = Some(context);
                 if let Some(volume) = initial_volume {
@@ -425,7 +433,7 @@ impl Worker {
                     self.shared.set_gain(self.volume);
                 }
                 self.set_state(PlaybackState::Loading);
-                if let Err(err) = self.load(&path, autoplay) {
+                if let Err(err) = self.load(&path, autoplay, initial_position_sec) {
                     self.fail(err);
                 }
             }
@@ -459,11 +467,16 @@ impl Worker {
         }
     }
 
-    fn load(&mut self, path: &Path, autoplay: bool) -> Result<()> {
+    fn load(
+        &mut self,
+        path: &Path,
+        autoplay: bool,
+        initial_position_sec: Option<f64>,
+    ) -> Result<()> {
         // 换曲先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
         self.teardown();
 
-        let decoder = Decoder::open(path)?;
+        let mut decoder = Decoder::open(path)?;
         let spec = decoder.spec().clone();
 
         // 阶段 0 的目标布局恒为立体声。多声道整体走平台原生后端；
@@ -483,12 +496,20 @@ impl Worker {
         let out_rate = probe.sample_rate;
 
         let resampler = Resampling::new(spec.sample_rate, out_rate, spec.layout.count() as usize)?;
+        // 新装载还没有任何在途 PCM，直接在解码器上定位即可；随后按返回的**源域帧**
+        // 换算输出域位置。这样 open、预缓冲与 autoplay 从一开始看到的就是同一位置，
+        // 不会先放出曲首再由一条迟到的 Seek 把它冲掉。
+        let initial_source_frame = match initial_position_sec {
+            Some(seconds) => decoder.seek(seconds)?,
+            None => 0,
+        };
         let capacity_frames = (out_rate as f64 * RING_SECONDS) as usize;
         let (producer, consumer) = crate::ring::ring(capacity_frames, out_channels);
 
         // `open` 会立即启动设备回调，所有共享状态必须在它之前就准备好。
         // 早先顺序相反，回调能抢在 set_paused 前读空 ring，把正常启动误记成欠载。
-        self.shared.reset_position(0);
+        self.shared
+            .reset_position(resampler.src_frames_to_out(initial_source_frame));
         self.shared.set_gain(self.volume);
         self.shared.set_resampled(resampler.is_active());
         self.shared.set_source_drained(false);

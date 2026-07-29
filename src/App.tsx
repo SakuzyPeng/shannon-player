@@ -108,8 +108,12 @@ function useRestoreLibrary() {
       //
       // 两条路都只换不放：启动即出声是没人要的行为。
       const byId = new Map(snapshot.tracks.map((t) => [t.id, t]));
-      const restored = await usePlayerStore.getState().restoreSession((id) => byId.get(id));
-      if (!restored) usePlayerStore.getState().adoptLibrary(snapshot.tracks);
+      const player = usePlayerStore.getState();
+      const restored = await player.restoreSession((id) => byId.get(id));
+      if (!restored) player.adoptLibrary(snapshot.tracks);
+      // 就绪状态由恢复流程的汇合点统一置位，不能依赖 adoptLibrary 是否真的接管队列：
+      // 没有旧会话时用户若恰好先点了歌，接管会有意跳过，但这一程仍必须允许保存。
+      usePlayerStore.getState().markSessionReady();
       // 设置页显示真实扫描目录；曲目数按路径前缀统计，文件监听尚未实现，一律标为已扫描。
       useUiStore.getState().setMusicFolders(
         roots.map((path) => ({

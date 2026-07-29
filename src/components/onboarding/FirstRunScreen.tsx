@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { isTauri, onScanProgress, pickMusicFolder, scanLibrary } from "@/lib/backend";
 import { useLibraryStore } from "@/store/library";
+import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 
@@ -92,6 +93,13 @@ export function FirstRunScreen() {
       const snapshot = await scanLibrary([folder]);
       if (snapshot) {
         setLibrary(snapshot);
+        // 首次启动没有旧曲库可走 App 的恢复流程；扫描到真实曲目后在这里完成同一套队列
+        // 接管，再解除会话写入守卫。否则 sessionReady 会整程保持 false，首次使用不落盘。
+        if (snapshot.tracks.length > 0) {
+          const player = usePlayerStore.getState();
+          player.adoptLibrary(snapshot.tracks);
+          usePlayerStore.getState().markSessionReady();
+        }
         const artists = new Set(snapshot.albums.map((a) => a.artist)).size;
         setStats({ tracks: snapshot.tracks.length, albums: snapshot.albums.length, artists });
       }

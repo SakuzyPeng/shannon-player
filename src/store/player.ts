@@ -75,13 +75,12 @@ interface PlayerState {
    */
   loadedTrackId: Id | null;
   /**
-   * 恢复会话后待补的播放位置（秒）。
+   * 引擎尚未装载时待应用的位置，绑定到队列项 uid（队列允许同一曲目出现多次）。
    *
-   * 会话恢复时引擎并未装载任何东西——启动即出声是没人要的行为。所以位置先记在这里，
-   * 等用户按下播放、`opened` 事件到达后再 seek 过去。直接在恢复时 seek 会打在
-   * 空引擎上，什么也不会发生。
+   * 会话恢复不自动播放，位置先留在这里；用户按播放时它随 `Load` 原子进入引擎，
+   * 在预缓冲与解除暂停之前生效。显式切歌会换 uid，因此旧位置不会串到另一项。
    */
-  pendingSeekSec: number | null;
+  pendingSeek: { queueUid: Id; positionSec: number } | null;
   /**
    * 会话恢复流程是否已经跑完（无论恢复成功还是回落到整库入队）。
    *
@@ -177,6 +176,8 @@ interface PlayerState {
    * 返回是否恢复成功；失败时调用方回落到 `adoptLibrary`。
    */
   restoreSession: (lookup: (id: Id) => Track | undefined) => Promise<boolean>;
+  /** 真实曲库的恢复 / 首次接管已经结束，从此允许写播放会话。 */
+  markSessionReady: () => void;
   /** 把当前会话写回后端。由 `usePersistSession` 节流调用，业务代码不用管。 */
   persistSession: () => void;
   /** 订阅引擎事件并接管播放状态。返回取消订阅函数；由 `App` 在挂载时调用一次。 */
@@ -320,7 +321,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   status: "idle",
   loadedTrackId: null,
   activeLoadId: null,
-  pendingSeekSec: null,
+  pendingSeek: null,
   sessionReady: false,
   error: null,
   needsLibrary: false,
@@ -367,7 +368,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     const idx = s.queue.findIndex((q) => q.track.id === track.id);
     if (idx >= 0) {
-      set({ currentIndex: idx, playing: true, progress: freshProgress(track) });
+      set({ currentIndex: idx, playing: true, pendingSeek: null, progress: freshProgress(track) });
     } else {
       const item: QueueItem = { uid: nextUid(), track, source: "user" };
       set({
@@ -377,6 +378,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           ? [...orderedQueue(s.queue, s.shuffleOrder).map((q) => q.uid), item.uid]
           : null,
         playing: true,
+        pendingSeek: null,
         progress: freshProgress(track),
       });
     }
@@ -389,7 +391,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const idx = Math.max(0, Math.min(startIndex, queue.length - 1));
     // 换队列要重洗牌：沿用旧顺序的话，随机模式下会跳到一首已经不在队列里的歌。
     const shuffleOrder = get().shuffle ? shuffled(queue.map((q) => q.uid), queue[idx].uid) : null;
-    set({ queue, currentIndex: idx, shuffleOrder, playing: true, progress: freshProgress(queue[idx].track) });
+    set({
+      queue,
+      currentIndex: idx,
+      shuffleOrder,
+      playing: true,
+      pendingSeek: null,
+      progress: freshProgress(queue[idx].track),
+    });
     get().loadCurrent(true);
   },
 
@@ -414,7 +423,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     // 自然播完的循环由引擎事件那条路处理（见 attachEngine）。
     const idx = nextIndex(s.queue, s.currentIndex, s.shuffleOrder, "all", true);
     if (idx < 0) return;
-    set({ currentIndex: idx, progress: freshProgress(s.queue[idx].track) });
+    set({ currentIndex: idx, pendingSeek: null, progress: freshProgress(s.queue[idx].track) });
     get().loadCurrent(true);
   },
 
@@ -423,17 +432,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (s.queue.length === 0) return;
     // 3 秒内回退到上一首，否则回到本曲开头。
     if (s.progress.positionSec > 3) {
-      void engine.seek(0);
-      set({ progress: { ...s.progress, positionSec: 0 } });
+      get().seek(0);
       return;
     }
     const idx = prevIndex(s.queue, s.currentIndex, s.shuffleOrder);
     if (idx < 0) {
-      void engine.seek(0);
-      set({ progress: { ...s.progress, positionSec: 0 } });
+      get().seek(0);
       return;
     }
-    set({ currentIndex: idx, progress: freshProgress(s.queue[idx].track) });
+    set({ currentIndex: idx, pendingSeek: null, progress: freshProgress(s.queue[idx].track) });
     get().loadCurrent(true);
   },
 
@@ -543,9 +550,23 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   seek: (positionSec) => {
     const s = get();
     const target = Math.max(0, Math.min(positionSec, s.progress.durationSec));
-    void engine.seek(target);
+    const currentItem = s.queue[s.currentIndex];
+    const engineHasCurrent =
+      currentItem !== undefined &&
+      s.loadedTrackId === currentItem.track.id &&
+      s.activeLoadId !== null;
+    if (engineHasCurrent) {
+      void engine.seek(target);
+    }
     // 乐观更新：等引擎的进度事件回来要 200 ms，拖动进度条时那是看得见的滞后。
-    set({ progress: { ...s.progress, positionSec: target } });
+    // 引擎尚未装载时则把位置绑定到当前队列项，首次 Load 会原子应用；0 秒等价于没有待定位。
+    set({
+      pendingSeek:
+        !engineHasCurrent && currentItem !== undefined && target > 0
+          ? { queueUid: currentItem.uid, positionSec: target }
+          : null,
+      progress: { ...s.progress, positionSec: target },
+    });
   },
 
   setProgress: (p) => set((s) => ({ progress: { ...s.progress, ...p } })),
@@ -559,8 +580,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
    */
   loadCurrent: (autoplay) => {
     const s = get();
-    const track = s.current();
-    if (!track) return;
+    const currentItem = s.queue[s.currentIndex];
+    if (!currentItem) return;
+    const { track } = currentItem;
+    const initialPositionSec =
+      s.pendingSeek?.queueUid === currentItem.uid ? s.pendingSeek.positionSec : null;
     // 只有真引擎才需要文件。假引擎不读文件，种子曲库在浏览器预览里照样能放，
     // 否则 `pnpm dev` 里的播放、切歌、循环模式会全是死的。
     if (!track.path && engine.requiresPath) {
@@ -586,9 +610,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       activeLoadId: loadId,
       playing: autoplay,
     });
-    // 有效音量与 load 走同一条后端命令，不能拆成两个异步 invoke：后者可能后到，
-    // 让第一首短暂甚至全程使用引擎默认的 1.0。
-    void engine.load(track.path ?? "", track.id, loadId, autoplay, s.muted ? 0 : s.volume);
+    // 有效音量与初始位置都和 load 走同一条后端命令：拆成多个异步 invoke 没有顺序保证，
+    // 前者会让第一首落到默认满音量，后者会让续播先漏出曲首再跳到保存位置。
+    void engine.load(
+      track.path ?? "",
+      track.id,
+      loadId,
+      autoplay,
+      s.muted ? 0 : s.volume,
+      initialPositionSec,
+    );
   },
 
   adoptLibrary: (tracks) => {
@@ -612,7 +643,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       loadedTrackId: null,
       activeLoadId: null,
       needsLibrary: false,
-      sessionReady: true,
+      pendingSeek: null,
       progress: freshProgress(tracks[0]),
     });
   },
@@ -621,8 +652,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const json = await loadSession();
     const restored = json ? fromSession(json, lookup) : null;
     if (!restored) {
-      // 没有会话、或会话已失效：流程照样算跑完了，调用方会回落到整库入队。
-      // 不置位的话，后续状态变化永远不会被保存，用户这一程的队列到退出时全丢。
+      // 没有会话、或会话已失效：调用方会回落到整库入队，并在两条路径汇合后
+      // 统一调用 markSessionReady。就绪生命周期不再偷偷依赖 adoptLibrary 是否接管成功。
       return false;
     }
 
@@ -653,14 +684,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         durationSec: queue[idx]?.track.durationSec ?? 0,
         bufferedSec: 0,
       },
-      pendingSeekSec: restored.positionSec > 0 ? restored.positionSec : null,
-      sessionReady: true,
+      pendingSeek:
+        restored.positionSec > 0
+          ? { queueUid: queue[idx].uid, positionSec: restored.positionSec }
+          : null,
     });
     // 音量要立刻同步给引擎：它是与装载无关的全局设置，
     // 等到第一次 load 才带过去的话，用户开播前调音量会打在默认值上。
     void engine.setVolume(restored.muted ? 0 : restored.volume);
     return true;
   },
+
+  markSessionReady: () => set({ sessionReady: true }),
 
   persistSession: () => {
     const s = get();
@@ -687,15 +722,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           set((st) => ({
             status: "loading",
             error: null,
+            // 初始位置已经随 Load 在引擎侧生效；Opened 到达说明这份待办可以作废。
+            pendingSeek: null,
             progress: { ...st.progress, durationSec: event.format.durationSec ?? st.progress.durationSec },
           }));
-          // 上次退出时停在哪，这时候才补得上——装载之前引擎里没有可定位的东西。
-          // 只补一次：补完清空，否则用户手动 seek 之后再切回这首又会被拽回旧位置。
-          const pending = s.pendingSeekSec;
-          if (pending != null && pending > 0) {
-            set({ pendingSeekSec: null });
-            void engine.seek(pending);
-          }
           break;
         }
 
@@ -732,7 +762,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             set({ playing: false, status: "ended" });
             return;
           }
-          set({ currentIndex: idx, progress: freshProgress(s.queue[idx].track) });
+          set({ currentIndex: idx, pendingSeek: null, progress: freshProgress(s.queue[idx].track) });
           get().loadCurrent(true);
           break;
         }
@@ -800,7 +830,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const s = get();
     const idx = s.queue.findIndex((q) => q.uid === uid);
     if (idx < 0) return;
-    set({ currentIndex: idx, playing: true, progress: freshProgress(s.queue[idx].track) });
+    set({
+      currentIndex: idx,
+      playing: true,
+      pendingSeek: null,
+      progress: freshProgress(s.queue[idx].track),
+    });
     get().loadCurrent(true);
   },
 

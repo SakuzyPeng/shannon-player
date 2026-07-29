@@ -132,7 +132,8 @@ export interface EngineAdapter {
   readonly requiresPath: boolean;
   /**
    * 装载并（可选）立即播放。`trackId` / `loadId` 用于给事件盖章；
-   * `initialVolume` 与装载作为一条命令生效，保证首次 open 不会先落到默认满音量。
+   * `initialVolume` 与 `initialPositionSec` 和装载作为一条命令生效：前者保证首次 open
+   * 不会先落到默认满音量，后者保证会话续播不会先漏出曲首再补一次 seek。
    */
   load(
     path: string,
@@ -140,6 +141,7 @@ export interface EngineAdapter {
     loadId: string,
     autoplay: boolean,
     initialVolume: number,
+    initialPositionSec: number | null,
   ): Promise<void>;
   play(): Promise<void>;
   pause(): Promise<void>;
@@ -158,8 +160,14 @@ export interface EngineAdapter {
 /** 真引擎：命令走 IPC，事件走 Tauri event。 */
 const tauriEngine: EngineAdapter = {
   requiresPath: true,
-  load: (path, trackId, loadId, autoplay, initialVolume) =>
-    invoke<void>("player_load", { path, trackId, loadId, autoplay, initialVolume }),
+  load: (path, trackId, loadId, autoplay, initialVolume, initialPositionSec) =>
+    invoke<void>("player_load", {
+      path,
+      context: { trackId, loadId },
+      autoplay,
+      initialVolume,
+      initialPositionSec,
+    }),
   play: () => invoke<void>("player_play"),
   pause: () => invoke<void>("player_pause"),
   seek: (positionSec) => invoke<void>("player_seek", { positionSec }),
@@ -212,10 +220,13 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
     setDuration: (sec) => {
       duration = Math.max(0, sec);
     },
-    load: async (_path, id, idForLoad, autoplay) => {
+    load: async (_path, id, idForLoad, autoplay, _initialVolume, initialPositionSec) => {
       trackId = id;
       loadId = idForLoad;
-      position = 0;
+      position =
+        initialPositionSec !== null && Number.isFinite(initialPositionSec)
+          ? Math.max(0, Math.min(initialPositionSec, duration))
+          : 0;
       emit({ type: "status", trackId, loadId, status: "loading" });
       emit({
         type: "opened",

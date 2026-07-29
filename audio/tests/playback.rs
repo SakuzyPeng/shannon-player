@@ -273,15 +273,16 @@ struct FailingOutput {
     fail: Arc<AtomicBool>,
 }
 
-/// 记录每次 open 看到的目标增益，验证初始音量是否与 Load 原子生效。
-struct GainRecordingOutput {
+/// 记录每次 open 看到的目标增益与位置，验证二者是否与 Load 原子生效。
+struct LoadRecordingOutput {
     inner: NullOutput,
     gains: Arc<Mutex<Vec<f32>>>,
+    positions: Arc<Mutex<Vec<u64>>>,
 }
 
-impl OutputBackend for GainRecordingOutput {
+impl OutputBackend for LoadRecordingOutput {
     fn name(&self) -> &'static str {
-        "gain-recording-test"
+        "load-recording-test"
     }
 
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
@@ -295,6 +296,10 @@ impl OutputBackend for GainRecordingOutput {
         shared: Arc<OutputShared>,
     ) -> Result<OutputConfig> {
         self.gains.lock().unwrap().push(shared.gain());
+        self.positions
+            .lock()
+            .unwrap()
+            .push(shared.position_frames());
         self.inner.open(request, consumer, shared)
     }
 
@@ -373,13 +378,16 @@ fn load_context_stays_with_its_events_and_initial_gain() {
     // 两条命令紧挨着投递也复现了外壳“共享最新 ID”曾经会盖错章的窗口。
     let path = corpus("load_context", 2, RATE as usize);
     let gains = Arc::new(Mutex::new(Vec::new()));
+    let positions = Arc::new(Mutex::new(Vec::new()));
     let opened = Arc::new(Mutex::new(Vec::<LoadContext>::new()));
     let engine = {
-        let (gains_for_backend, opened) = (gains.clone(), opened.clone());
+        let (gains_for_backend, positions_for_backend, opened) =
+            (gains.clone(), positions.clone(), opened.clone());
         Engine::spawn_stamped(
-            Box::new(GainRecordingOutput {
+            Box::new(LoadRecordingOutput {
                 inner: NullOutput::new(),
                 gains: gains_for_backend,
+                positions: positions_for_backend,
             }),
             move |stamped| {
                 if matches!(stamped.event, EngineEvent::Opened { .. }) {
@@ -392,10 +400,10 @@ fn load_context_stays_with_its_events_and_initial_gain() {
     let first = LoadContext::new(Some("track-same".into()), "load-1");
     let second = LoadContext::new(Some("track-same".into()), "load-2");
     engine
-        .load_with_context(&path, false, first.clone(), Some(0.18))
+        .load_with_context(&path, false, first.clone(), Some(0.18), None)
         .unwrap();
     engine
-        .load_with_context(&path, false, second.clone(), Some(0.42))
+        .load_with_context(&path, false, second.clone(), Some(0.42), None)
         .unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -408,6 +416,68 @@ fn load_context_stays_with_its_events_and_initial_gain() {
     assert_eq!(actual_gains.len(), 2);
     assert!((actual_gains[0] - 0.18).abs() < f32::EPSILON);
     assert!((actual_gains[1] - 0.42).abs() < f32::EPSILON);
+    assert_eq!(*positions.lock().unwrap(), vec![0, 0]);
+}
+
+#[test]
+fn load_context_accepts_the_frontend_camel_case_shape() {
+    let context: LoadContext =
+        serde_json::from_str(r#"{"trackId":"track-7","loadId":"load-9"}"#).unwrap();
+    assert_eq!(context, LoadContext::new(Some("track-7".into()), "load-9"));
+}
+
+#[test]
+fn initial_position_is_applied_before_output_opens() {
+    // 会话续播不能先 autoplay 曲首、等 Opened 跨 IPC 回到前端后再 Seek。
+    // 输出后端 open 时就看到目标位置，证明定位发生在预缓冲与解除暂停之前。
+    let path = corpus_with("initial_position", 2, RATE as usize * 3, chirp);
+    let positions = Arc::new(Mutex::new(Vec::new()));
+    let opened = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let (positions_for_backend, opened) = (positions.clone(), opened.clone());
+        Engine::spawn_stamped(
+            Box::new(LoadRecordingOutput {
+                // 顺带覆盖源域定位帧到输出域位置的换算。
+                inner: NullOutput::with_fixed_rate(48_000),
+                gains: Arc::new(Mutex::new(Vec::new())),
+                positions: positions_for_backend,
+            }),
+            move |stamped| {
+                if matches!(stamped.event, EngineEvent::Opened { .. }) {
+                    opened.store(true, Ordering::Relaxed);
+                }
+            },
+        )
+    };
+
+    let initial_position_sec = 1.25;
+    let expected = Decoder::open(&path)
+        .unwrap()
+        .seek(initial_position_sec)
+        .unwrap();
+    engine
+        .load_with_context(
+            &path,
+            true,
+            LoadContext::new(Some("resume-track".into()), "resume-load"),
+            Some(0.5),
+            Some(initial_position_sec),
+        )
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !opened.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(opened.load(Ordering::Relaxed), "续播音源应完成装载");
+
+    let actual = positions.lock().unwrap();
+    assert_eq!(actual.len(), 1);
+    let expected_output = (expected as u128 * 48_000u128 / RATE as u128) as u64;
+    assert_eq!(
+        actual[0], expected_output,
+        "输出 open 前应把解码器实际定位帧换算到输出域"
+    );
 }
 
 #[test]
