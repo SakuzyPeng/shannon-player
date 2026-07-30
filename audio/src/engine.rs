@@ -81,6 +81,13 @@ pub struct LoadRequest {
     /// 两首歌的 PCM，回调里那个「当前增益」必然在边界处把前一首的尾巴用后一首的
     /// 增益放出去。写进管线时那段 PCM 属于哪首歌是确定的。
     pub loudness_gain: Option<f32>,
+    /// 与装载**原子生效**的「下一首」。
+    ///
+    /// 不让调用方在装载之后再补一条 `SetNext`，理由与上面那几个字段完全相同：
+    /// 命令跨 IPC 的到达顺序没有保证，而显式装载会清掉待接续的下一首（它属于上一个
+    /// 处境）。晚到的 SetNext 被 teardown 抹掉、早到的被清掉，两种顺序都可能——
+    /// 表现出来就是「无缝换曲时好时坏」，最难查的那一类。
+    pub next: Option<NextRequest>,
 }
 
 impl LoadRequest {
@@ -92,6 +99,7 @@ impl LoadRequest {
             initial_volume: None,
             initial_position_sec: None,
             loudness_gain: None,
+            next: None,
         }
     }
 
@@ -108,6 +116,12 @@ impl LoadRequest {
 
     pub fn with_loudness_gain(mut self, gain: f32) -> Self {
         self.loudness_gain = Some(gain);
+        self
+    }
+
+    /// 顺带指定无缝接续的下一首。
+    pub fn with_next(mut self, next: Option<NextRequest>) -> Self {
+        self.next = next;
         self
     }
 }
@@ -845,6 +859,8 @@ impl Worker {
         // 显式装载先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
         // 无缝交接走的是另一条路（`advance_head`），那里恰恰不拆流。
         self.teardown();
+        // teardown 之后再装：它刚把上一个处境的「下一首」清掉了。
+        self.next_request = request.next.clone();
 
         // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
         // 输出域的采样率才是链路后半段的基准。协商只是预演，不碰设备。

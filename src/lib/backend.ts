@@ -120,6 +120,29 @@ const EVENT_PLAYER = "player://event";
  * **Mock 不是摆设**——`pnpm dev` 的界面开发依赖它，没有它则进度条、切歌、
  * 循环模式在浏览器里全是死的，而这些恰恰是最需要反复看的交互。
  */
+/** 一次装载的全部参数。字段含义见 [`EngineAdapter.load`]。 */
+export interface LoadArgs {
+  path: string;
+  trackId: string;
+  loadId: string;
+  autoplay: boolean;
+  initialVolume: number;
+  initialPositionSec: number | null;
+  loudness: boolean;
+  /** 无缝接续的下一首；`null` = 放完就停。 */
+  next: NextTrackArgs | null;
+}
+
+/** 「下一首」的指定。 */
+export interface NextTrackArgs {
+  path: string;
+  trackId: string;
+  /** 为下一首**预先**生成的装载 ID：越过边界后的事件都由它认领。 */
+  loadId: string;
+  /** 这次指定依据的队列版本。引擎不解释，只在切歌事件里回带。 */
+  queueRevision: number;
+}
+
 export interface EngineAdapter {
   /**
    * 这个引擎是否需要真实的本地文件。
@@ -131,23 +154,23 @@ export interface EngineAdapter {
    */
   readonly requiresPath: boolean;
   /**
-   * 装载并（可选）立即播放。`trackId` / `loadId` 用于给事件盖章；
-   * `initialVolume`、`initialPositionSec` 与 `loudness` 和装载作为一条命令生效：
-   * 首个保证首次 open 不会先落到默认满音量，次个保证会话续播不会先漏出曲首再补一次
-   * seek，末个保证归一化不会在开头几百毫秒之后才追上。
+   * 装载并（可选）立即播放。
+   *
+   * 参数收成一个对象而不是平铺，与 Rust 侧的 `LoadRequest` 一一对应，理由也是同一个：
+   * 这些值**必须与装载原子生效**。拆成多条 IPC 就没有顺序保证——音量晚到让第一首以
+   * 满音量炸出来，位置晚到先漏出一段曲首，下一首早到会被装载的 teardown 抹掉。
    *
    * `loudness` 传的是**用户的设置**而不是增益倍率：具体倍率取决于分析结果、目标响度
    * 与峰值上限，那是后端的策略，改了不该要求前端跟着改。
    */
-  load(
-    path: string,
-    trackId: string,
-    loadId: string,
-    autoplay: boolean,
-    initialVolume: number,
-    initialPositionSec: number | null,
-    loudness: boolean,
-  ): Promise<void>;
+  load(args: LoadArgs): Promise<void>;
+  /**
+   * 更新无缝接续的下一首；`null` = 当前这首放完就停。
+   *
+   * 「没有下一首」也必须明说：不说的话引擎会一直接着上次指定的那首，
+   * 用户删掉队尾之后反而会绕回去。
+   */
+  setNext(next: NextTrackArgs | null, loudness: boolean): Promise<void>;
   play(): Promise<void>;
   pause(): Promise<void>;
   seek(positionSec: number): Promise<void>;
@@ -162,10 +185,21 @@ export interface EngineAdapter {
   onEvent(handler: (e: PlayerEvent) => void): Promise<() => void>;
 }
 
+/** 摊成后端要的形状：曲目 ID 与装载 ID 合成一份不透明上下文。 */
+function toNextPayload(next: NextTrackArgs | null) {
+  return next === null
+    ? null
+    : {
+        path: next.path,
+        context: { trackId: next.trackId, loadId: next.loadId },
+        queueRevision: next.queueRevision,
+      };
+}
+
 /** 真引擎：命令走 IPC，事件走 Tauri event。 */
 const tauriEngine: EngineAdapter = {
   requiresPath: true,
-  load: (path, trackId, loadId, autoplay, initialVolume, initialPositionSec, loudness) =>
+  load: ({ path, trackId, loadId, autoplay, initialVolume, initialPositionSec, loudness, next }) =>
     invoke<void>("player_load", {
       path,
       context: { trackId, loadId },
@@ -173,7 +207,10 @@ const tauriEngine: EngineAdapter = {
       initialVolume,
       initialPositionSec,
       loudness,
+      next: toNextPayload(next),
     }),
+  setNext: (next, loudness) =>
+    invoke<void>("player_set_next", { next: toNextPayload(next), loudness }),
   play: () => invoke<void>("player_play"),
   pause: () => invoke<void>("player_pause"),
   seek: (positionSec) => invoke<void>("player_seek", { positionSec }),
@@ -185,19 +222,39 @@ const tauriEngine: EngineAdapter = {
 /**
  * 浏览器预览用的假引擎：不出声，但把状态机与时钟完整跑一遍。
  *
- * 时长从哪来是个真问题——它没有文件可读。约定由调用方在 `load` 前经
- * `mockEngine.setDuration` 告知（前端队列里本来就有曲目时长）。拿不到就按 0 处理，
- * 于是「装载即结束」，这比让进度条跑一个编出来的时长要诚实。
+ * 时长从哪来是个真问题——它没有文件可读。约定由调用方经 `hintDuration` 按曲目 ID 告知
+ * （前端队列里本来就有曲目时长）。拿不到就按 0 处理，于是「装载即结束」，
+ * 这比让进度条跑一个编出来的时长要诚实。
+ *
+ * **无缝换曲也要模拟**：真引擎在边界处发 `trackChanged`，只有链子走到头才发 `ended`。
+ * 假引擎若一律发 `ended`，浏览器预览走的就是另一条前端代码路径——而队列推进、
+ * 当前曲目对账恰恰是最需要在浏览器里反复看的交互。
  */
-function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } {
+function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec: number): void } {
   const handlers = new Set<(e: PlayerEvent) => void>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let trackId: string | null = null;
   let loadId = "mock-idle";
   let position = 0;
   let duration = 0;
+  let next: NextTrackArgs | null = null;
+  // 按曲目 ID 记时长。队列有多长它就有多少条，仅存在于 dev 构建。
+  const durations = new Map<string, number>();
 
   const emit = (e: PlayerEvent) => handlers.forEach((h) => h(e));
+
+  const mockFormat = (durationSec: number) => ({
+    container: "mock",
+    codec: "mock",
+    sampleRate: 44100,
+    channels: 2,
+    layout: "stereo",
+    durationSec,
+    deviceName: "浏览器预览（无声）",
+    outputSampleRate: 44100,
+    sampleFormat: "f32",
+    resampled: false,
+  });
 
   const stopTimer = () => {
     if (timer !== null) {
@@ -212,49 +269,56 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
     timer = setInterval(() => {
       position = Math.min(position + 0.2, duration);
       emit({ type: "progress", trackId, loadId, positionSec: position, durationSec: duration, bufferedSec: duration });
-      if (position >= duration) {
+      if (position < duration) return;
+      if (next === null) {
         stopTimer();
         emit({ type: "status", trackId, loadId, status: "ended" });
         emit({ type: "ended", trackId, loadId });
+        return;
       }
+      // 无缝交接：换成下一首继续跑表，不停 timer。真引擎在这里是「消费端越过边界」。
+      const from = trackId;
+      const { trackId: to, loadId: toLoad, queueRevision } = next;
+      next = null;
+      trackId = to;
+      loadId = toLoad;
+      duration = durations.get(to) ?? 0;
+      position = 0;
+      emit({
+        type: "trackChanged",
+        trackId,
+        loadId,
+        fromTrackId: from,
+        queueRevision,
+        format: mockFormat(duration),
+      });
     }, 200);
   };
 
   return {
     // 假引擎不读文件，因此种子曲库照样能跑完整个状态机与时钟。
     requiresPath: false,
-    setDuration: (sec) => {
-      duration = Math.max(0, sec);
+    setDuration: (id, sec) => {
+      durations.set(id, Math.max(0, sec));
     },
     // 假引擎不出声，响度增益对它没有可观测效果，但参数照收——两边签名一致，
     // 调用点才不会长出「浏览器里少传一个」的分支。
-    load: async (_path, id, idForLoad, autoplay, _initialVolume, initialPositionSec, _loudness) => {
+    load: async ({ trackId: id, loadId: idForLoad, autoplay, initialPositionSec, next: after }) => {
       trackId = id;
       loadId = idForLoad;
+      duration = durations.get(id) ?? 0;
+      next = after;
       position =
         initialPositionSec !== null && Number.isFinite(initialPositionSec)
           ? Math.max(0, Math.min(initialPositionSec, duration))
           : 0;
       emit({ type: "status", trackId, loadId, status: "loading" });
-      emit({
-        type: "opened",
-        trackId,
-        loadId,
-        format: {
-          container: "mock",
-          codec: "mock",
-          sampleRate: 44100,
-          channels: 2,
-          layout: "stereo",
-          durationSec: duration,
-          deviceName: "浏览器预览（无声）",
-          outputSampleRate: 44100,
-          sampleFormat: "f32",
-          resampled: false,
-        },
-      });
+      emit({ type: "opened", trackId, loadId, format: mockFormat(duration) });
       emit({ type: "status", trackId, loadId, status: autoplay ? "playing" : "paused" });
       if (autoplay) startTimer();
+    },
+    setNext: async (after) => {
+      next = after;
     },
     play: async () => {
       emit({ type: "status", trackId, loadId, status: "playing" });
@@ -287,11 +351,14 @@ export const mockEngine = createMockEngine();
 export const engine: EngineAdapter = isTauri() ? tauriEngine : mockEngine;
 
 /**
- * 浏览器预览下把时长告知假引擎。Tauri 环境是 no-op——真引擎自己从文件读，
+ * 浏览器预览下把某首曲目的时长告知假引擎。Tauri 环境是 no-op——真引擎自己从文件读，
  * 前端记的时长只是标签里的值，未必与实际码流一致。
+ *
+ * 按曲目 ID 记而不是「当前这首」：无缝交接时假引擎要在边界处自己换到下一首，
+ * 那一刻没有调用方可问。
  */
-export function hintDuration(sec: number): void {
-  if (!isTauri()) mockEngine.setDuration(sec);
+export function hintDuration(trackId: string, sec: number): void {
+  if (!isTauri()) mockEngine.setDuration(trackId, sec);
 }
 
 /* ============================================================

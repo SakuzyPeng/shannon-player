@@ -302,6 +302,7 @@ pub fn run() {
             reset_track_metadata,
             reset_album_metadata,
             player::player_load,
+            player::player_set_next,
             player::player_play,
             player::player_pause,
             player::player_seek,

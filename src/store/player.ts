@@ -15,7 +15,13 @@ import {
   SEED_FAVORITE_TRACKS,
 } from "@/data/library";
 import { PLAYLISTS } from "@/data/playlists";
-import { engine, hintDuration, loadSession, saveSession } from "@/lib/backend";
+import {
+  engine,
+  hintDuration,
+  loadSession,
+  saveSession,
+  type NextTrackArgs,
+} from "@/lib/backend";
 import { fromSession, toSession } from "@/lib/session";
 import { useUiStore } from "@/store/ui";
 import type { PlaybackError, PlayerStatus } from "@/types/generated/player";
@@ -65,6 +71,15 @@ function chosePlayback(before: PlaybackBaseline, after: PlaybackBaseline): boole
     before.currentIndex !== after.currentIndex ||
     before.loadedTrackId !== after.loadedTrackId
   );
+}
+
+/** 已下发给引擎的「下一首」。 */
+export interface NextHandoff {
+  queueUid: Id;
+  trackId: Id;
+  /** 为它**预先**生成的装载 ID：越过边界后的事件都由这一代认领。 */
+  loadId: Id;
+  revision: number;
 }
 
 interface PlayerState {
@@ -126,6 +141,32 @@ interface PlayerState {
    * 只比曲目 ID 无法识别上一代迟到的状态与结束事件。
    */
   activeLoadId: Id | null;
+  /**
+   * 已发出、引擎还没回过任何事件的**显式**装载。
+   *
+   * 它的唯一职责是给迟到的越界通知定优先级：用户刚点了另一首歌，而引擎在处理这条
+   * 装载之前恰好越过了上一首的边界，那条 `trackChanged` 描述的是一个已被取代的时刻。
+   * 接受它会把界面切到一首正在被替换的歌上，更糟的是 `activeLoadId` 会被改成那一代，
+   * 此后新曲的事件全被当成过期丢掉——界面就此冻住。
+   *
+   * 只能用这个标记，不能拿「和已下发的下一首比对」代替：队列换了下一首而边界**已经**
+   * 越过时，那首歌确实正在响，此时丢掉事件就是另一个方向的音画分裂。
+   */
+  pendingLoadId: Id | null;
+  /**
+   * 已经下发给引擎的「下一首」。`null` = 已明确告知它「放完就停」。
+   *
+   * 记队列项 uid 而不是曲目 ID：同一首歌可以多次入队，而拖拽重排会换位置不换 uid，
+   * 越过边界后正是靠它在当前队列里定位。
+   */
+  nextHandoff: NextHandoff | null;
+  /**
+   * 队列版本号，每次重新指定下一首时 +1，随命令下发并由切歌事件回带。
+   *
+   * 只用于对账与诊断（这次交接依据的是哪一版队列），**不作为丢弃事件的判据**——
+   * 已经发声的切歌是既成事实。
+   */
+  queueRevision: number;
   /**
    * 上一次播放失败的原因；成功装载时清空。
    *
@@ -192,6 +233,13 @@ interface PlayerState {
   setProgress: (p: Partial<PlaybackProgress>) => void;
   /** 把当前曲目送进引擎。切歌后调用；`autoplay` 决定装载完是否立即出声。 */
   loadCurrent: (autoplay: boolean) => void;
+  /**
+   * 按当前队列重算「下一首」并下发给引擎（无缝换曲的前提）。
+   *
+   * 由 `useSyncNext` 在队列、循环、随机状态或当前曲目变化时调用，业务代码不用管——
+   * 放在每个队列动作里就意味着将来新增的动作会漏掉它，而漏掉的表现是「偶尔不无缝」。
+   */
+  syncNext: () => void;
   /**
    * 真实曲库到位后接管队列：队列仍是种子演示曲目时换成曲库第一首。
    * **只换不播**——启动即出声是没人要的行为。
@@ -326,6 +374,40 @@ function prevIndex(queue: QueueItem[], currentIndex: number, order: Id[] | null)
   return queue.findIndex((q) => q.uid === ordered[pos - 1].uid);
 }
 
+/**
+ * 自然播完之后该接哪一首。
+ *
+ * 与手动 `next()` 的区别：这里遵守**真实的**循环模式（单曲循环 = 接自己），
+ * 而手动切歌刻意忽略它——用户按下一首就是要下一首，不该被单曲循环困住。
+ */
+function successorItem(s: PlayerState): QueueItem | undefined {
+  if (s.queue.length === 0 || s.currentIndex < 0) return undefined;
+  const idx =
+    s.repeat === "one"
+      ? s.currentIndex
+      : nextIndex(s.queue, s.currentIndex, s.shuffleOrder, s.repeat, true);
+  const item = idx >= 0 ? s.queue[idx] : undefined;
+  // 没有路径的曲目（种子演示曲库）真引擎放不了；假引擎不读文件，照常接。
+  if (!item || (!item.track.path && engine.requiresPath)) return undefined;
+  return item;
+}
+
+/** 把一个队列项变成随命令下发的指定，并生成它自己的装载 ID。 */
+function designate(item: QueueItem, revision: number): { handoff: NextHandoff; args: NextTrackArgs } {
+  const loadId = nextLoadId();
+  // 假引擎在边界处要自己换到下一首，那一刻没有调用方可问时长。
+  hintDuration(item.track.id, item.track.durationSec);
+  return {
+    handoff: { queueUid: item.uid, trackId: item.track.id, loadId, revision },
+    args: {
+      path: item.track.path ?? "",
+      trackId: item.track.id,
+      loadId,
+      queueRevision: revision,
+    },
+  };
+}
+
 /** 初始队列：仅放入演示曲目，进度停在 43%（对齐设计稿）。 */
 const initialQueue: QueueItem[] = [
   { uid: nextUid(), track: DEMO_TRACK, source: "user" },
@@ -352,6 +434,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   status: "idle",
   loadedTrackId: null,
   activeLoadId: null,
+  pendingLoadId: null,
+  nextHandoff: null,
+  queueRevision: 0,
   pendingSeek: null,
   sessionReady: false,
   error: null,
@@ -626,35 +711,68 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         error: null,
         loadedTrackId: null,
         activeLoadId: null,
+        pendingLoadId: null,
+        nextHandoff: null,
       });
       return;
     }
     // 浏览器预览的假引擎没有文件可读，时长得由这里告诉它。
-    hintDuration(track.durationSec);
+    hintDuration(track.id, track.durationSec);
     // 乐观置 playing：装载到出声有几十毫秒，这期间按钮不该还停在「播放」上。
     // 真正的状态随后由引擎事件校正（装载失败时会被改回来）。
     const loadId = nextLoadId();
+    const revision = s.queueRevision + 1;
+    const successor = successorItem(s);
+    const next = successor ? designate(successor, revision) : null;
     set({
       needsLibrary: false,
       error: null,
       loadedTrackId: track.id,
       activeLoadId: loadId,
+      pendingLoadId: loadId,
+      nextHandoff: next?.handoff ?? null,
+      queueRevision: revision,
       playing: autoplay,
     });
-    // 有效音量与初始位置都和 load 走同一条后端命令：拆成多个异步 invoke 没有顺序保证，
-    // 前者会让第一首落到默认满音量，后者会让续播先漏出曲首再跳到保存位置。
-    void engine.load(
-      track.path ?? "",
-      track.id,
-      loadId,
-      autoplay,
-      s.muted ? 0 : s.volume,
-      initialPositionSec,
-      // 传设置而不是增益：倍率由后端按分析结果与播放策略算。开关是**装载时读一次**，
-      // 因此中途改设置要到下一次装载才生效——管线领先播放约 1.5 秒，
-      // 缓冲里那段 PCM 的增益已经写死了，假装立刻生效只会让人以为开关坏了。
-      useUiStore.getState().settings.loudness,
-    );
+    // 有效音量、初始位置与**下一首**都和 load 走同一条后端命令：拆成多个异步 invoke
+    // 没有顺序保证——音量晚到让第一首落到默认满音量，位置晚到让续播先漏出曲首再跳，
+    // 而下一首若早到，会被这条装载的 teardown 抹掉（无缝换曲于是时好时坏）。
+    void engine
+      .load({
+        path: track.path ?? "",
+        trackId: track.id,
+        loadId,
+        autoplay,
+        initialVolume: s.muted ? 0 : s.volume,
+        initialPositionSec,
+        // 传设置而不是增益：倍率由后端按分析结果与播放策略算。开关是**装载时读一次**，
+        // 因此中途改设置要到下一次装载才生效——管线领先播放约 1.5 秒，
+        // 缓冲里那段 PCM 的增益已经写死了，假装立刻生效只会让人以为开关坏了。
+        loudness: useUiStore.getState().settings.loudness,
+        next: next?.args ?? null,
+      })
+      .catch((error) => {
+        // 命令根本没发出去。必须撤掉在途标记，否则此后每一条越界通知都会被当成
+        // 「已被更新的装载取代」而丢掉——表现为界面再也不跟着换曲了。
+        console.error("装载命令发送失败", error);
+        set((st) => (st.pendingLoadId === loadId ? { pendingLoadId: null } : {}));
+      });
+  },
+
+  syncNext: () => {
+    const s = get();
+    // 引擎那边什么都没在放，就谈不上「下一首」。
+    if (s.activeLoadId === null || s.loadedTrackId === null) return;
+    const successor = successorItem(s);
+    // 与已经下发的那份一致就不重发：拖拽重排、在队尾增删常常并不改变下一首，
+    // 而每次重发都会让引擎丢掉已经预解码好的那份、重新打开文件。
+    if ((s.nextHandoff?.queueUid ?? null) === (successor?.uid ?? null)) return;
+    const revision = s.queueRevision + 1;
+    const next = successor ? designate(successor, revision) : null;
+    set({ nextHandoff: next?.handoff ?? null, queueRevision: revision });
+    // 「没有下一首」也要明说：不说的话引擎会一直接着上次指定的那首，
+    // 用户删掉队尾之后反而会绕回去。
+    void engine.setNext(next?.args ?? null, useUiStore.getState().settings.loudness);
   },
 
   adoptLibrary: (tracks) => {
@@ -677,6 +795,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       status: "idle",
       loadedTrackId: null,
       activeLoadId: null,
+      pendingLoadId: null,
+      nextHandoff: null,
       needsLibrary: false,
       pendingSeek: null,
       progress: freshProgress(tracks[0]),
@@ -734,6 +854,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       status: "idle",
       loadedTrackId: null,
       activeLoadId: null,
+      pendingLoadId: null,
+      nextHandoff: null,
       needsLibrary: false,
       error: null,
       progress: {
@@ -766,6 +888,60 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   attachEngine: async () => {
     return engine.onEvent((event) => {
       const s = get();
+
+      // 无缝交接是**既成事实**：事件到达时新曲已经在响了。它带的是新曲那一代的装载 ID，
+      // 与 activeLoadId 必然不同，因此不能走下面「只认当前代际」的过滤。
+      if (event.type === "trackChanged") {
+        // 唯一该丢掉它的情形：用户已经另点了一首（显式装载在途）。见 pendingLoadId。
+        if (s.pendingLoadId !== null) return;
+        const handoff = s.nextHandoff;
+        // 按 uid 对账，不做下标递增：随机顺序与拖拽重排都会让「下一个下标」失去意义。
+        const idx = handoff ? s.queue.findIndex((q) => q.uid === handoff.queueUid) : -1;
+        if (idx < 0) {
+          // 边界越过之后才收到「这首已被移出队列」——它已经在响，撤不回来了。
+          // 但用户的意思是别放它，所以显式装载新队列此刻该放的那首：
+          // 会有一次可解释的停顿，好过继续放一首他刚刚删掉的歌。
+          const fallback = nextIndex(s.queue, s.currentIndex, s.shuffleOrder, s.repeat, true);
+          if (fallback >= 0) {
+            set({
+              currentIndex: fallback,
+              nextHandoff: null,
+              pendingSeek: null,
+              progress: freshProgress(s.queue[fallback].track),
+            });
+            get().loadCurrent(true);
+          } else {
+            void engine.pause();
+            set({ playing: false, nextHandoff: null });
+          }
+          return;
+        }
+        set({
+          currentIndex: idx,
+          loadedTrackId: event.trackId ?? s.queue[idx].track.id,
+          activeLoadId: event.loadId,
+          // 这一份指定已经被用掉，引擎那边空了；下面立刻补上新的。
+          nextHandoff: null,
+          pendingSeek: null,
+          playing: true,
+          status: "playing",
+          error: null,
+          needsLibrary: false,
+          progress: {
+            positionSec: 0,
+            // 时长以引擎读到的为准，标签里的值未必与实际码流一致。
+            durationSec: event.format.durationSec ?? s.queue[idx].track.durationSec,
+            bufferedSec: 0,
+          },
+        });
+        get().syncNext();
+        return;
+      }
+
+      // 带着在途装载 ID 的事件一到，就说明那条命令已经进了引擎，标记可以撤了。
+      // 不撤的话它会一直挡着越界通知（IPC 异常那条路已在 loadCurrent 里兜住）。
+      if (event.loadId === s.pendingLoadId) set({ pendingLoadId: null });
+
       const currentId = s.current()?.id;
       // 以装载代际为第一判据：同一首连续重载时 trackId 相同，只有 loadId 能识别迟到事件。
       if (event.loadId !== s.activeLoadId) return;
@@ -806,7 +982,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           break;
 
         case "ended": {
-          // 自然播完才走循环规则；手动 next() 不经过这里（见 next 的注释）。
+          // 到这里说明引擎手上**没有**下一首：要么队列到头了，要么那首没能预先接上
+          // （文件没了、格式不支持、种子曲目没有路径）。无缝换曲走的是 trackChanged，
+          // 这条分支于是成了兜底路径——它照常按循环规则推进，只是会有一声停顿。
+          set({ nextHandoff: null });
           if (s.repeat === "one") {
             void engine.seek(0);
             void engine.play();
@@ -833,6 +1012,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             error: event.error,
             loadedTrackId: null,
             activeLoadId: null,
+            pendingLoadId: null,
+            // 引擎已经拆掉整条链路，待接续的那份跟着作废。
+            nextHandoff: null,
           });
           break;
       }
