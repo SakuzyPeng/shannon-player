@@ -221,8 +221,9 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
     let rate = decoder.spec().sample_rate;
     let layout = decoder.spec().layout;
     let channels = layout.count();
-    // 布局不支持时 `new` 给 None；此处按「不测」处理，与产品路径的 UnsupportedLayout 同义。
-    let mut loudness = match measure_loudness {
+    // 布局不支持时 `new` 给 None；收尾时必须把它还原成明确的 UnsupportedLayout，
+    // 不能与「没有开启响度模式」共用同一个最终状态。
+    let mut loudness_analyzer = match measure_loudness {
         true => LoudnessAnalyzer::new(layout, rate).map_err(|e| e.to_string())?,
         false => None,
     };
@@ -234,7 +235,7 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
         match decoder.next_frames(&mut buf) {
             Ok(true) => {
                 samples += buf.len() as u64;
-                if let Some(analyzer) = loudness.as_mut() {
+                if let Some(analyzer) = loudness_analyzer.as_mut() {
                     analyzer.feed(&buf).map_err(|e| e.to_string())?;
                 }
             }
@@ -243,10 +244,7 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
         }
     }
 
-    let loudness = loudness
-        .as_ref()
-        .map(|a| a.finish().map_err(|e| e.to_string()))
-        .transpose()?;
+    let loudness = finish_loudness(measure_loudness, loudness_analyzer.as_ref())?;
     let audio_sec = samples as f64 / channels.max(1) as f64 / rate as f64;
     Ok(FileResult {
         path: path.to_path_buf(),
@@ -255,6 +253,21 @@ fn analyze_file(path: &Path, measure_loudness: bool) -> Result<FileResult, Strin
         codec,
         loudness,
     })
+}
+
+/// 把测量器状态收敛成结果。
+///
+/// `None` 有两种来源：未开启响度模式，或布局不受支持。必须由 `measure_loudness`
+/// 区分，否则后一种会在汇总阶段被误当成「响度模式没有结果」并触发 panic。
+fn finish_loudness(
+    measure_loudness: bool,
+    analyzer: Option<&LoudnessAnalyzer>,
+) -> Result<Option<LoudnessOutcome>, String> {
+    match (measure_loudness, analyzer) {
+        (false, _) => Ok(None),
+        (true, Some(analyzer)) => analyzer.finish().map(Some).map_err(|e| e.to_string()),
+        (true, None) => Ok(Some(LoudnessOutcome::UnsupportedLayout)),
+    }
 }
 
 fn print_loudness_summary(results: &[FileResult]) {
@@ -334,32 +347,38 @@ fn has_audio_ext(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shannon_audio::ChannelLayout;
 
     #[test]
     fn gain_reaches_target_when_peak_has_headroom() {
-        assert_eq!(applied_gain_db(-20.0, -6.0), 2.0);
+        assert_eq!(loudness::applied_gain_db(-20.0, -6.0), 2.0);
     }
 
     #[test]
     fn gain_is_reduced_instead_of_limiting_peaks() {
-        assert_eq!(applied_gain_db(-24.0, -0.5), -0.5);
+        assert_eq!(loudness::applied_gain_db(-24.0, -0.5), -0.5);
     }
 
     #[test]
-    fn analyzer_uses_explicit_stereo_map_and_rejects_unknown_multichannel() {
-        let analyzer = loudness_analyzer(ChannelLayout::STEREO, 44_100).unwrap();
-        assert_eq!(analyzer.channel_map(), &[Channel::Left, Channel::Right]);
-
-        let err = loudness_analyzer(ChannelLayout::discrete(6), 48_000).unwrap_err();
-        assert!(err.contains("多声道必须先给出经过验证的显式映射"));
+    fn unsupported_layout_is_preserved_as_an_outcome() {
+        let analyzer = LoudnessAnalyzer::new(ChannelLayout::discrete(6), 48_000).unwrap();
+        assert!(analyzer.is_none(), "多声道不应创建测量器");
+        assert_eq!(
+            finish_loudness(true, analyzer.as_ref()).unwrap(),
+            Some(LoudnessOutcome::UnsupportedLayout),
+            "布局不支持是确定结论，不能丢成 None"
+        );
     }
 
     #[test]
     fn silence_is_unmeasurable_instead_of_infinite_gain() {
-        let analyzer = loudness_analyzer(ChannelLayout::STEREO, 44_100).unwrap();
+        let mut analyzer = LoudnessAnalyzer::new(ChannelLayout::STEREO, 44_100)
+            .unwrap()
+            .unwrap();
+        analyzer.feed(&vec![0.0; 44_100 * 2]).unwrap();
         assert!(matches!(
-            finish_loudness(&analyzer).unwrap(),
-            LoudnessOutcome::Unmeasurable
+            finish_loudness(true, Some(&analyzer)).unwrap(),
+            Some(LoudnessOutcome::Unmeasurable)
         ));
     }
 }

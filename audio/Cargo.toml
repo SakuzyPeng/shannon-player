@@ -6,6 +6,11 @@ license = "AGPL-3.0-only"
 edition = "2021"
 rust-version = "1.85"
 
+[[example]]
+name = "bench_decode"
+# 这份诊断工具有自己的状态映射逻辑，纳入常规测试，避免重构正式模块后留下失效测试。
+test = true
+
 [dependencies]
 symphonia = { version = "0.6.0", features = ["mp3", "isomp4", "alac", "aac", "aiff", "caf"] }
 cpal = "0.18.1"
