@@ -24,4 +24,5 @@ pub use engine::{
 };
 pub use error::{EngineError, ErrorKind, Result, Stage};
 pub use layout::{ChannelLayout, LayoutSource};
+pub use loudness::service::{AnalysisItem, LoudnessService};
 pub use loudness::{LoudnessAnalyzer, LoudnessOutcome};

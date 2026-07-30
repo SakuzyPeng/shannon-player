@@ -16,6 +16,8 @@
 //! -18 LUFS 来自面向音乐播放的 ReplayGain 2.0 规范；EBU R128 的 -23 LUFS 是广播交付
 //! 用的，拿来放音乐会整体偏轻。-1 dBTP 则是本项目为后续重采样与设备转换留的安全余量。
 
+pub mod qos;
+pub mod service;
 pub mod store;
 
 use std::path::Path;
@@ -188,22 +190,37 @@ impl LoudnessAnalyzer {
 /// 分析器**独立解码**，不复用播放链路的 PCM：真峰值要做 4x 过采样，把它塞进播放的
 /// 生产线程是拿实时性冒险。等「完整分析与欠载共存」的测试通过后再谈这项优化。
 pub fn analyze_file(path: &Path) -> Result<LoudnessOutcome> {
+    Ok(analyze_file_interruptible(path, || true)?.expect("永不打断时必有结论"))
+}
+
+/// 同上，但每解一块 PCM 就问一次要不要继续；被打断时返回 `Ok(None)`。
+///
+/// 存在的理由是**退出速度**：一首 4 分钟的曲目分析约 0.6 秒，关窗时等它跑完是看得见的
+/// 停顿。按块轮询把退出延迟压到一块 PCM（几十毫秒）。半途而废没有中间产物——
+/// 积分响度必须看完整首曲子。
+pub fn analyze_file_interruptible(
+    path: &Path,
+    keep_going: impl Fn() -> bool,
+) -> Result<Option<LoudnessOutcome>> {
     let mut decoder = Decoder::open(path)?;
     let spec = decoder.spec().clone();
 
     let Some(mut analyzer) = LoudnessAnalyzer::new(spec.layout, spec.sample_rate)? else {
-        return Ok(LoudnessOutcome::UnsupportedLayout);
+        return Ok(Some(LoudnessOutcome::UnsupportedLayout));
     };
 
     let mut buf = Vec::new();
     loop {
+        if !keep_going() {
+            return Ok(None);
+        }
         buf.clear();
         if !decoder.next_frames(&mut buf)? {
             break;
         }
         analyzer.feed(&buf)?;
     }
-    analyzer.finish()
+    analyzer.finish().map(Some)
 }
 
 fn analyze_err(msg: impl Into<String>) -> EngineError {

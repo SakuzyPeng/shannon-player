@@ -3544,12 +3544,14 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "ebur128",
+ "libc",
  "rubato",
  "serde",
  "serde_json",
  "symphonia 0.6.0",
  "ts-rs",
  "walkdir",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

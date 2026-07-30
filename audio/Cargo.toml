@@ -25,6 +25,14 @@ ts-rs = { version = "10.1.0", features = ["no-serde-warnings"] }
 # 而结果是要长期缓存的——见 `loudness::ANALYSIS_VERSION`。
 ebur128 = { version = "=0.1.10", features = ["precision-true-peak"] }
 
+# 后台分析 worker 的 QoS 降级（`loudness::qos`）。三平台各一套原生调用，
+# 拿不到低优先级只是降级为普通线程，不影响正确性。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
 [dev-dependencies]
 # 诊断工具遍历真实曲库时禁止跟随符号链接，避免目录环无限递归。
 walkdir = "2.5.0"
