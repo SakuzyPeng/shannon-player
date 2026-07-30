@@ -181,8 +181,22 @@ pub enum PlayerEvent {
         duration_sec: Option<f64>,
         buffered_sec: f64,
     },
-    /// 播放到自然结束。由前端决定下一首——队列策略（循环、随机）是前端的领域，
-    /// 引擎只负责放好当前这一首。
+    /// 无缝接续到了下一首。
+    ///
+    /// 与 `Opened` 的差别不只是字段：它由**消费端越过边界帧**时判定，也就是说事件到达时
+    /// 新曲已经在响了。前端据此对账（按 `trackId` 在当前队列里定位），而不是按队列版本号
+    /// 校验相等——已经发声的切歌是既成事实，丢弃它只会让界面停在一首早已放完的歌上。
+    TrackChanged {
+        track_id: Option<String>,
+        load_id: String,
+        /// 刚放完的那首。前端用它确认这次交接接在谁后面。
+        from_track_id: Option<String>,
+        /// 这次交接依据的是哪一版队列。用于诊断与对账，不作为丢弃事件的判据。
+        queue_revision: u32,
+        format: PlaybackFormat,
+    },
+    /// 播放到自然结束。**队列已经没有下一首**——有的话走的是 `TrackChanged`。
+    /// 循环与随机是前端的领域，引擎只负责放好当前这一首。
     Ended {
         track_id: Option<String>,
         load_id: String,
@@ -221,6 +235,18 @@ impl PlayerEvent {
                 position_sec: *position_sec,
                 duration_sec: *duration_sec,
                 buffered_sec: *buffered_sec,
+            },
+            EngineEvent::TrackChanged {
+                from,
+                spec,
+                output,
+                queue_revision,
+            } => Self::TrackChanged {
+                track_id,
+                load_id,
+                from_track_id: from.as_ref().and_then(|c| c.track_id.clone()),
+                queue_revision: *queue_revision,
+                format: PlaybackFormat::new(spec, output),
             },
             EngineEvent::TrackEnded => Self::Ended { track_id, load_id },
             EngineEvent::Error(err) => Self::Failed {

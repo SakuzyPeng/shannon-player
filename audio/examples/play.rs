@@ -6,7 +6,9 @@
 //!
 //! 传目录即按文件名顺序连续播放，配合 `make_playlist` 产出的多格式歌单做实测：
 //! 无损之间应当听不出差别，44.1k 与 48k 那两首的对比就是重采样质量。
-//! **换曲时会重建输出流，间隙是当前的真实行为**（gapless 在后面的阶段）。
+//! **换曲走无缝接续**（不拆输出流），因此这里也是 gapless 的手动验收入口：
+//! 接缝处不该有停顿、爆音或任何可闻的断点。`--each` 要求把每首截断，与无缝互斥，
+//! 给了它就退回「一首一装载」的老路（曲目之间会有一声停顿，那是预期的）。
 //!
 //! 选项：
 //!   --each N      每首最多播 N 秒（默认放完；用来快速过一遍歌单）
@@ -25,8 +27,19 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use shannon_audio::engine::{Engine, EngineEvent, PlaybackState};
+use shannon_audio::engine::{Engine, EngineEvent, LoadContext, NextRequest, PlaybackState};
 use shannon_audio::output::{cpal_out::CpalOutput, null::NullOutput, OutputBackend};
+
+/// 指定无缝接续的下一首；越过列表末尾就明确告诉引擎「没有下一首了」。
+///
+/// 清空这一步不能省：不清的话引擎会一直接着上一次指定的那首，
+/// 放到列表末尾反而绕回去——这正是「下一首」必须由外面**每次重算**的原因。
+fn queue_next(engine: &Engine, tracks: &[PathBuf], index: usize) {
+    let request = tracks.get(index).map(|path| {
+        NextRequest::new(path, LoadContext::new(None, format!("play-next-{index}")), 0)
+    });
+    engine.set_next(request).unwrap();
+}
 
 /// 可播放的扩展名。识别与播放能力解耦——这里只是**遍历目录时的筛选**，
 /// 真正能不能放由探测器说了算，扫到不认识的容器会给出明确错误而不是被悄悄跳过。
@@ -75,9 +88,13 @@ fn main() {
     let ended = Arc::new(AtomicBool::new(false));
     let failed = Arc::new(AtomicBool::new(false));
     let position_ms = Arc::new(AtomicU64::new(0));
+    // 已完成的无缝交接次数。曲序靠它推进：交接由引擎在消费端越过边界时判定，
+    // 外面只能等它报告，不能自己数拍子。
+    let changed = Arc::new(AtomicU64::new(0));
 
     let engine = {
         let (ended, failed, position_ms) = (ended.clone(), failed.clone(), position_ms.clone());
+        let changed = changed.clone();
         Engine::spawn(backend, move |event| match event {
             EngineEvent::Opened { spec, output } => {
                 let resampled = if output.sample_rate != spec.sample_rate {
@@ -120,6 +137,11 @@ fn main() {
                     failed.store(true, Ordering::Relaxed);
                 }
             }
+            EngineEvent::TrackChanged { spec, .. } => {
+                // 无缝交接：这一行出现时新曲已经在响了（判定发生在消费端越过边界时）。
+                println!("\n     ── 无缝接上 {} / {} Hz", spec.codec, spec.sample_rate);
+                changed.fetch_add(1, Ordering::Relaxed);
+            }
             EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
             EngineEvent::Error(err) => {
                 eprintln!("\n     错误 {err}");
@@ -136,47 +158,11 @@ fn main() {
     let mut any_failed = false;
     let mut last_frames = 0u64;
     let mut last_underruns = 0u64;
+    let mut used_gapless = false;
 
-    for (i, path) in tracks.iter().enumerate() {
-        if let Some(limit) = total_limit {
-            if started.elapsed().as_secs_f64() >= limit {
-                break;
-            }
-        }
-
-        println!(
-            "\n[{:>2}/{}] {}",
-            i + 1,
-            count,
-            path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-        );
-        ended.store(false, Ordering::Relaxed);
-        failed.store(false, Ordering::Relaxed);
-        engine.load(path, true).unwrap();
-
-        if i == 0 {
-            if let Some(sec) = seek {
-                // 等装载完成再定位；这是诊断工具，不值得为它引入一套同步协议。
-                std::thread::sleep(Duration::from_millis(400));
-                engine.seek(sec).unwrap();
-            }
-        }
-
-        let track_started = Instant::now();
-        while !ended.load(Ordering::Relaxed) {
-            if let Some(limit) = each_limit {
-                if track_started.elapsed().as_secs_f64() >= limit {
-                    break;
-                }
-            }
-            if let Some(limit) = total_limit {
-                if started.elapsed().as_secs_f64() >= limit {
-                    break;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-
+    // 每首播完的一行小结。放进闭包是因为无缝链与截断模式都要打，而两边的
+    // 「一首结束了」是完全不同的时刻：前者是引擎报的交接，后者是外面掐的表。
+    let mut report = |engine: &Engine| {
         let stats = engine.stats();
         let frames = stats.frames_consumed.saturating_sub(last_frames);
         let underruns = stats.underruns.saturating_sub(last_underruns);
@@ -186,13 +172,96 @@ fn main() {
             "\r     消费 {frames} 帧 · 欠载 {underruns} 次 · 重采样 {}          ",
             if stats.resampled { "是" } else { "否" }
         );
+    };
+
+    let header = |i: usize| {
+        println!(
+            "\n[{:>2}/{}] {}",
+            i + 1,
+            count,
+            tracks[i]
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+        );
+    };
+
+    let over_total = || total_limit.is_some_and(|limit| started.elapsed().as_secs_f64() >= limit);
+
+    if each_limit.is_none() {
+        // ── 无缝链 ──
+        used_gapless = true;
+        header(0);
+        engine.load(&tracks[0], true).unwrap();
+        if let Some(sec) = seek {
+            // 等装载完成再定位；这是诊断工具，不值得为它引入一套同步协议。
+            std::thread::sleep(Duration::from_millis(400));
+            engine.seek(sec).unwrap();
+        }
+        queue_next(&engine, &tracks, 1);
+
+        let mut index = 0usize;
+        loop {
+            let crossed = changed.load(Ordering::Relaxed) as usize;
+            while index < crossed {
+                report(&engine);
+                index += 1;
+                header(index);
+                // 交接完成才指定再下一首：早指定也无妨，但这样与前端的做法一致
+                // ——「下一首是谁」在每次切歌后按当时的队列重算。
+                queue_next(&engine, &tracks, index + 1);
+            }
+            if ended.load(Ordering::Relaxed) || over_total() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        report(&engine);
         any_failed |= failed.load(Ordering::Relaxed);
+    } else {
+        // ── 截断模式：一首一装载，曲目之间有停顿 ──
+        for (i, path) in tracks.iter().enumerate() {
+            if over_total() {
+                break;
+            }
+            header(i);
+            ended.store(false, Ordering::Relaxed);
+            failed.store(false, Ordering::Relaxed);
+            engine.load(path, true).unwrap();
+
+            if i == 0 {
+                if let Some(sec) = seek {
+                    std::thread::sleep(Duration::from_millis(400));
+                    engine.seek(sec).unwrap();
+                }
+            }
+
+            let track_started = Instant::now();
+            while !ended.load(Ordering::Relaxed) {
+                if each_limit.is_some_and(|limit| track_started.elapsed().as_secs_f64() >= limit)
+                    || over_total()
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            report(&engine);
+            any_failed |= failed.load(Ordering::Relaxed);
+        }
     }
 
     let stats = engine.stats();
     println!(
-        "\n合计  {} 首 · 欠载 {} 次 · 设备延迟 {} 帧",
-        count, stats.underruns, stats.output_delay_frames
+        "\n合计  {} 首 · 无缝交接 {} 次 · 欠载 {} 次 · 设备延迟 {} 帧{}",
+        count,
+        changed.load(Ordering::Relaxed),
+        stats.underruns,
+        stats.output_delay_frames,
+        if used_gapless {
+            ""
+        } else {
+            "（--each 模式，换曲拆流）"
+        }
     );
 
     if any_failed {

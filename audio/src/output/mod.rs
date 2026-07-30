@@ -258,8 +258,8 @@ pub fn fill_from_ring(
     current_gain: &mut f32,
     ramp_step: f32,
 ) -> usize {
-    // 无条件处理 flush：暂停期间不消费数据，但 seek 的回执不能因此卡住。
-    consumer.poll_flush();
+    // 无条件处理 flush 与截断：暂停期间不消费数据，但那两条协议的回执不能因此卡住。
+    consumer.poll_control();
 
     let target = if shared.is_paused() {
         0.0
@@ -274,7 +274,8 @@ pub fn fill_from_ring(
         return 0;
     }
 
-    let got = consumer.read(out);
+    let outcome = consumer.read(out);
+    let got = outcome.samples;
     if got < out.len() {
         out[got..].fill(0.0);
         // 只有正在播放、且不处于重缓冲时的填不满才算欠载；
@@ -301,7 +302,18 @@ pub fn fill_from_ring(
     *current_gain = g;
 
     let frames = (got / channels) as u64;
-    shared.position_frames.fetch_add(frames, Ordering::Relaxed);
+    match outcome.crossed {
+        // 越过了曲目边界：位置不再是累加而是**改写**——新曲从它自己的基准起算。
+        // 缓冲里两首歌的 PCM 之间没有任何分隔，只有这里知道读下标跨了过去。
+        Some(crossing) => shared.position_frames.store(
+            crossing.position_base + crossing.frames_after,
+            Ordering::Relaxed,
+        ),
+        None => {
+            shared.position_frames.fetch_add(frames, Ordering::Relaxed);
+        }
+    }
+    // 累计量跨曲目单调递增，边界处照加不误：它回答的是「一共送出去多少帧」。
     shared.total_frames.fetch_add(frames, Ordering::Relaxed);
     frames as usize
 }

@@ -63,7 +63,15 @@ resampled: boolean, };
  * 不能由外壳读取一个共享的“最新曲目”来盖章：命令入队是异步的，后一首会先覆盖共享值，
  * 让前一首随后产生的事件冒充后一首。`loadId` 还负责区分同一曲目的连续重载。
  */
-export type PlayerEvent = { "type": "opened", trackId: string | null, loadId: string, format: PlaybackFormat, } | { "type": "status", trackId: string | null, loadId: string, status: PlayerStatus, } | { "type": "progress", trackId: string | null, loadId: string, positionSec: number, durationSec: number | null, bufferedSec: number, } | { "type": "ended", trackId: string | null, loadId: string, } | { "type": "failed", trackId: string | null, loadId: string, error: PlaybackError, };
+export type PlayerEvent = { "type": "opened", trackId: string | null, loadId: string, format: PlaybackFormat, } | { "type": "status", trackId: string | null, loadId: string, status: PlayerStatus, } | { "type": "progress", trackId: string | null, loadId: string, positionSec: number, durationSec: number | null, bufferedSec: number, } | { "type": "trackChanged", trackId: string | null, loadId: string, 
+/**
+ * 刚放完的那首。前端用它确认这次交接接在谁后面。
+ */
+fromTrackId: string | null, 
+/**
+ * 这次交接依据的是哪一版队列。用于诊断与对账，不作为丢弃事件的判据。
+ */
+queueRevision: number, format: PlaybackFormat, } | { "type": "ended", trackId: string | null, loadId: string, } | { "type": "failed", trackId: string | null, loadId: string, error: PlaybackError, };
 
 /**
  * 播放状态。与 [`PlaybackState`] 一一对应。

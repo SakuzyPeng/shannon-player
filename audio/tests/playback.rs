@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use shannon_audio::decode::Decoder;
-use shannon_audio::engine::{Engine, EngineEvent, LoadContext, LoadRequest, PlaybackState};
+use shannon_audio::engine::{
+    Engine, EngineEvent, LoadContext, LoadRequest, NextRequest, PlaybackState,
+};
 use shannon_audio::layout::ChannelLayout;
 use shannon_audio::mix::ChannelAdapt;
 use shannon_audio::output::null::NullOutput;
@@ -45,7 +47,7 @@ fn chirp(i: usize) -> f64 {
 }
 
 /// 写一个 16-bit PCM WAV。`channels` 路声道内容相同。
-fn write_wav(path: &Path, channels: u16, frames: usize, gen: fn(usize) -> f64) {
+fn write_wav(path: &Path, channels: u16, frames: usize, gen: impl Fn(usize) -> f64) {
     let byte_rate = RATE * channels as u32 * 2;
     let data_len = (frames * channels as usize * 2) as u32;
     let mut buf = Vec::with_capacity(44 + data_len as usize);
@@ -76,7 +78,7 @@ fn corpus(name: &str, channels: u16, frames: usize) -> PathBuf {
     corpus_with(name, channels, frames, sine)
 }
 
-fn corpus_with(name: &str, channels: u16, frames: usize, gen: fn(usize) -> f64) -> PathBuf {
+fn corpus_with(name: &str, channels: u16, frames: usize, gen: impl Fn(usize) -> f64) -> PathBuf {
     let dir = std::env::temp_dir().join("shannon-audio-tests");
     std::fs::create_dir_all(&dir).expect("建语料目录失败");
     let path = dir.join(format!("{name}.wav"));
@@ -1054,7 +1056,7 @@ fn plays_to_completion_through_null_backend() {
                 rec.last_position_ms
                     .store((position_sec * 1000.0) as u64, Ordering::Relaxed);
             }
-            EngineEvent::Opened { .. } => {}
+            EngineEvent::Opened { .. } | EngineEvent::TrackChanged { .. } => {}
         })
     };
 
@@ -1270,4 +1272,401 @@ fn per_track_frame_count_survives_track_changes() {
             stats.position_frames
         );
     }
+}
+
+// ───────────────────────────── 无缝接续（gapless） ─────────────────────────────
+
+/// 把一段连续扫频切成两个文件。
+///
+/// **gapless 的判据**就是把两段接起来之后，波形与从未被切开的原信号逐样本一致：
+/// 中间多出静音、少掉几个样本、或把一段重放一遍，都会在接缝处暴露成相位跳变。
+///
+/// 语料必须无周期（见 `chirp` 的说明）：定频正弦在接缝处差整数个周期时波形完全重合，
+/// 而那恰好是最容易出错的一类偏差，用它等于给自己出一张不会失败的考卷。
+fn split_chirp(name: &str, frames: usize) -> (PathBuf, PathBuf) {
+    let first = corpus_with(&format!("{name}-a"), 2, frames, chirp);
+    let second = corpus_with(&format!("{name}-b"), 2, frames, move |i| chirp(i + frames));
+    (first, second)
+}
+
+/// 恒定电平的语料。用来在采集结果里一眼认出「此刻响的是哪一首」——
+/// 幅度 0.9 与扫频那 0.3 拉开距离，正负号区分两首。
+fn flat(name: &str, frames: usize, level: f64) -> PathBuf {
+    corpus_with(name, 2, frames, move |_| level)
+}
+
+/// 在采集结果里找到音频开始的样本下标。
+///
+/// 采集包含开播前的静音与 15 ms 音量斜坡，逐样本比对必须先对齐，而且要**精确到样本**
+/// ——差一帧的偏移正是这类缺陷最常见的形态，用「大致对齐」去验证等于什么都没验证。
+/// 做法是拿参考信号中段（已过斜坡）当模板搜一遍，取误差最小的偏移。
+fn align(captured: &[f32], reference: &[f32], probe_frame: usize) -> usize {
+    const WINDOW: usize = 2000;
+    let probe = probe_frame * 2;
+    let template = &reference[probe..probe + WINDOW];
+    // 开播前的静音最多是预缓冲那 300 ms 加几拍回调，搜索范围留足即可。
+    let limit = captured.len().saturating_sub(probe + WINDOW).min(40_000);
+    let mut best = (f64::MAX, 0usize);
+    for start in (0..limit).step_by(2) {
+        let seg = &captured[start + probe..start + probe + WINDOW];
+        let err: f64 = seg
+            .iter()
+            .zip(template)
+            .map(|(a, b)| ((a - b) as f64).powi(2))
+            .sum();
+        if err < best.0 {
+            best = (err, start);
+        }
+    }
+    let mse = best.0 / WINDOW as f64;
+    assert!(mse < 1e-8, "采集结果与参考信号对不上（最小均方误差 {mse}）");
+    best.1
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ChainEvent {
+    Changed {
+        from: Option<String>,
+        to: Option<String>,
+        revision: u32,
+    },
+    Progress {
+        position_sec: f64,
+        buffered_sec: f64,
+    },
+    Ended,
+    Failed(String),
+}
+
+/// 一条无缝播放链的测试台：采集全部输出样本，并按序记录事件。
+struct Chain {
+    engine: Engine,
+    captured: Arc<Mutex<Vec<f32>>>,
+    events: Arc<Mutex<Vec<ChainEvent>>>,
+}
+
+impl Chain {
+    fn start(device_rate: Option<u32>) -> Self {
+        let captured: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+        let events: Arc<Mutex<Vec<ChainEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let engine = {
+            let events = events.clone();
+            Engine::spawn_stamped(
+                Box::new(CapturingOutput::new(captured.clone(), device_rate)),
+                move |stamped| {
+                    // 事件盖的是**正在发声**那首的章，交接后自动换成新曲的。
+                    let to = stamped.context.track_id.clone();
+                    let mut log = events.lock().unwrap();
+                    match stamped.event {
+                        EngineEvent::TrackChanged {
+                            from,
+                            queue_revision,
+                            ..
+                        } => log.push(ChainEvent::Changed {
+                            from: from.and_then(|c| c.track_id),
+                            to,
+                            revision: queue_revision,
+                        }),
+                        EngineEvent::Progress {
+                            position_sec,
+                            buffered_sec,
+                            ..
+                        } => log.push(ChainEvent::Progress {
+                            position_sec,
+                            buffered_sec,
+                        }),
+                        EngineEvent::TrackEnded => log.push(ChainEvent::Ended),
+                        EngineEvent::Error(err) => log.push(ChainEvent::Failed(err.to_string())),
+                        EngineEvent::Opened { .. } | EngineEvent::StateChanged(_) => {}
+                    }
+                },
+            )
+        };
+        Self {
+            engine,
+            captured,
+            events,
+        }
+    }
+
+    fn load(&self, path: &Path, track: &str) {
+        self.engine
+            .load_request(LoadRequest::new(
+                path,
+                true,
+                LoadContext::new(Some(track.into()), format!("load-{track}")),
+            ))
+            .unwrap();
+    }
+
+    fn set_next(&self, path: &Path, track: &str, revision: u32) {
+        self.engine
+            .set_next(Some(NextRequest::new(
+                path,
+                LoadContext::new(Some(track.into()), format!("next-{track}")),
+                revision,
+            )))
+            .unwrap();
+    }
+
+    fn events(&self) -> Vec<ChainEvent> {
+        self.events.lock().unwrap().clone()
+    }
+
+    fn changes(&self) -> Vec<ChainEvent> {
+        self.events()
+            .into_iter()
+            .filter(|e| matches!(e, ChainEvent::Changed { .. }))
+            .collect()
+    }
+
+    /// 等到条件成立。超时就带着完整事件序列失败——「等不到」本身就是被测行为的一部分。
+    fn wait_for(&self, what: &str, cond: impl Fn(&[ChainEvent]) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < deadline {
+            let events = self.events();
+            if let Some(ChainEvent::Failed(msg)) = events
+                .iter()
+                .find(|e| matches!(e, ChainEvent::Failed(_)))
+                .cloned()
+            {
+                panic!("等「{what}」时播放失败：{msg}");
+            }
+            if cond(&events) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("等不到「{what}」；事件序列：{:?}", self.events());
+    }
+
+    fn wait_ended(&self) {
+        self.wait_for("播完", |events| events.contains(&ChainEvent::Ended));
+    }
+
+    /// 等到下一首确实躺进了缓冲。
+    ///
+    /// `threshold` 要**大于第一首的总时长**，否则「缓冲里有这么多数据」可能全是第一首的，
+    /// 用例就会在旧 next 还没进缓冲时就去改队列——那测的是另一条（更容易的）路径。
+    fn wait_until_buffered(&self, threshold: f64) {
+        self.wait_for(&format!("缓冲超过 {threshold} 秒"), |events| {
+            events.iter().any(
+                |e| matches!(e, ChainEvent::Progress { buffered_sec, .. } if *buffered_sec > threshold),
+            )
+        });
+    }
+
+    fn captured(&self) -> Vec<f32> {
+        self.captured.lock().unwrap().clone()
+    }
+}
+
+fn position_of(event: &ChainEvent) -> Option<f64> {
+    match event {
+        ChainEvent::Progress { position_sec, .. } => Some(*position_sec),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_gapless_handoff_is_sample_continuous() {
+    // 一秒一段，接缝落在第 44100 帧。
+    let frames = RATE as usize;
+    let (first, second) = split_chirp("gapless", frames);
+    let whole = decode_all(&corpus_with("gapless-whole", 2, frames * 2, chirp));
+
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&second, "B", 1);
+    chain.wait_ended();
+
+    let captured = chain.captured();
+    let offset = align(&captured, &whole, frames / 2);
+    let seam = offset + frames * 2;
+    // 接缝前后各 200 帧逐样本比对。这一段没有重采样、增益斜坡也早已到顶，
+    // 所以要求的是**逐位一致**，不是「差不多」。
+    for i in (seam - 400)..(seam + 400) {
+        let got = captured[i];
+        let want = whole[i - offset];
+        assert!(
+            (got - want).abs() < 1e-6,
+            "接缝偏移 {} 个样本处不连续：得到 {got}，期望 {want}",
+            i as isize - seam as isize
+        );
+    }
+    assert_eq!(chain.changes().len(), 1, "一次交接只该报一次");
+    assert_eq!(
+        chain.engine.stats().underruns,
+        0,
+        "无缝交接不该欠载——接缝处正是缓冲最容易见底的地方"
+    );
+}
+
+#[test]
+fn the_position_restarts_at_the_boundary() {
+    let first = corpus_with("pos-a", 2, RATE as usize, chirp);
+    let second = corpus_with("pos-b", 2, RATE as usize, chirp);
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&second, "B", 1);
+    chain.wait_ended();
+
+    let events = chain.events();
+    let at = events
+        .iter()
+        .position(|e| matches!(e, ChainEvent::Changed { .. }))
+        .expect("必须有一次交接");
+    let before = events[..at]
+        .iter()
+        .filter_map(position_of)
+        .fold(0.0f64, f64::max);
+    let after = events[at + 1..]
+        .iter()
+        .filter_map(position_of)
+        .next()
+        .expect("交接之后必须还有进度事件");
+    assert!(before > 0.7, "交接前的进度应当接近第一首末尾，实际 {before}");
+    // 缓冲里两首歌的 PCM 之间没有任何分隔，位置能归零只可能是消费端结算了边界。
+    assert!(after < 0.4, "交接后进度必须从新曲起算，实际 {after}");
+}
+
+#[test]
+fn replacing_the_next_track_before_it_sounds_keeps_it_silent() {
+    // 用户在最后一秒改了队列：已经预解码进缓冲的旧 next 必须一个样本都不出去，
+    // 否则「改队列」对听感完全无效——他明明改了，放出来的还是原来那首。
+    let first = corpus_with("swap-a", 2, (RATE as f64 * 0.8) as usize, chirp);
+    let stale = flat("swap-stale", RATE as usize / 2, 0.9);
+    let fresh = flat("swap-fresh", RATE as usize / 2, -0.9);
+
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&stale, "STALE", 1);
+    chain.wait_until_buffered(0.9);
+    chain.set_next(&fresh, "FRESH", 2);
+    chain.wait_ended();
+
+    let captured = chain.captured();
+    assert!(
+        !captured.iter().any(|s| *s > 0.5),
+        "旧队列的下一首一个样本都不许出去"
+    );
+    assert!(
+        captured.iter().any(|s| *s < -0.5),
+        "新指定的下一首必须真的放出来"
+    );
+    let changes = chain.changes();
+    assert_eq!(
+        changes.len(),
+        1,
+        "被撤掉的那次交接不该产生事件：{changes:?}"
+    );
+    assert!(
+        matches!(&changes[0], ChainEvent::Changed { to: Some(t), revision: 2, .. } if t == "FRESH"),
+        "切歌事件要指向新队列的那首并回带新版本号：{changes:?}"
+    );
+}
+
+#[test]
+fn a_boundary_already_crossed_is_a_fact() {
+    // 越过边界之后才改队列就是晚了：那首歌已经在响，撤不回来。此时引擎既要如实
+    // 发出它的切歌事件（丢掉的话界面会停在一首早已放完的歌上），也要把新指定的
+    // 那首排在它之后。
+    let first = corpus_with("late-a", 2, (RATE as f64 * 0.4) as usize, chirp);
+    let second = flat("late-b", (RATE as f64 * 0.6) as usize, 0.9);
+    let third = flat("late-c", (RATE as f64 * 0.4) as usize, -0.9);
+
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&second, "B", 1);
+    chain.wait_for("交接到 B", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Changed { to: Some(t), .. } if t == "B"))
+    });
+    chain.set_next(&third, "C", 2);
+    chain.wait_ended();
+
+    let changes = chain.changes();
+    assert_eq!(changes.len(), 2, "两次交接都该报：{changes:?}");
+    assert!(
+        matches!(&changes[0], ChainEvent::Changed { from: Some(f), to: Some(t), .. } if f == "A" && t == "B")
+    );
+    assert!(
+        matches!(&changes[1], ChainEvent::Changed { from: Some(f), to: Some(t), .. } if f == "B" && t == "C")
+    );
+    let captured = chain.captured();
+    assert!(
+        captured.iter().any(|s| *s > 0.5),
+        "已经在响的那首不能被撤掉"
+    );
+    assert!(captured.iter().any(|s| *s < -0.5), "新指定的那首应当接在它后面");
+}
+
+#[test]
+fn seeking_after_the_handoff_stays_on_the_sounding_track() {
+    // 解码头已经跑到下一首去了，此刻定位的对象仍是**正在发声**的那首——而它的解码器
+    // 在交接时就丢掉了，引擎必须按路径把它重新打开。若定位错打在下一首上，
+    // 缓冲会被清空、边界随之作废，那一次交接就再也不会发生。
+    let first = corpus_with("seekh-a", 2, (RATE as f64 * 0.8) as usize, chirp);
+    let second = flat("seekh-b", RATE as usize / 2, 0.9);
+
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&second, "B", 1);
+    chain.wait_until_buffered(0.9);
+    chain.engine.seek(0.2).unwrap();
+    chain.wait_ended();
+
+    let events = chain.events();
+    let at = events
+        .iter()
+        .position(|e| matches!(e, ChainEvent::Changed { .. }))
+        .expect("定位不该让后面那首消失");
+    let before = events[..at]
+        .iter()
+        .filter_map(position_of)
+        .fold(0.0f64, f64::max);
+    assert!(
+        before > 0.7,
+        "定位后第一首应当继续放到自己的末尾，实际只到 {before}"
+    );
+    assert_eq!(chain.changes().len(), 1, "交接既不该丢也不该重复");
+}
+
+#[test]
+fn repeat_one_hands_off_to_the_same_file() {
+    // 单曲循环就是把 next 指向自己。两个解码器同时打开同一个文件必须没问题，
+    // 否则「循环一首」会在第二遍开头断掉。
+    let path = corpus_with("repeat-one", 2, RATE as usize / 2, chirp);
+    let chain = Chain::start(None);
+    chain.load(&path, "A");
+    chain.set_next(&path, "A-again", 1);
+    chain.wait_for("接上第二遍", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Changed { to: Some(t), .. } if t == "A-again"))
+    });
+    chain.wait_ended();
+    assert_eq!(chain.changes().len(), 1);
+}
+
+#[test]
+fn a_handoff_survives_a_sample_rate_change() {
+    // 两首采样率不同：整条输出流的采样率由第一首协商决定，第二首必须重采样到它上面。
+    // 这是「无缝优先」的代价，也是必须验证的路径——接缝处换重采样比率最容易出岔子。
+    let first = corpus_with("rate-a", 2, RATE as usize / 2, chirp);
+    let second = flat("rate-b", RATE as usize / 2, 0.9);
+    // 设备只给 48 kHz，于是两首都要重采样，且第二首的比率与第一首相同。
+    let chain = Chain::start(Some(48_000));
+    chain.load(&first, "A");
+    chain.set_next(&second, "B", 1);
+    chain.wait_ended();
+
+    assert_eq!(chain.changes().len(), 1, "重采样路径上也要能交接");
+    let captured = chain.captured();
+    assert!(
+        captured.iter().any(|s| *s > 0.5),
+        "第二首必须真的放出来（重采样后幅度仍应接近 0.9）"
+    );
+    assert_eq!(chain.engine.stats().underruns, 0);
 }

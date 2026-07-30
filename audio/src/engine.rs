@@ -17,7 +17,8 @@
 //! 而平台原生输出后端尚未接入，因此当前遇到多声道会报明确的路由错误。
 //! 采样率不受此限——设备给不出源采样率时插入重采样，并在 stats 里如实标记。
 
-use std::path::PathBuf;
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -111,10 +112,45 @@ impl LoadRequest {
     }
 }
 
+/// 下一首的装载参数。
+///
+/// 与 [`LoadRequest`] 分开而不是复用：next 没有 `autoplay`（它接在当前这首后面，
+/// 传输状态早已确定），没有初始位置（无缝交接必然从头放起），却多一个队列版本号。
+/// 硬塞进同一个结构，就得靠注释解释「这几个字段在 next 语境下无意义」。
+#[derive(Debug, Clone)]
+pub struct NextRequest {
+    pub path: PathBuf,
+    /// 与 `Load` 同样的不透明上下文。前端为下一首预先生成装载 ID，
+    /// 于是越过边界之后的每个事件都能被它自己的那一代认领。
+    pub context: LoadContext,
+    /// 响度归一化增益，语义同 [`LoadRequest::loudness_gain`]。
+    pub loudness_gain: Option<f32>,
+    /// 队列版本号。引擎不解释它，只在切歌事件里回带，让前端认出这次交接依据的是哪一版队列。
+    pub queue_revision: u32,
+}
+
+impl NextRequest {
+    pub fn new(path: impl Into<PathBuf>, context: LoadContext, queue_revision: u32) -> Self {
+        Self {
+            path: path.into(),
+            context,
+            loudness_gain: None,
+            queue_revision,
+        }
+    }
+
+    pub fn with_loudness_gain(mut self, gain: f32) -> Self {
+        self.loudness_gain = Some(gain);
+        self
+    }
+}
+
 /// 控制命令。经通道投递，调用方不阻塞，结果一律走事件。
 #[derive(Debug)]
 pub enum PlayerCmd {
     Load(LoadRequest),
+    /// 指定（或清空）无缝接续的下一首。
+    SetNext(Option<NextRequest>),
     Play,
     Pause,
     Stop,
@@ -146,6 +182,16 @@ pub enum EngineEvent {
     Opened {
         spec: SourceSpec,
         output: OutputConfig,
+    },
+    /// 无缝交接到了下一首。**由消费端越过边界帧时判定**，不是解码器换源时——
+    /// 解码可以领先播放一秒半，按解码时机发事件会让界面提前一秒半切换曲目信息。
+    ///
+    /// 事件盖的是**新曲**的章；`from` 给出刚放完的那首，便于前端对账。
+    TrackChanged {
+        from: Option<LoadContext>,
+        spec: SourceSpec,
+        output: OutputConfig,
+        queue_revision: u32,
     },
     StateChanged(PlaybackState),
     Progress {
@@ -310,7 +356,8 @@ impl Engine {
                 self.shared.set_paused(true);
                 Some(intent.generation)
             }
-            PlayerCmd::SetVolume(_) => None,
+            // SetNext 不动传输意图，也不动装载代际：它不改变「现在放的是什么」。
+            PlayerCmd::SetVolume(_) | PlayerCmd::SetNext(_) => None,
         };
         self.cmd_tx
             .send(QueuedCmd {
@@ -333,6 +380,14 @@ impl Engine {
     /// 按完整的装载请求装载。见 [`LoadRequest`]：那些参数必须与装载一起生效。
     pub fn load_request(&self, request: LoadRequest) -> Result<()> {
         self.send(PlayerCmd::Load(request))
+    }
+
+    /// 指定无缝接续的下一首；`None` 表示当前这首放完就停。
+    ///
+    /// 队列的权威在前端，引擎只认「下一个是谁」。每次队列、循环或随机状态变化都该重发，
+    /// 已经预解码但尚未发声的旧 next 会被丢弃（见实现计划「队列归属与切歌交接」）。
+    pub fn set_next(&self, request: Option<NextRequest>) -> Result<()> {
+        self.send(PlayerCmd::SetNext(request))
     }
 
     pub fn play(&self) -> Result<()> {
@@ -379,20 +434,39 @@ impl Drop for Engine {
     }
 }
 
-/// 当前装载的音源及其配套资源。
-struct Loaded {
-    decoder: Decoder,
+/// 输出流侧的资源：一次 `open` 的产物，**跨曲目复用**。
+///
+/// 与音源分开正是 gapless 的前提。曲目之间那声停顿的来源就是「换曲 = 拆流重开」：
+/// 设备要重新协商、缓冲要重新填、位置时基要重建。分开之后，换曲只是往同一个环形缓冲
+/// 里接着写，设备时钟一刻没停。
+///
+/// 代价要说清楚：整条链路的采样率由**第一首**协商决定，后面的曲目若采样率不同，就得
+/// 重采样到它上面。反过来（每首都按自己的采样率重开设备）能省掉这级转换，但那样换曲
+/// 必然有停顿——两者不可兼得，而这里的取舍是「无缝优先」，且转换本身会如实记进 stats。
+struct Stream {
     producer: RingProducer,
+    out_channels: usize,
+    /// **输出**采样率。环形缓冲、位置计数与进度换算一律用它——
+    /// 重采样之后链路里流动的就是输出域的帧，混用源采样率会让进度按比率走偏。
+    out_rate: u32,
+    config: OutputConfig,
+}
+
+/// 一个音源的解码侧状态：从文件到「可以写进环形缓冲的样本」这一段。
+struct Source {
+    decoder: Decoder,
+    spec: SourceSpec,
+    /// 留着路径，是为了 seek 到已经交接出去的曲目时能重新打开它（见 `rewind_head_to_sounding`）。
+    path: PathBuf,
+    context: LoadContext,
+    /// 这一首是依据哪一版队列排上来的。引擎不解释，只在切歌事件里回带。
+    queue_revision: u32,
     resampler: Resampling,
     adapt: ChannelAdapt,
     /// 源声道数。重采样在声道适配**之前**做，中间缓冲仍是源声道布局。
     src_channels: usize,
     /// 响度归一化增益（线性倍率）。1.0 表示不处理，此时连乘法都不做。
     loudness_gain: f32,
-    out_channels: usize,
-    /// **输出**采样率。环形缓冲、位置计数与进度换算一律用它——
-    /// 重采样之后链路里流动的就是输出域的帧，混用源采样率会让进度按比率走偏。
-    out_rate: u32,
     /// 重采样后、声道适配前的中间缓冲。
     resampled: Vec<f32>,
     /// 已适配但还没写进环形缓冲的样本（缓冲满时的剩余）。
@@ -402,11 +476,101 @@ struct Loaded {
     eof: bool,
     /// 重采样器的尾部延迟是否已冲刷。只能冲一次。
     flushed: bool,
-    /// `TrackEnded` 是否已发出，避免排空后反复上报。
-    ended_reported: bool,
-    /// ring 被最后一次设备回调取空之后，仍需等待「设备延迟 + 本回调有效帧」才能
-    /// 确认耳朵真正听完。`None` 表示尚未观察到稳定的排空时刻。
-    drain_deadline: Option<Instant>,
+}
+
+impl Source {
+    /// 打开文件并按**给定的输出采样率**配好重采样与声道适配。
+    ///
+    /// 采样率是参数而不是现场协商：接续的曲目必须服从当前输出流的采样率，
+    /// 它自己那份「理想输出配置」在这条流上没有意义。
+    fn open(
+        path: &Path,
+        context: LoadContext,
+        loudness_gain: Option<f32>,
+        queue_revision: u32,
+        out_rate: u32,
+    ) -> Result<Self> {
+        let decoder = Decoder::open(path)?;
+        let spec = decoder.spec().clone();
+        // 目标布局恒为立体声。多声道整体走平台原生后端；
+        // `ChannelAdapt::plan` 会在当前路径做不到时给出带布局描述的路由错误。
+        let adapt = ChannelAdapt::plan(spec.layout, ChannelLayout::STEREO)?;
+        let src_channels = spec.layout.count() as usize;
+        let resampler = Resampling::new(spec.sample_rate, out_rate, src_channels)?;
+        Ok(Self {
+            decoder,
+            spec,
+            path: path.to_path_buf(),
+            context,
+            queue_revision,
+            resampler,
+            adapt,
+            src_channels,
+            loudness_gain: sanitize_gain(loudness_gain),
+            resampled: Vec::new(),
+            pending: Vec::new(),
+            pending_pos: 0,
+            eof: false,
+            flushed: false,
+        })
+    }
+
+    /// 这一路音源再也不会产出样本了（流已读完、重采样尾部已冲、残余已写完）。
+    fn drained(&self) -> bool {
+        self.eof && self.flushed && self.pending_pos >= self.pending.len()
+    }
+
+    fn sounding(&self) -> Sounding {
+        Sounding {
+            context: self.context.clone(),
+            spec: self.spec.clone(),
+            path: self.path.clone(),
+            loudness_gain: self.loudness_gain,
+        }
+    }
+
+    /// 把自己还原成一条「待接续」请求。seek 到上一首时，已经接上的这首要退回去重排。
+    fn as_next_request(&self) -> NextRequest {
+        NextRequest {
+            path: self.path.clone(),
+            context: self.context.clone(),
+            loudness_gain: Some(self.loudness_gain),
+            queue_revision: self.queue_revision,
+        }
+    }
+
+    /// 定位后清掉跨块状态。重采样器持有历史样本，不复位会把定位前的尾巴混进开头。
+    fn reset_pipeline(&mut self) {
+        self.resampler.reset();
+        self.resampled.clear();
+        self.pending.clear();
+        self.pending_pos = 0;
+        self.eof = false;
+        self.flushed = false;
+    }
+}
+
+/// 正在**发声**的曲目。
+///
+/// 与解码头（`Worker::head`）分开是 gapless 带来的：解码领先播放最多一秒半，那段时间
+/// 里两者根本不是同一首。事件盖章、进度里的时长、以及 seek 该定位到哪个文件，全部以
+/// 这里为准；按解码头来会让界面提前一秒半切歌，也会让拖动进度条定位到下一首上。
+struct Sounding {
+    context: LoadContext,
+    spec: SourceSpec,
+    path: PathBuf,
+    loudness_gain: f32,
+}
+
+/// 已打点、尚未被消费端越过的边界。与环形缓冲里的打点一一对应、同序。
+struct PendingMark {
+    boundary: usize,
+    /// 越过之后正在发声的是谁。
+    sounding: Sounding,
+    queue_revision: u32,
+    /// 已被新队列作废：打点仍留在缓冲里（回收它会与消费端打架，见 `ring` 模块），
+    /// 但不该产生切歌事件——那段音频一个样本都没出去过。
+    stale: bool,
 }
 
 struct Worker {
@@ -415,9 +579,26 @@ struct Worker {
     latest_load_generation: Arc<AtomicU64>,
     transport: Arc<Mutex<TransportIntent>>,
     on_event: Box<dyn Fn(StampedEngineEvent) + Send>,
+    /// 事件盖章用的上下文。装载途中是正在装载的那首，此后与 `sounding` 同一身份。
     context: Option<LoadContext>,
     state: PlaybackState,
-    loaded: Option<Loaded>,
+    /// 输出流。跨曲目复用，只有显式装载、停止与失败才拆。
+    stream: Option<Stream>,
+    /// 解码头：正在往环形缓冲里写的那首。可能已经领先发声曲目一整首。
+    head: Option<Source>,
+    /// 正在发声的曲目。由消费端越过边界时推进。
+    sounding: Option<Sounding>,
+    /// 前端指定的下一首。收到时只记请求，等缓冲喂满、控制线程本来就要休息时才打开文件。
+    next_request: Option<NextRequest>,
+    /// 已打开、尚未开始写入缓冲的下一首。
+    staged: Option<Source>,
+    /// 已打点未越过的边界，与缓冲里的打点同序。
+    marks: VecDeque<PendingMark>,
+    /// `TrackEnded` 是否已发出，避免排空后反复上报。
+    ended_reported: bool,
+    /// ring 被最后一次设备回调取空之后，仍需等待「设备延迟 + 本回调有效帧」才能
+    /// 确认耳朵真正听完。`None` 表示尚未观察到稳定的排空时刻。
+    drain_deadline: Option<Instant>,
     /// 音量与暂停都记在 shared 里，这里只留下用户设定的音量，
     /// 以便换曲后仍按同一音量播放。
     volume: f32,
@@ -441,7 +622,14 @@ impl Worker {
             on_event,
             context: None,
             state: PlaybackState::Idle,
-            loaded: None,
+            stream: None,
+            head: None,
+            sounding: None,
+            next_request: None,
+            staged: None,
+            marks: VecDeque::new(),
+            ended_reported: false,
+            drain_deadline: None,
             volume: 1.0,
             last_progress: Instant::now(),
             decode_scratch: Vec::new(),
@@ -481,6 +669,8 @@ impl Worker {
                 }
             };
             if self.state != PlaybackState::Error {
+                // 先结算边界再报进度：同一轮里越过边界的话，进度该按新曲的时长发。
+                self.settle_crossings();
                 self.check_ended();
                 self.emit_progress();
             }
@@ -498,7 +688,15 @@ impl Worker {
         self.shared.set_paused(true);
         self.shared.set_rebuffering(true);
         self.backend.close();
-        self.loaded = None;
+        self.stream = None;
+        self.head = None;
+        self.staged = None;
+        // 待接续的下一首同样作废：显式装载之后「下一个是谁」要由前端按新处境重新指定，
+        // 沿用旧的等于让引擎自作主张接上一个前端已经不这么想的曲目。
+        self.next_request = None;
+        self.marks.clear();
+        self.ended_reported = false;
+        self.drain_deadline = None;
         self.shared.set_source_drained(false);
         self.shared.set_rebuffering(false);
     }
@@ -562,9 +760,10 @@ impl Worker {
                     Err(_) => self.discard_stale_load(),
                 }
             }
+            PlayerCmd::SetNext(request) => self.set_next(request),
             PlayerCmd::Play => {
                 let generation = transport_generation.expect("Play 必须带传输意图代际");
-                if self.loaded.is_some() {
+                if self.head.is_some() {
                     if let Some(playing) = self.apply_transport(generation) {
                         self.set_state(if playing {
                             PlaybackState::Playing
@@ -576,7 +775,7 @@ impl Worker {
             }
             PlayerCmd::Pause => {
                 let generation = transport_generation.expect("Pause 必须带传输意图代际");
-                if self.loaded.is_some() && self.apply_transport(generation).is_some() {
+                if self.head.is_some() && self.apply_transport(generation).is_some() {
                     self.set_state(PlaybackState::Paused);
                 }
             }
@@ -588,7 +787,7 @@ impl Worker {
             PlayerCmd::Seek(sec) => {
                 if let Err(err) = self.seek(sec) {
                     self.fail(err);
-                } else if self.loaded.is_some() {
+                } else if self.head.is_some() {
                     let generation = transport_generation.expect("Seek 必须带传输意图代际");
                     if let Some(playing) = self.apply_transport(generation) {
                         self.set_state(if playing {
@@ -643,26 +842,20 @@ impl Worker {
     }
 
     fn load(&mut self, request: &LoadRequest, generation: u64) -> Result<bool> {
-        // 换曲先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
+        // 显式装载先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
+        // 无缝交接走的是另一条路（`advance_head`），那里恰恰不拆流。
         self.teardown();
 
-        let mut decoder = Decoder::open(&request.path)?;
+        // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
+        // 输出域的采样率才是链路后半段的基准。协商只是预演，不碰设备。
+        let out_layout = ChannelLayout::STEREO;
+        let out_channels = out_layout.count() as usize;
+        let probe_spec = Decoder::open(&request.path)?.spec().clone();
         if !self.is_current_load(generation) {
             return Ok(false);
         }
-        let spec = decoder.spec().clone();
-
-        // 阶段 0 的目标布局恒为立体声。多声道整体走平台原生后端；
-        // `ChannelAdapt::plan` 会在当前路径做不到时给出带布局描述的路由错误。
-        let out_layout = ChannelLayout::STEREO;
-        let adapt = ChannelAdapt::plan(spec.layout, out_layout)?;
-
-        let out_channels = out_layout.count() as usize;
-
-        // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
-        // 输出域的采样率才是链路后半段的基准。
         let output_request = OutputRequest {
-            sample_rate: spec.sample_rate,
+            sample_rate: probe_spec.sample_rate,
             layout: out_layout,
         };
         let probe = self.backend.negotiate(&output_request)?;
@@ -671,12 +864,19 @@ impl Worker {
         }
         let out_rate = probe.sample_rate;
 
-        let resampler = Resampling::new(spec.sample_rate, out_rate, spec.layout.count() as usize)?;
+        let mut source = Source::open(
+            &request.path,
+            request.context.clone(),
+            request.loudness_gain,
+            0,
+            out_rate,
+        )?;
+        let spec = source.spec.clone();
         // 新装载还没有任何在途 PCM，直接在解码器上定位即可；随后按返回的**源域帧**
         // 换算输出域位置。这样 open、预缓冲与 autoplay 从一开始看到的就是同一位置，
         // 不会先放出曲首再由一条迟到的 Seek 把它冲掉。
         let initial_source_frame = match request.initial_position_sec {
-            Some(seconds) => decoder.seek(seconds)?,
+            Some(seconds) => source.decoder.seek(seconds)?,
             None => 0,
         };
         if !self.is_current_load(generation) {
@@ -688,9 +888,9 @@ impl Worker {
         // `open` 会立即启动设备回调，所有共享状态必须在它之前就准备好。
         // 早先顺序相反，回调能抢在 set_paused 前读空 ring，把正常启动误记成欠载。
         self.shared
-            .reset_position(resampler.src_frames_to_out(initial_source_frame));
+            .reset_position(source.resampler.src_frames_to_out(initial_source_frame));
         self.shared.set_gain(self.volume);
-        self.shared.set_resampled(resampler.is_active());
+        self.shared.set_resampled(source.resampler.is_active());
         self.shared.set_source_drained(false);
         self.shared.set_rebuffering(true);
         self.shared.set_paused(true);
@@ -716,23 +916,14 @@ impl Worker {
             self.backend.close();
             return Ok(false);
         }
-        self.loaded = Some(Loaded {
-            src_channels: spec.layout.count() as usize,
-            loudness_gain: sanitize_gain(request.loudness_gain),
-            decoder,
+        self.stream = Some(Stream {
             producer,
-            resampler,
-            adapt,
             out_channels,
             out_rate,
-            resampled: Vec::new(),
-            pending: Vec::new(),
-            pending_pos: 0,
-            eof: false,
-            flushed: false,
-            ended_reported: false,
-            drain_deadline: None,
+            config: output.clone(),
         });
+        self.sounding = Some(source.sounding());
+        self.head = Some(source);
 
         if !self.prebuffer(Some(generation))? || !self.is_current_load(generation) {
             return Ok(false);
@@ -742,21 +933,160 @@ impl Worker {
         Ok(true)
     }
 
+    /// 指定（或清空）无缝接续的下一首。
+    ///
+    /// 三种处境要分开处理，差别在于那首歌的音频走到了哪一步：
+    ///
+    /// 1. 还没打开 —— 换掉请求即可；
+    /// 2. 已经打开、还没写进缓冲 —— 直接丢掉解码器（在控制线程上释放，不在回调里）；
+    /// 3. 已经写进缓冲、但还没发声 —— 必须从缓冲里撤掉，否则改队列对听感无效，
+    ///    用户仍会听到旧队列的下一首。撤不掉（已经越过边界）就是既成事实，
+    ///    此时新请求自然成为**它**之后的下一首。
+    fn set_next(&mut self, request: Option<NextRequest>) {
+        self.staged = None;
+        self.invalidate_unheard_next();
+        self.next_request = request;
+    }
+
+    /// 把已经写进缓冲、但还没发声的下一首撤掉。
+    fn invalidate_unheard_next(&mut self) {
+        let Some(mark) = self.marks.back() else {
+            return;
+        };
+        // 已经撤过一次：缓冲里那段就只剩当前这首的尾巴，没有可撤的了。
+        if mark.stale {
+            return;
+        }
+        let boundary = mark.boundary;
+        let Some(stream) = self.stream.as_mut() else {
+            return;
+        };
+        if !stream.producer.truncate_after(boundary, FLUSH_TIMEOUT) {
+            return;
+        }
+        if let Some(mark) = self.marks.back_mut() {
+            mark.stale = true;
+        }
+        // 解码头正是被撤掉的那首，连同它在管线里的残余一起丢弃。
+        self.head = None;
+    }
+
+    /// 打开待接续的下一首。
+    ///
+    /// **挑缓冲喂满的时候做**：打开文件是几毫秒的阻塞 I/O，而那一刻控制线程本来就要
+    /// 休息，缓冲也正处在最厚的位置。打不开就清掉请求退回非 gapless 路径（见
+    /// `advance_head`），不在这里报错——上一首还在放，此刻弹「播放失败」只会让人莫名其妙。
+    fn stage_next(&mut self) {
+        if self.staged.is_some() {
+            return;
+        }
+        let (Some(request), Some(stream)) = (self.next_request.as_ref(), self.stream.as_ref())
+        else {
+            return;
+        };
+        match Source::open(
+            &request.path,
+            request.context.clone(),
+            request.loudness_gain,
+            request.queue_revision,
+            stream.out_rate,
+        ) {
+            Ok(source) => self.staged = Some(source),
+            Err(_) => self.next_request = None,
+        }
+    }
+
+    /// 解码头吐干净（或被截断丢弃）后接上下一首，并在缓冲当前写位置打点。
+    ///
+    /// 接不上时**不报错**：那首歌的音频一个字节都还没写进缓冲，当前这首照常放完，
+    /// 随后走 `TrackEnded` 那条老路——前端会显式装载它并拿到真正的错误说明。
+    fn advance_head(&mut self) {
+        // 播完之后不再自动接续：此时传输状态已经停下，接上去只会在暂停态里悄悄填满缓冲，
+        // 下次按播放就从一首用户没选的歌中间开始。
+        if self.state == PlaybackState::Ended {
+            return;
+        }
+        self.stage_next();
+        let Some(source) = self.staged.take() else {
+            return;
+        };
+        let Some(stream) = self.stream.as_mut() else {
+            self.staged = Some(source);
+            return;
+        };
+        let boundary = stream.producer.write_index();
+        // 打点槽位用尽（用户在一首歌里反复改队列）。宁可让这次交接退回「放完再装载」，
+        // 也不能丢掉打点——那会让位置计数与切歌事件永久错位。
+        if !stream.producer.mark_boundary(0) {
+            self.staged = Some(source);
+            return;
+        }
+        self.marks.push_back(PendingMark {
+            boundary,
+            sounding: source.sounding(),
+            queue_revision: source.queue_revision,
+            stale: false,
+        });
+        // 接上的是同一条输出流，重采样标记要按新曲更新（它未必与前一首同采样率）。
+        self.shared.set_resampled(source.resampler.is_active());
+        self.head = Some(source);
+        self.next_request = None;
+        self.ended_reported = false;
+        self.drain_deadline = None;
+    }
+
+    /// 后面还有没有东西可放。有的话，缓冲里暂时的空不是「放完了」而是交接慢了一步。
+    fn has_successor(&self) -> bool {
+        self.staged.is_some() || self.next_request.is_some()
+    }
+
+    /// 结算消费端越过的边界，把「正在发声的是谁」推进到新曲并发出切歌事件。
+    ///
+    /// 判定放在这里而不是 `advance_head`，是因为解码领先播放最多一秒半：按解码时机
+    /// 发事件，界面会在上一首还在响的时候就换成下一首的标题。
+    fn settle_crossings(&mut self) {
+        let Some(stream) = self.stream.as_mut() else {
+            return;
+        };
+        let crossed = stream.producer.take_crossed();
+        let output = stream.config.clone();
+        for _ in 0..crossed {
+            let Some(mark) = self.marks.pop_front() else {
+                debug_assert!(false, "越界数多于打点数：两侧记录已经不同步");
+                break;
+            };
+            // 被新队列作废的打点：那段音频从未发声，不该产生切歌事件。
+            if mark.stale {
+                continue;
+            }
+            let from = self.sounding.as_ref().map(|s| s.context.clone());
+            let spec = mark.sounding.spec.clone();
+            self.context = Some(mark.sounding.context.clone());
+            self.sounding = Some(mark.sounding);
+            self.emit(EngineEvent::TrackChanged {
+                from,
+                spec,
+                output: output.clone(),
+                queue_revision: mark.queue_revision,
+            });
+        }
+    }
+
     /// 填到预缓冲阈值。填不满（短文件）也返回，由 `check_ended` 处理结束。
     /// 传入装载代际时，每批解码前检查是否已被更新的 Load 取代。
     fn prebuffer(&mut self, load_generation: Option<u64>) -> Result<bool> {
-        let Some(loaded) = &self.loaded else {
+        let Some(stream) = self.stream.as_ref() else {
             return Ok(true);
         };
-        let target = (loaded.out_rate as f64 * PREBUFFER_MS / 1000.0) as usize;
+        let target = (stream.out_rate as f64 * PREBUFFER_MS / 1000.0) as usize;
         for _ in 0..4096 {
             if load_generation.is_some_and(|generation| !self.is_current_load(generation)) {
                 return Ok(false);
             }
-            let Some(loaded) = &self.loaded else {
+            let (Some(stream), Some(head)) = (self.stream.as_ref(), self.head.as_ref()) else {
                 return Ok(true);
             };
-            if loaded.producer.queued_frames() >= target || loaded.eof {
+            if stream.producer.queued_frames() >= target || head.eof {
                 return Ok(true);
             }
             if !self.pump()? {
@@ -768,89 +1098,114 @@ impl Worker {
 
     /// 解码并向环形缓冲喂料。返回是否推进了工作（用于决定要不要休眠）。
     ///
-    /// 管线：解码 → 重采样（源声道数）→ 声道适配 → 环形缓冲。
+    /// 管线：解码 → 响度增益 → 重采样（源声道数）→ 声道适配 → 环形缓冲。
     fn pump(&mut self) -> Result<bool> {
-        let Some(loaded) = self.loaded.as_mut() else {
+        if self.stream.is_none() {
+            return Ok(false);
+        }
+        // 解码头吐干净了（或刚被截断丢弃）：把备好的下一首接上，缓冲不断流。
+        if self.head.as_ref().is_none_or(Source::drained) {
+            self.advance_head();
+        }
+        let no_successor = !self.has_successor();
+
+        let Some(stream) = self.stream.as_mut() else {
             return Ok(false);
         };
-        if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
-            self.shared.set_source_drained(true);
+        let Some(head) = self.head.as_mut() else {
+            if no_successor {
+                self.shared.set_source_drained(true);
+            }
+            return Ok(false);
+        };
+
+        if head.drained() {
+            if no_successor {
+                self.shared.set_source_drained(true);
+            }
             return Ok(false);
         }
 
-        let high_water = (loaded.out_rate as f64 * HIGH_WATER_MS / 1000.0) as usize;
-        if loaded.producer.queued_frames() >= high_water {
+        let high_water = (stream.out_rate as f64 * HIGH_WATER_MS / 1000.0) as usize;
+        if stream.producer.queued_frames() >= high_water {
+            // 缓冲喂满，控制线程本来就要歇一轮——正好用来打开下一首。
+            self.stage_next();
             return Ok(false);
         }
 
         // 先把上一轮没写完的残余送进去。
-        if loaded.pending_pos < loaded.pending.len() {
-            let remaining = loaded.pending.len() - loaded.pending_pos;
-            if loaded.eof && loaded.flushed && remaining <= loaded.producer.writable() {
+        if head.pending_pos < head.pending.len() {
+            let remaining = head.pending.len() - head.pending_pos;
+            if no_successor && head.eof && head.flushed && remaining <= stream.producer.writable() {
                 // 先发布“不会再生产”，再发布最后一批样本；回调看到尾帧不足整块时
                 // 才能稳定地把补零识别为自然收尾，而不是偶发欠载。
                 self.shared.set_source_drained(true);
             }
-            let written = loaded.producer.write(&loaded.pending[loaded.pending_pos..]);
-            loaded.pending_pos += written;
-            if loaded.pending_pos < loaded.pending.len() {
+            let written = stream.producer.write(&head.pending[head.pending_pos..]);
+            head.pending_pos += written;
+            if head.pending_pos < head.pending.len() {
                 // 缓冲满了，下轮继续。
                 return Ok(written > 0);
             }
         }
 
-        loaded.resampled.clear();
-        if loaded.eof {
+        head.resampled.clear();
+        if head.eof {
             // 流已读完但重采样器里还压着尾部延迟，冲出来再收工，
             // 否则结尾会缺几十毫秒——单曲不易察觉，gapless 拼接时正好丢在接缝上。
-            if loaded.flushed {
-                self.shared.set_source_drained(true);
+            if head.flushed {
+                if no_successor {
+                    self.shared.set_source_drained(true);
+                }
                 return Ok(false);
             }
-            loaded.flushed = true;
-            loaded.resampler.flush(&mut loaded.resampled);
+            head.flushed = true;
+            head.resampler.flush(&mut head.resampled);
         } else {
             self.decode_scratch.clear();
-            let more = loaded.decoder.next_frames(&mut self.decode_scratch)?;
+            let more = head.decoder.next_frames(&mut self.decode_scratch)?;
             if more {
                 // ReplayGain 在**重采样之前**施加（管线顺序见实现计划）：重采样器里
                 // 压着上一轮的尾部延迟，中途换增益会让那段尾巴用错倍率；放在前面则
                 // 连 flush 冲出来的尾部都是已经归一化过的。
-                apply_gain(&mut self.decode_scratch, loaded.loudness_gain);
-                loaded
-                    .resampler
-                    .process(&self.decode_scratch, &mut loaded.resampled);
+                apply_gain(&mut self.decode_scratch, head.loudness_gain);
+                head.resampler
+                    .process(&self.decode_scratch, &mut head.resampled);
             } else {
-                loaded.eof = true;
-                loaded.flushed = true;
-                loaded.resampler.flush(&mut loaded.resampled);
+                head.eof = true;
+                head.flushed = true;
+                head.resampler.flush(&mut head.resampled);
             }
         }
 
-        if loaded.resampled.is_empty() {
+        if head.resampled.is_empty() {
             // 重采样器还没攒够一整块，本轮没有可送的数据。
-            if loaded.eof {
+            if head.eof && no_successor {
                 self.shared.set_source_drained(true);
             }
-            return Ok(!loaded.eof);
+            return Ok(!head.eof);
         }
 
-        let in_frames = loaded.resampled.len() / loaded.src_channels;
-        let needed = loaded.adapt.out_samples(in_frames, loaded.out_channels);
-        loaded.pending.resize(needed, 0.0);
-        loaded.adapt.apply(&loaded.resampled, &mut loaded.pending);
-        if loaded.eof && loaded.flushed && loaded.pending.len() <= loaded.producer.writable() {
+        let in_frames = head.resampled.len() / head.src_channels;
+        let needed = head.adapt.out_samples(in_frames, stream.out_channels);
+        head.pending.resize(needed, 0.0);
+        head.adapt.apply(&head.resampled, &mut head.pending);
+        if no_successor
+            && head.eof
+            && head.flushed
+            && head.pending.len() <= stream.producer.writable()
+        {
             self.shared.set_source_drained(true);
         }
-        loaded.pending_pos = loaded.producer.write(&loaded.pending);
-        if loaded.eof && loaded.flushed && loaded.pending_pos >= loaded.pending.len() {
+        head.pending_pos = stream.producer.write(&head.pending);
+        if no_successor && head.eof && head.flushed && head.pending_pos >= head.pending.len() {
             self.shared.set_source_drained(true);
         }
         Ok(true)
     }
 
     fn seek(&mut self, seconds: f64) -> Result<()> {
-        if self.loaded.is_none() {
+        if self.stream.is_none() || self.sounding.is_none() {
             return Ok(());
         }
 
@@ -860,17 +1215,23 @@ impl Worker {
         self.shared.set_rebuffering(true);
         self.shared.set_paused(true);
 
-        let frames = self
-            .loaded
-            .as_mut()
-            .expect("刚确认过已装载")
-            .decoder
-            .seek(seconds)?;
+        // 解码头可能已经跑到下一首去了（缓冲里同时躺着两首歌）。定位的对象是**正在
+        // 发声**的那首，得先把头拉回来——它的解码器在交接时已经丢掉，只能重开。
+        if self.head.is_none() || !self.marks.is_empty() {
+            self.rewind_head_to_sounding()?;
+        }
+
+        let Some(head) = self.head.as_mut() else {
+            return Ok(());
+        };
+        let frames = head.decoder.seek(seconds)?;
 
         // 顺序不能反：先丢弃在途 PCM，再重设位置锚点。反过来的话，
         // 旧音频仍会被消费并把位置往前推，界面会看到进度先跳回再乱跳。
-        let loaded = self.loaded.as_mut().expect("刚确认过已装载");
-        if !loaded.producer.flush(FLUSH_TIMEOUT) {
+        let Some(stream) = self.stream.as_mut() else {
+            return Ok(());
+        };
+        if !stream.producer.flush(FLUSH_TIMEOUT) {
             return Err(EngineError::new(
                 Stage::Output,
                 ErrorKind::Stream,
@@ -880,37 +1241,63 @@ impl Worker {
                 ),
             ));
         }
-        // 重采样器持有跨块的历史样本，不复位会把定位前的尾巴混进定位后的开头。
-        loaded.resampler.reset();
-        loaded.resampled.clear();
-        loaded.pending.clear();
-        loaded.pending_pos = 0;
-        loaded.eof = false;
-        loaded.flushed = false;
-        loaded.ended_reported = false;
-        loaded.drain_deadline = None;
+        // flush 已让消费端把打点一并作废，这边跟着清掉。
+        self.marks.clear();
+        self.ended_reported = false;
+        self.drain_deadline = None;
+
+        let head = self.head.as_mut().expect("刚确认过有解码头");
+        head.reset_pipeline();
         // 位置计数器记的是输出帧，源帧要按比率换算。
         self.shared
-            .reset_position(loaded.resampler.src_frames_to_out(frames));
+            .reset_position(head.resampler.src_frames_to_out(frames));
 
         let _ = self.prebuffer(None)?;
         self.shared.set_rebuffering(false);
         Ok(())
     }
 
+    /// 把解码头退回正在发声的那首。
+    ///
+    /// 只在 seek 跨越了已经完成的交接时用到：那首歌的解码器在交接时就丢掉了，
+    /// 唯一的办法是按路径重开。已经接上的那首退回待接续队列，交接稍后重来一遍。
+    fn rewind_head_to_sounding(&mut self) -> Result<()> {
+        let (Some(sounding), Some(stream)) = (self.sounding.as_ref(), self.stream.as_ref()) else {
+            return Ok(());
+        };
+        let source = Source::open(
+            &sounding.path,
+            sounding.context.clone(),
+            Some(sounding.loudness_gain),
+            0,
+            stream.out_rate,
+        )?;
+        if let Some(head) = self.head.take() {
+            self.next_request = Some(head.as_next_request());
+        }
+        self.staged = None;
+        self.shared.set_resampled(source.resampler.is_active());
+        self.head = Some(source);
+        Ok(())
+    }
+
     /// 解码到末尾、缓冲排空且设备域尾部已发声才算播完。
     ///
     /// 判据里必须带上「缓冲排空」：解码可以领先播放一秒以上，只看 EOF 会在
-    /// 最后一秒还在发声时就报播完。
+    /// 最后一秒还在发声时就报播完。后面还有待接续的曲目时更不能报——那不是播完，
+    /// 是交接慢了一步。
     fn check_ended(&mut self) {
-        let Some(loaded) = self.loaded.as_mut() else {
+        let Some(stream) = self.stream.as_ref() else {
             return;
         };
-        if !loaded.eof || !loaded.flushed || loaded.ended_reported {
+        if self.ended_reported || self.has_successor() {
             return;
         }
-        if loaded.pending_pos < loaded.pending.len() || loaded.producer.queued_frames() > 0 {
-            loaded.drain_deadline = None;
+        if self.head.as_ref().is_some_and(|head| !head.drained()) {
+            return;
+        }
+        if stream.producer.queued_frames() > 0 {
+            self.drain_deadline = None;
             return;
         }
         // 回调可能刚推进 ring 的读下标、还没来得及发布设备时间戳与本块帧数。
@@ -918,17 +1305,18 @@ impl Worker {
         if self.shared.callback_in_progress() {
             return;
         }
-        let deadline = *loaded.drain_deadline.get_or_insert_with(|| {
+        let out_rate = stream.out_rate;
+        let deadline = *self.drain_deadline.get_or_insert_with(|| {
             let tail_frames = self
                 .shared
                 .output_delay_frames()
                 .saturating_add(self.shared.last_callback_audio_frames());
-            Instant::now() + Duration::from_secs_f64(tail_frames as f64 / loaded.out_rate as f64)
+            Instant::now() + Duration::from_secs_f64(tail_frames as f64 / out_rate as f64)
         });
         if Instant::now() < deadline {
             return;
         }
-        loaded.ended_reported = true;
+        self.ended_reported = true;
         self.shared.set_paused(true);
         self.set_state(PlaybackState::Ended);
         self.emit(EngineEvent::TrackEnded);
@@ -939,13 +1327,17 @@ impl Worker {
             return;
         }
         self.last_progress = Instant::now();
-        let Some(loaded) = &self.loaded else { return };
+        let (Some(stream), Some(sounding)) = (self.stream.as_ref(), self.sounding.as_ref()) else {
+            return;
+        };
 
-        let rate = loaded.out_rate as f64;
+        let rate = stream.out_rate as f64;
         // 位置来自输出回调累计消费的帧数并扣除设备延迟，不用定时器估算。
         let position_sec = self.shared.played_frames() as f64 / rate;
-        let buffered_sec = loaded.producer.queued_frames() as f64 / rate;
-        let duration_sec = loaded.decoder.spec().duration_sec();
+        let buffered_sec = stream.producer.queued_frames() as f64 / rate;
+        // 时长取**正在发声**那首的：解码头可能已经是下一首了，用它会让进度条量程
+        // 在上一首还没放完时就换成下一首的。
+        let duration_sec = sounding.spec.duration_sec();
         self.emit(EngineEvent::Progress {
             position_sec,
             duration_sec,
