@@ -20,6 +20,7 @@ use std::sync::Mutex;
 
 use shannon_audio::contract::PlayerEvent;
 use shannon_audio::output::cpal_out::CpalOutput;
+use crate::loudness::LoudnessState;
 use shannon_audio::engine::LoadRequest;
 use shannon_audio::{Engine, LoadContext, PlayerCmd};
 use tauri::{Emitter, State};
@@ -80,18 +81,35 @@ impl PlayerState {
 
 /// 装载并播放一个文件。
 ///
-/// `track_id` / `load_id` 只作为不透明上下文回带，引擎不解释它们。有效音量与可选的
-/// 初始位置随同一条命令进入引擎，避免多次 IPC 乱序造成满音量开播或先漏出曲首 PCM。
+/// `track_id` / `load_id` 只作为不透明上下文回带，引擎不解释它们。有效音量、可选的
+/// 初始位置与响度增益随同一条命令进入引擎，避免多次 IPC 乱序造成满音量开播、
+/// 先漏出曲首 PCM 或前几百毫秒响一截。
+///
+/// `loudness` 是**用户的设置**（要不要归一化），具体倍率由后端查分析结果得出：
+/// 目标响度与峰值上限属于播放策略，改策略不该要求前端跟着改。查不到就是 1.0，
+/// 没分析过的曲目照常播放——分析永远不阻塞播放。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn player_load(
     app: tauri::AppHandle,
     state: State<'_, PlayerState>,
+    loudness_state: State<'_, LoudnessState>,
     path: String,
     context: LoadContext,
     autoplay: bool,
     initial_volume: f32,
     initial_position_sec: Option<f64>,
+    loudness: bool,
 ) -> Result<(), String> {
+    let gain = match (loudness, context.track_id.as_deref()) {
+        (true, Some(track_id)) => loudness_state.linear_gain(track_id),
+        _ => 1.0,
+    };
+    if gain != 1.0 {
+        // 如实记录实际施加的增益：归一化是会改变听感的处理，出问题时第一个要问的
+        // 就是「到底加了多少」，而这个数字在别处看不到。
+        log::info!("响度归一化：{path} 施加 {:+.1} dB", 20.0 * gain.log10());
+    }
     let slot = state.ensure(&app)?;
     let running = slot.as_ref().expect("ensure 保证已装配");
     running
@@ -99,7 +117,8 @@ pub fn player_load(
         .load_request(
             LoadRequest::new(path, autoplay, context)
                 .with_volume(initial_volume)
-                .with_position(initial_position_sec),
+                .with_position(initial_position_sec)
+                .with_loudness_gain(gain),
         )
         .map_err(|e| e.to_string())
 }

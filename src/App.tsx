@@ -6,6 +6,7 @@ import { PlayBar } from "@/components/player/PlayBar";
 import { PlaybackNotice } from "@/components/player/PlaybackNotice";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
+import { useLoudnessQueue } from "@/hooks/useLoudnessQueue";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
 import { usePersistSession } from "@/hooks/usePersistSession";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
@@ -131,6 +132,7 @@ export default function App() {
   useWindowChrome();
   usePlaybackTicker();
   usePersistSession();
+  useLoudnessQueue();
   useRestoreLibrary();
   useGlobalHotkeys();
 

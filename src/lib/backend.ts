@@ -132,8 +132,12 @@ export interface EngineAdapter {
   readonly requiresPath: boolean;
   /**
    * 装载并（可选）立即播放。`trackId` / `loadId` 用于给事件盖章；
-   * `initialVolume` 与 `initialPositionSec` 和装载作为一条命令生效：前者保证首次 open
-   * 不会先落到默认满音量，后者保证会话续播不会先漏出曲首再补一次 seek。
+   * `initialVolume`、`initialPositionSec` 与 `loudness` 和装载作为一条命令生效：
+   * 首个保证首次 open 不会先落到默认满音量，次个保证会话续播不会先漏出曲首再补一次
+   * seek，末个保证归一化不会在开头几百毫秒之后才追上。
+   *
+   * `loudness` 传的是**用户的设置**而不是增益倍率：具体倍率取决于分析结果、目标响度
+   * 与峰值上限，那是后端的策略，改了不该要求前端跟着改。
    */
   load(
     path: string,
@@ -142,6 +146,7 @@ export interface EngineAdapter {
     autoplay: boolean,
     initialVolume: number,
     initialPositionSec: number | null,
+    loudness: boolean,
   ): Promise<void>;
   play(): Promise<void>;
   pause(): Promise<void>;
@@ -160,13 +165,14 @@ export interface EngineAdapter {
 /** 真引擎：命令走 IPC，事件走 Tauri event。 */
 const tauriEngine: EngineAdapter = {
   requiresPath: true,
-  load: (path, trackId, loadId, autoplay, initialVolume, initialPositionSec) =>
+  load: (path, trackId, loadId, autoplay, initialVolume, initialPositionSec, loudness) =>
     invoke<void>("player_load", {
       path,
       context: { trackId, loadId },
       autoplay,
       initialVolume,
       initialPositionSec,
+      loudness,
     }),
   play: () => invoke<void>("player_play"),
   pause: () => invoke<void>("player_pause"),
@@ -220,7 +226,9 @@ function createMockEngine(): EngineAdapter & { setDuration(sec: number): void } 
     setDuration: (sec) => {
       duration = Math.max(0, sec);
     },
-    load: async (_path, id, idForLoad, autoplay, _initialVolume, initialPositionSec) => {
+    // 假引擎不出声，响度增益对它没有可观测效果，但参数照收——两边签名一致，
+    // 调用点才不会长出「浏览器里少传一个」的分支。
+    load: async (_path, id, idForLoad, autoplay, _initialVolume, initialPositionSec, _loudness) => {
       trackId = id;
       loadId = idForLoad;
       position =
@@ -303,4 +311,25 @@ export async function saveSession(json: string): Promise<void> {
 export async function loadSession(): Promise<string | null> {
   if (!isTauri()) return null;
   return invoke<string | null>("load_session");
+}
+
+/* ============================================================
+   响度归一化（后台分析队列）
+   ============================================================ */
+
+/** 一件待分析曲目。顺序即优先级，由调用方按播放顺序给出。 */
+export interface LoudnessQueueItem {
+  trackId: string;
+  path: string;
+}
+
+/**
+ * 按播放顺序重排后台分析队列，返回还有多少首要分析。
+ *
+ * 传空数组表示停下（用户关掉了响度归一化）。浏览器预览没有后端，返回 0——
+ * Mock 引擎不出声，也就没有可归一化的东西。
+ */
+export async function setLoudnessQueue(items: LoudnessQueueItem[]): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("loudness_set_queue", { items });
 }

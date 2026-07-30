@@ -15,8 +15,10 @@ use shannon_core::overrides::{Overrides, TrackMetadataPatch};
 use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
 
+mod loudness;
 mod player;
 mod session;
+use loudness::LoudnessState;
 use player::PlayerState;
 
 /// 扫描进度事件名。前端 `listen()` 用同一字符串。
@@ -256,6 +258,11 @@ pub fn run() {
             // 播放器状态是空壳，引擎推迟到第一次真要放东西时才起——
             // 否则应用一启动就占住声卡（理由见 `player.rs` 模块头）。
             app.manage(PlayerState::default());
+            // 响度分析服务随启动就位（只起一条空闲的后台线程，不碰设备也不解码），
+            // 真正开工要等前端按播放顺序喂队列进来。
+            let store_path = data_path(app.handle(), loudness::LOUDNESS_FILE)
+                .unwrap_or_else(|_| PathBuf::from(loudness::LOUDNESS_FILE));
+            app.manage(LoudnessState::spawn(store_path));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -275,7 +282,9 @@ pub fn run() {
             player::player_set_volume,
             player::player_stop,
             session::save_session,
-            session::load_session
+            session::load_session,
+            loudness::loudness_set_queue,
+            loudness::loudness_pending
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -17,6 +17,7 @@ import {
 import { PLAYLISTS } from "@/data/playlists";
 import { engine, hintDuration, loadSession, saveSession } from "@/lib/backend";
 import { fromSession, toSession } from "@/lib/session";
+import { useUiStore } from "@/store/ui";
 import type { PlaybackError, PlayerStatus } from "@/types/generated/player";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
@@ -619,6 +620,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       autoplay,
       s.muted ? 0 : s.volume,
       initialPositionSec,
+      // 传设置而不是增益：倍率由后端按分析结果与播放策略算。开关是**装载时读一次**，
+      // 因此中途改设置要到下一次装载才生效——管线领先播放约 1.5 秒，
+      // 缓冲里那段 PCM 的增益已经写死了，假装立刻生效只会让人以为开关坏了。
+      useUiStore.getState().settings.loudness,
     );
   },
 
