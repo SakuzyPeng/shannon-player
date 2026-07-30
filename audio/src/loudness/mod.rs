@@ -1,9 +1,9 @@
 //! 响度测量与增益计算（ReplayGain 2.0）。
 //!
 //! 设计与取舍见 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md` 的「响度归一化」。
-//! 这里只放两件事：把 PCM 喂给 EBU R128 测量器，以及由测量结果算出该施加的增益。
-//! **分析的调度、结果的存储、增益往哪一级施加都不在本模块**——它是一个纯函数式的
-//! 测量器，无 I/O、无状态共享，因此能被无头测试完整覆盖。
+//! 本模块放两件事：把 PCM 喂给 EBU R128 测量器，以及由测量结果算出该施加的增益。
+//! 测量器本身无 I/O、无状态共享，因此能被无头测试完整覆盖；结果的**存储**在
+//! [`store`] 子模块，**分析的调度**与**增益施加到哪一级**都还不在这里。
 //!
 //! ## 为什么必须自己测，而不是读标签
 //!
@@ -16,9 +16,12 @@
 //! -18 LUFS 来自面向音乐播放的 ReplayGain 2.0 规范；EBU R128 的 -23 LUFS 是广播交付
 //! 用的，拿来放音乐会整体偏轻。-1 dBTP 则是本项目为后续重采样与设备转换留的安全余量。
 
+pub mod store;
+
 use std::path::Path;
 
 use ebur128::{Channel, EbuR128, Mode};
+use serde::{Deserialize, Serialize};
 
 use crate::decode::Decoder;
 use crate::error::{EngineError, ErrorKind, Result, Stage};
@@ -43,11 +46,13 @@ pub const ANALYSIS_VERSION: u32 = 1;
 ///
 /// 三种状态都是**确定**的，可以缓存；I/O 与解码失败属于瞬态错误，走 `Err` 而不进这里
 /// ——把一次网络盘掉线写成永久结论，等于让那首歌再也不会被分析。
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LoudnessOutcome {
     Measured {
         integrated_lufs: f64,
         /// 各声道真峰值的最大者。全静音时为 `f64::NEG_INFINITY`。
+        #[serde(with = "finite_or_null")]
         true_peak_dbtp: f64,
     },
     /// 测不出积分响度：全静音，或短于 R128 的第一个 400 ms 门限块。
@@ -203,6 +208,28 @@ pub fn analyze_file(path: &Path) -> Result<LoudnessOutcome> {
 
 fn analyze_err(msg: impl Into<String>) -> EngineError {
     EngineError::new(Stage::Decode, ErrorKind::Decode, msg)
+}
+
+/// dBTP 的 JSON 表示：非有限值写成 `null`。
+///
+/// `serde_json` 会把 `f64::NEG_INFINITY` 静默序列化成 `null`，再读回来却是解析错误
+/// ——一条记录能把整份分析结果拖垮，而重建它要把全库解码一遍。宁可在这里把两个方向
+/// 都写明：`null` 就是「没有峰值」。
+mod finite_or_null {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &f64, ser: S) -> Result<S::Ok, S::Error> {
+        match value.is_finite() {
+            true => ser.serialize_some(value),
+            false => ser.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<f64, D::Error> {
+        Ok(Option::<f64>::deserialize(de)?
+            .filter(|v| v.is_finite())
+            .unwrap_or(f64::NEG_INFINITY))
+    }
 }
 
 #[cfg(test)]
