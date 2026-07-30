@@ -9,6 +9,7 @@ import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { useLoudnessQueue } from "@/hooks/useLoudnessQueue";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
 import { usePersistSession } from "@/hooks/usePersistSession";
+import { usePersistSettings } from "@/hooks/usePersistSettings";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
 import { getCoverDir, getLibrary, getMusicFolders } from "@/lib/backend";
 import { useLibraryStore } from "@/store/library";
@@ -142,6 +143,7 @@ export default function App() {
   useWindowChrome();
   usePlaybackTicker();
   usePersistSession();
+  usePersistSettings();
   useLoudnessQueue();
   useRestoreLibrary();
   useGlobalHotkeys();

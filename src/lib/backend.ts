@@ -313,6 +313,23 @@ export async function loadSession(): Promise<string | null> {
   return invoke<string | null>("load_session");
 }
 
+/**
+ * 保存界面设置（主题 / 语言 / 视图 / 开关）。
+ *
+ * 浏览器预览下同样是 no-op，理由与会话一致：dev 环境每次刷新都该是干净的起点，
+ * 否则「我明明改了默认值怎么还是旧的」会变成一个要查半天的问题。
+ */
+export async function saveSettings(json: string): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("save_settings", { json });
+}
+
+/** 读回界面设置；没有或读不出来都是 null。 */
+export async function loadSettings(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string | null>("load_settings");
+}
+
 /* ============================================================
    响度归一化（后台分析队列）
    ============================================================ */

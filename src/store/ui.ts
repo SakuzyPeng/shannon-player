@@ -1,7 +1,8 @@
 import { create } from "zustand";
+import type { RestoredSettings } from "@/lib/settings";
 import type { Id, Language, LibraryView, NavKey, ThemeMode } from "@/types/player";
 
-/** 设置页开关键（后期由后端持久化）。 */
+/** 设置页开关键。落盘格式见 `src/lib/settings.ts`。 */
 export type SettingKey = "watch" | "cloud" | "loudness" | "ttml" | "karaoke";
 
 /** 歌单页排序模式；custom = 用户拖拽出的自定义顺序。 */
@@ -69,6 +70,13 @@ interface UiState {
   closeOnboarding: () => void;
   /** 记录一次搜索（去重前插，上限 8 条）。 */
   pushSearchRecent: (q: string) => void;
+  /**
+   * 用落盘的设置覆盖默认值。**只在首帧之前调用一次**（见 `src/main.tsx`）。
+   *
+   * 只覆盖认得出的字段：读不懂的语言、别的版本写下的主题都保持默认，
+   * 而不是把 `undefined` 灌进 store——那会让开关显示成「既不是开也不是关」。
+   */
+  hydrateSettings: (restored: RestoredSettings) => void;
 }
 
 const THEME_CYCLE: ThemeMode[] = ["light", "dark", "system"];
@@ -120,6 +128,16 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   toggleSetting: (key) =>
     set((s) => ({ settings: { ...s.settings, [key]: !s.settings[key] } })),
+
+  hydrateSettings: (restored) =>
+    set((s) => ({
+      ...(restored.theme ? { theme: restored.theme } : {}),
+      ...(restored.view ? { view: restored.view } : {}),
+      ...(restored.language ? { language: restored.language } : {}),
+      // 与默认值合并而不是整份替换：将来加的新开关在旧文件里没有，
+      // 整份替换会把它变成 undefined。
+      settings: { ...s.settings, ...restored.settings },
+    })),
 
   setPlaylistSort: (playlistSort) => set({ playlistSort }),
   setMusicFolders: (musicFolders) => set({ musicFolders }),

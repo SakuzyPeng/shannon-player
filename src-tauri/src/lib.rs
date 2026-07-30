@@ -15,9 +15,9 @@ use shannon_core::overrides::{Overrides, TrackMetadataPatch};
 use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
 
+mod frontend_state;
 mod loudness;
 mod player;
-mod session;
 use loudness::LoudnessState;
 use player::PlayerState;
 
@@ -41,7 +41,7 @@ pub struct LibraryState {
 }
 
 /// 应用数据目录下的文件路径。
-fn data_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
+pub(crate) fn data_path(app: &tauri::AppHandle, name: &str) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map(|d| d.join(name))
@@ -281,8 +281,10 @@ pub fn run() {
             player::player_seek,
             player::player_set_volume,
             player::player_stop,
-            session::save_session,
-            session::load_session,
+            frontend_state::save_session,
+            frontend_state::load_session,
+            frontend_state::save_settings,
+            frontend_state::load_settings,
             loudness::loudness_set_queue,
             loudness::loudness_pending
         ])

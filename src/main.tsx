@@ -1,7 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { loadSettings } from "@/lib/backend";
 import { installNativeChrome } from "@/lib/nativeChrome";
+import { fromSettings } from "@/lib/settings";
+import { useUiStore } from "@/store/ui";
 // 衬线字体随应用打包（可变字重 400–700），离线可用，不依赖运行时 CDN。
 import "@fontsource-variable/lora";
 import "@fontsource-variable/noto-serif-sc";
@@ -32,8 +35,26 @@ if (import.meta.env.DEV) {
   });
 }
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+/**
+ * 先取回落盘的界面设置，再渲染。
+ *
+ * **不能等挂载之后再补**：主题晚一帧应用就是一次白闪，而它恰好发生在每次启动应用的
+ * 那一刻——深色用户对此尤其敏感。这里多等的是一次本地文件读取（浏览器预览下没有后端，
+ * 直接返回 null），而页面在此之前本来就还在加载 JS，用户看不到差别。
+ *
+ * 顺带解决了另一件事：设置在首帧之前就位，`usePersistSettings` 于是不需要 `sessionReady`
+ * 那样的就绪守卫——任何时刻写出去的都已经是用户的设置，而不是默认值。
+ */
+async function boot() {
+  const json = await loadSettings();
+  const restored = json ? fromSettings(json) : null;
+  if (restored) useUiStore.getState().hydrateSettings(restored);
+
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
+
+void boot();
