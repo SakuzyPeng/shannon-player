@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/lib/backend";
 import { isMacPlatform } from "@/lib/platform";
@@ -20,7 +20,7 @@ import { isMacPlatform } from "@/lib/platform";
  *   最大化窗口就是直角，全屏同理，两者都要查。
  */
 export function useWindowChrome() {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isTauri() || isMacPlatform()) return;
     const root = document.documentElement;
     root.dataset.windowChrome = "custom";

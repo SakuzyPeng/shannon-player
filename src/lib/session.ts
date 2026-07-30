@@ -3,7 +3,7 @@ import type { Id, RepeatMode, Track } from "@/types/player";
 /**
  * 播放会话的持久化格式。
  *
- * 后端只负责原子地存一段文本（见 `src-tauri/src/session.rs`），结构与版本由这里拥有
+ * 后端只负责原子地存一段文本（见 `src-tauri/src/frontend_state.rs`），结构与版本由这里拥有
  * ——队列怎么排、随机顺序如何、进度到哪，后端在其中没有任何领域判断可做。
  *
  * ## 只存曲目 ID，不存 Track 对象

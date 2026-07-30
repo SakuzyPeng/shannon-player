@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { applyTheme } from "@/lib/theme";
 import { useUiStore } from "@/store/ui";
 
 /** 把 UI store 的主题解析成 light/dark 并写到 <html data-theme>；system 跟随系统偏好。 */
@@ -13,13 +14,12 @@ export function useApplyTheme(): void {
     let transitionTimer = 0;
 
     const resolve = () => {
-      const dark = theme === "dark" || (theme === "system" && mql.matches);
       if (appliedOnce.current && !reduceMotion.matches) {
         root.classList.add("theme-transitioning");
         // 先让 transition 属性生效，再切换变量值。
         void root.offsetWidth;
       }
-      root.setAttribute("data-theme", dark ? "dark" : "light");
+      applyTheme(theme, mql.matches);
       appliedOnce.current = true;
       window.clearTimeout(transitionTimer);
       transitionTimer = window.setTimeout(() => root.classList.remove("theme-transitioning"), 220);

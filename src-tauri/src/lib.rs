@@ -4,10 +4,11 @@
 //! 测试），这里只做四件事：把命令暴露给前端、把进度与播放事件转成 Tauri event、
 //! 持有曲库与播放器状态、把状态落到应用数据目录。
 //!
-//! 播放那半边在 `player.rs`，播放会话的落盘在 `session.rs`。
+//! 播放那半边在 `player.rs`，播放会话与界面设置的落盘在 `frontend_state.rs`。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use shannon_core::cache::ScanCache;
 use shannon_core::model::{LibrarySnapshot, ScanProgress};
@@ -28,6 +29,8 @@ const CACHE_FILE: &str = "library-cache.json";
 const OVERRIDES_FILE: &str = "metadata-overrides.json";
 /// 封面缩略图目录（应用数据目录下）。里面按封面内容指纹命名，多档共存。
 const COVER_DIR: &str = "covers";
+/// 前端正常会在首屏提交后立即显示窗口；若启动脚本异常，外壳最多等这么久便兜底显示。
+const WINDOW_REVEAL_FALLBACK: Duration = Duration::from_secs(3);
 
 /// 曲库状态。
 ///
@@ -263,6 +266,29 @@ pub fn run() {
             let store_path = data_path(app.handle(), loudness::LOUDNESS_FILE)
                 .unwrap_or_else(|_| PathBuf::from(loudness::LOUDNESS_FILE));
             app.manage(LoudnessState::spawn(store_path));
+            // 主窗口初始隐藏，等前端把落盘主题同步应用并提交首屏后再显示，避免深色用户
+            // 启动时先看到默认浅色背景。若 JS 加载或 show IPC 异常，三秒后仍要把窗口交给
+            // 用户，不能让一个视觉优化把应用变成「点了没反应」。show() 是幂等的。
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(WINDOW_REVEAL_FALLBACK);
+                let Some(window) = app_handle.get_webview_window("main") else {
+                    return;
+                };
+                let should_reveal = match window.is_visible() {
+                    Ok(visible) => !visible,
+                    Err(error) => {
+                        log::warn!("无法确认主窗口是否可见，仍执行兜底显示: {error}");
+                        true
+                    }
+                };
+                if should_reveal {
+                    log::warn!("前端未在三秒内显示主窗口，外壳执行兜底显示");
+                    if let Err(error) = window.show() {
+                        log::error!("兜底显示主窗口失败: {error}");
+                    }
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

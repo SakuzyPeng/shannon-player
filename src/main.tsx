@@ -1,9 +1,12 @@
 import { StrictMode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
-import { loadSettings } from "@/lib/backend";
+import { isTauri, loadSettings } from "@/lib/backend";
 import { installNativeChrome } from "@/lib/nativeChrome";
 import { fromSettings } from "@/lib/settings";
+import { applyTheme } from "@/lib/theme";
 import { useUiStore } from "@/store/ui";
 // 衬线字体随应用打包（可变字重 400–700），离线可用，不依赖运行时 CDN。
 import "@fontsource-variable/lora";
@@ -36,25 +39,50 @@ if (import.meta.env.DEV) {
 }
 
 /**
- * 先取回落盘的界面设置，再渲染。
+ * 先取回落盘的界面设置、同步应用主题、提交首屏，最后显示原生窗口。
  *
- * **不能等挂载之后再补**：主题晚一帧应用就是一次白闪，而它恰好发生在每次启动应用的
- * 那一刻——深色用户对此尤其敏感。这里多等的是一次本地文件读取（浏览器预览下没有后端，
- * 直接返回 null），而页面在此之前本来就还在加载 JS，用户看不到差别。
+ * **只把读取放在 `createRoot` 前仍然不够**：等待 IPC 时 CSS 已经能把默认浅色背景画出来，
+ * 而 `useApplyTheme` 要到挂载后的 effect 才写 `data-theme`。因此 Tauri 配置把窗口设为
+ * `visible: false`；这里恢复 store 后立即把主题写到 `<html>`，再用 `flushSync` 提交首屏，
+ * 两件事都完成后才 `show()`。浏览器预览没有原生窗口，仍然直接渲染。
  *
  * 顺带解决了另一件事：设置在首帧之前就位，`usePersistSettings` 于是不需要 `sessionReady`
  * 那样的就绪守卫——任何时刻写出去的都已经是用户的设置，而不是默认值。
  */
 async function boot() {
-  const json = await loadSettings();
-  const restored = json ? fromSettings(json) : null;
-  if (restored) useUiStore.getState().hydrateSettings(restored);
+  try {
+    let json: string | null = null;
+    try {
+      json = await loadSettings();
+    } catch (error) {
+      // 设置可随手重建；IPC 异常也只能回落默认，不能让一份设置挡住整个应用启动。
+      console.warn("读取界面设置失败，使用默认值", error);
+    }
 
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
+    const restored = json ? fromSettings(json) : null;
+    if (restored) useUiStore.getState().hydrateSettings(restored);
+
+    // 不能留给 useEffect：窗口一旦显示，首帧就必须已经拿到正确的 CSS 变量。
+    applyTheme(useUiStore.getState().theme);
+
+    const root = createRoot(document.getElementById("root")!);
+    flushSync(() => {
+      root.render(
+        <StrictMode>
+          <App />
+        </StrictMode>,
+      );
+    });
+  } finally {
+    if (isTauri()) {
+      try {
+        await getCurrentWindow().show();
+      } catch (error) {
+        // 外壳另有 3 秒兜底显示；这里留日志，避免权限或 IPC 问题悄无声息。
+        console.error("显示主窗口失败", error);
+      }
+    }
+  }
 }
 
-void boot();
+void boot().catch((error) => console.error("应用启动失败", error));

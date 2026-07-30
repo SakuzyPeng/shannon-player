@@ -66,8 +66,8 @@ pub fn save_settings(app: tauri::AppHandle, json: String) -> Result<(), String> 
 
 /// 读回界面设置。
 ///
-/// 这一份要在**首帧之前**取到：主题晚一步应用就是一次白闪，而那恰好发生在用户每次
-/// 启动应用的那一刻（见 `src/main.tsx`）。所以保持成一次同步文件读取，不做额外的事。
+/// 这一份要在**首帧之前**取到：原生窗口在读取期间保持隐藏，前端把主题同步写到 DOM 并
+/// 提交首屏后才显示窗口（见 `src/main.tsx`）。所以保持成一次同步文件读取，不做额外的事。
 #[tauri::command]
 pub fn load_settings(app: tauri::AppHandle) -> Option<String> {
     read_text(&app, SETTINGS_FILE)
