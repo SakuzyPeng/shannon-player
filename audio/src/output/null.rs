@@ -99,7 +99,8 @@ impl OutputBackend for NullOutput {
             let mut gain = 0.0f32;
             let mut next = Instant::now();
             while !stop.load(Ordering::Relaxed) {
-                fill_from_ring(
+                shared.begin_callback();
+                let audio_frames = fill_from_ring(
                     &mut buf,
                     channels,
                     &mut consumer,
@@ -107,6 +108,7 @@ impl OutputBackend for NullOutput {
                     &mut gain,
                     ramp_step,
                 );
+                shared.finish_callback(audio_frames);
                 next += TICK;
                 let now = Instant::now();
                 if next > now {

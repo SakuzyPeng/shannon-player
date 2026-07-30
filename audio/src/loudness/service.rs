@@ -31,7 +31,7 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, RwLock};
 use std::thread::JoinHandle;
 
@@ -69,11 +69,17 @@ struct Shared {
     wake: Condvar,
     /// 收到停止请求。解码循环每块都看它一眼，因此退出不必等一整首分析完。
     stop: AtomicBool,
+    /// 每次整体替换队列都递增。worker 的解码闭包逐块核对，空队列因而也能立即取消
+    /// 手上正在跑的那首，而不只是阻止下一首启动。
+    queue_generation: AtomicU64,
 }
 
 #[derive(Default)]
 struct Queue {
     pending: VecDeque<AnalysisItem>,
+    /// `pending` 属于哪次整体替换。与原子代际分开保存，使 worker 在新队列尚未组装完时
+    /// 偶然取到旧项，也仍会带着旧代际并立即取消。
+    generation: u64,
     /// worker 手上正在分析的那首。
     ///
     /// 算进 [`LoudnessService::pending`] 里：从队列取走到结论落进 store 之间还有一段时间，
@@ -150,7 +156,7 @@ impl Drop for LoudnessService {
 
 /// worker 从队列取到的下一步动作。
 enum Step {
-    Analyze(AnalysisItem),
+    Analyze(AnalysisItem, u64),
     /// 队列空了且有未落盘的结论——**在锁外**落盘，然后回来接着等。
     Flush,
     /// 已经等到了新活或停止请求，回到循环重新判断。
@@ -167,6 +173,7 @@ impl Shared {
             queue: Mutex::new(Queue::default()),
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
+            queue_generation: AtomicU64::new(0),
         }
     }
 
@@ -175,6 +182,9 @@ impl Shared {
     /// 替换而不是追加：调用方给的是一份「当前该按什么顺序分析」的完整意见，
     /// 追加会让上一次的顺序残留在前面，越排越不像播放顺序。
     fn replace_queue(&self, items: impl IntoIterator<Item = AnalysisItem>) -> usize {
+        // 先发布新代际，让正在分析的旧任务立即看见取消；组装新队列期间若 worker
+        // 取到旧 pending，它携带的仍是 Queue 里的旧代际，不会误冒充新任务。
+        let generation = self.queue_generation.fetch_add(1, Ordering::AcqRel) + 1;
         // 先看结果再动队列（见模块文档的锁顺序），读锁在这里就放掉。
         let pending: VecDeque<AnalysisItem> = {
             let store = self.store.read().unwrap_or_else(|e| e.into_inner());
@@ -186,8 +196,14 @@ impl Shared {
                 .collect()
         };
         let remaining = pending.len();
-        lock(&self.queue).pending = pending;
+        let mut queue = lock(&self.queue);
+        queue.pending = pending;
+        queue.generation = generation;
         remaining
+    }
+
+    fn is_generation_current(&self, generation: u64) -> bool {
+        self.queue_generation.load(Ordering::Acquire) == generation
     }
 
     fn next_step(&self, has_unsaved: bool) -> Step {
@@ -197,7 +213,7 @@ impl Shared {
         }
         if let Some(item) = queue.pending.pop_front() {
             queue.in_flight = true;
-            return Step::Analyze(item);
+            return Step::Analyze(item, queue.generation);
         }
         if has_unsaved {
             return Step::Flush;
@@ -222,8 +238,8 @@ fn run(shared: Arc<Shared>) {
     let mut unsaved = 0usize;
     loop {
         match shared.next_step(unsaved > 0) {
-            Step::Analyze(item) => {
-                let produced = analyze_one(&shared, &item);
+            Step::Analyze(item, generation) => {
+                let produced = analyze_one(&shared, &item, generation);
                 lock(&shared.queue).in_flight = false;
                 if produced {
                     unsaved += 1;
@@ -247,13 +263,19 @@ fn run(shared: Arc<Shared>) {
 }
 
 /// 分析一首，返回是否产生了新结论。
-fn analyze_one(shared: &Shared, item: &AnalysisItem) -> bool {
-    let keep_going = || !shared.stop.load(Ordering::Relaxed);
+fn analyze_one(shared: &Shared, item: &AnalysisItem, generation: u64) -> bool {
+    let keep_going =
+        || !shared.stop.load(Ordering::Relaxed) && shared.is_generation_current(generation);
     match super::analyze_file_interruptible(&item.path, keep_going) {
         // 被打断：没有结论可存，下次重排队列时自然重来。
         Ok(None) => false,
         Ok(Some(outcome)) => {
             let mut store = shared.store.write().unwrap_or_else(|e| e.into_inner());
+            // 最后一块解码结束到拿到写锁之间也可能发生重排；在锁内再核对一次，
+            // 保证取消任务绝不把半旧的结论提交进新代际。
+            if !shared.is_generation_current(generation) {
+                return false;
+            }
             store.set(item.track_id.clone(), outcome);
             true
         }
@@ -300,7 +322,7 @@ mod tests {
         let mut out = Vec::new();
         for _ in 0..max {
             match shared.next_step(true) {
-                Step::Analyze(item) => out.push(item.track_id),
+                Step::Analyze(item, _) => out.push(item.track_id),
                 _ => break,
             }
         }
@@ -346,7 +368,7 @@ mod tests {
         // 队列跑空正是攒批落盘的时机；但「空」会被反复看到，不能每看一次写一次盘。
         let shared = shared();
         shared.replace_queue([item("a")]);
-        assert!(matches!(shared.next_step(true), Step::Analyze(_)));
+        assert!(matches!(shared.next_step(true), Step::Analyze(_, _)));
         assert!(matches!(shared.next_step(true), Step::Flush), "空了要落盘");
         // 落完盘后 worker 会以 has_unsaved=false 再问一次，那一次才是真的等。
         lock(&shared.queue).stop = true;
@@ -360,5 +382,22 @@ mod tests {
         shared.replace_queue([item("a"), item("b")]);
         lock(&shared.queue).stop = true;
         assert!(matches!(shared.next_step(false), Step::Stop));
+    }
+
+    #[test]
+    fn replacing_with_an_empty_queue_cancels_the_in_flight_generation() {
+        let shared = shared();
+        shared.replace_queue([item("a")]);
+        let generation = match shared.next_step(true) {
+            Step::Analyze(_, generation) => generation,
+            _ => panic!("应当取到分析任务"),
+        };
+        assert!(shared.is_generation_current(generation));
+
+        shared.replace_queue([]);
+        assert!(
+            !shared.is_generation_current(generation),
+            "关掉功能推入空队列时，手上正在解码的任务也必须立即失效"
+        );
     }
 }

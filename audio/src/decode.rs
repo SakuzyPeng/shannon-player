@@ -50,6 +50,10 @@ pub struct Decoder {
     spec: SourceSpec,
     /// 下一个待输出帧的位置，用于进度与 seek 后的重锚定。
     position_frames: u64,
+    /// 本次打开后是否至少产出过一帧。与坏包标志配对，区分「合法空流/定位到末尾」
+    /// 和「每个数据包都坏了却被循环跳过」。
+    decoded_any_audio: bool,
+    saw_decode_error: bool,
 }
 
 fn open_err(kind: ErrorKind, stage: Stage, msg: impl Into<String>) -> EngineError {
@@ -150,6 +154,8 @@ impl Decoder {
             time_base,
             spec,
             position_frames: 0,
+            decoded_any_audio: false,
+            saw_decode_error: false,
         })
     }
 
@@ -169,12 +175,12 @@ impl Decoder {
         loop {
             let packet = match self.reader.next_packet() {
                 Ok(Some(p)) => p,
-                Ok(None) => return Ok(false),
+                Ok(None) => return self.end_of_stream(),
                 Err(SymphoniaError::IoError(e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
                     // 有些容器不给出干净的结束标记，读到 EOF 即为正常播完。
-                    return Ok(false);
+                    return self.end_of_stream();
                 }
                 Err(e) => return Err(self.decode_err(format!("读取数据包失败：{e}"))),
             };
@@ -191,10 +197,14 @@ impl Decoder {
                     }
                     append_interleaved(&buf, out);
                     self.position_frames += frames as u64;
+                    self.decoded_any_audio = true;
                     return Ok(true);
                 }
                 // 可恢复错误：丢掉这个包继续往下解。
-                Err(SymphoniaError::DecodeError(_)) => continue,
+                Err(SymphoniaError::DecodeError(_)) => {
+                    self.saw_decode_error = true;
+                    continue;
+                }
                 Err(SymphoniaError::ResetRequired) => {
                     self.decoder.reset();
                     continue;
@@ -255,6 +265,17 @@ impl Decoder {
             Some(self.spec.codec.clone()),
         )
     }
+
+    fn end_of_stream(&self) -> Result<bool> {
+        if eof_is_decode_failure(self.decoded_any_audio, self.saw_decode_error) {
+            return Err(self.decode_err("整条音频流没有解出任何有效帧".into()));
+        }
+        Ok(false)
+    }
+}
+
+fn eof_is_decode_failure(decoded_any_audio: bool, saw_decode_error: bool) -> bool {
+    saw_decode_error && !decoded_any_audio
 }
 
 /// 把任意采样格式的解码缓冲转成 f32 交错样本追加到 `out`。
@@ -265,4 +286,19 @@ fn append_interleaved(buf: &GenericAudioBufferRef<'_>, out: &mut Vec<f32>) {
     let needed = buf.samples_interleaved();
     out.resize(start + needed, 0.0);
     buf.copy_to_slice_interleaved(&mut out[start..]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::eof_is_decode_failure;
+
+    #[test]
+    fn all_bad_packets_are_not_a_natural_end() {
+        assert!(eof_is_decode_failure(false, true));
+        assert!(!eof_is_decode_failure(true, true), "中途孤立坏包仍允许容错");
+        assert!(
+            !eof_is_decode_failure(false, false),
+            "没有坏包的空流仍按自然结束处理"
+        );
+    }
 }

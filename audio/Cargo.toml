@@ -32,6 +32,11 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+# CPAL 0.18.1 对 `windows` / `windows-core` 给了跨小版本的宽范围，Cargo 会分别选到
+# 0.61 与 0.62，WASAPI 类型因而来自两套互不兼容的 `windows-core`。两者必须成对锁定；
+# 等 CPAL 收紧上游约束后再移除这两行，并保留 Windows 目标编译检查防止回归。
+windows = "=0.61.3"
+windows-core = "=0.61.2"
 
 [dev-dependencies]
 # 诊断工具遍历真实曲库时禁止跟随符号链接，避免目录环无限递归。

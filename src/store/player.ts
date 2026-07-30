@@ -176,7 +176,10 @@ interface PlayerState {
    *
    * 返回是否恢复成功；失败时调用方回落到 `adoptLibrary`。
    */
-  restoreSession: (lookup: (id: Id) => Track | undefined) => Promise<boolean>;
+  restoreSession: (
+    lookup: (id: Id) => Track | undefined,
+    signal?: AbortSignal,
+  ) => Promise<boolean>;
   /** 真实曲库的恢复 / 首次接管已经结束，从此允许写播放会话。 */
   markSessionReady: () => void;
   /** 把当前会话写回后端。由 `usePersistSession` 节流调用，业务代码不用管。 */
@@ -653,8 +656,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
   },
 
-  restoreSession: async (lookup) => {
+  restoreSession: async (lookup, signal) => {
+    // 只允许覆盖调用这一刻的未操作状态。读会话跨 IPC，期间任何播放域变化都说明
+    // 用户已经表达了更新意图；StrictMode 的另一轮恢复也会改变这个对象引用。
+    const baseline = get();
     const json = await loadSession();
+    if (signal?.aborted || get() !== baseline) return false;
     const restored = json ? fromSession(json, lookup) : null;
     if (!restored) {
       // 没有会话、或会话已失效：调用方会回落到整库入队，并在两条路径汇合后

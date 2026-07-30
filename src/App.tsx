@@ -91,6 +91,10 @@ const FirstRunScreen = lazy(() =>
 function useRestoreLibrary() {
   const setLibrary = useLibraryStore((s) => s.setLibrary);
   useEffect(() => {
+    const controller = new AbortController();
+    // 从整个恢复流程开始就记住播放域快照，而不只是读 session 文件之前；曲库 IPC 本身
+    // 也可能很慢，用户在这段时间里的操作同样必须优先于旧会话。
+    const playerBaseline = usePlayerStore.getState();
     void (async () => {
       // 封面目录要先拿到：晚于曲库到位的话，首屏封面会先空一拍再补上。
       const [snapshot, roots, coverDir] = await Promise.all([
@@ -98,6 +102,7 @@ function useRestoreLibrary() {
         getMusicFolders(),
         getCoverDir(),
       ]);
+      if (controller.signal.aborted) return;
       useLibraryStore.getState().setCoverDir(coverDir);
       if (!snapshot) return;
       setLibrary(snapshot);
@@ -110,7 +115,11 @@ function useRestoreLibrary() {
       // 两条路都只换不放：启动即出声是没人要的行为。
       const byId = new Map(snapshot.tracks.map((t) => [t.id, t]));
       const player = usePlayerStore.getState();
-      const restored = await player.restoreSession((id) => byId.get(id));
+      const restored =
+        player === playerBaseline
+          ? await player.restoreSession((id) => byId.get(id), controller.signal)
+          : false;
+      if (controller.signal.aborted) return;
       if (!restored) player.adoptLibrary(snapshot.tracks);
       // 就绪状态由恢复流程的汇合点统一置位，不能依赖 adoptLibrary 是否真的接管队列：
       // 没有旧会话时用户若恰好先点了歌，接管会有意跳过，但这一程仍必须允许保存。
@@ -124,6 +133,7 @@ function useRestoreLibrary() {
         })),
       );
     })();
+    return () => controller.abort();
   }, [setLibrary]);
 }
 

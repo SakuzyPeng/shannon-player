@@ -168,22 +168,22 @@ where
         .build_output_stream(
             *config,
             move |out: &mut [T], info: &cpal::OutputCallbackInfo| {
+                shared.begin_callback();
                 // 设备延迟：播放时刻与回调时刻之差。播放位置要扣掉它，
                 // 否则歌词逐字高亮会系统性偏早（共享模式延迟普遍数十毫秒）。
                 let ts = info.timestamp();
                 let delay = ts.playback.duration_since(ts.callback);
                 let frames = (delay.as_secs_f64() * sample_rate as f64) as u64;
-                shared
-                    .output_delay_frames
-                    .store(frames, std::sync::atomic::Ordering::Relaxed);
+                shared.set_output_delay_frames(frames);
 
                 // 回调请求可能超过 scratch，分块处理——分配是绝对禁止的。
                 let chunk_samples = scratch.len();
                 let mut written = 0;
+                let mut audio_frames = 0usize;
                 while written < out.len() {
                     let n = (out.len() - written).min(chunk_samples);
                     let block = &mut scratch[..n];
-                    fill_from_ring(
+                    audio_frames += fill_from_ring(
                         block,
                         channels,
                         &mut consumer,
@@ -196,6 +196,7 @@ where
                     }
                     written += n;
                 }
+                shared.finish_callback(audio_frames);
             },
             move |err| {
                 // 错误回调不是音频回调，可以投递到通道；处置由控制线程决定。

@@ -252,7 +252,16 @@ impl OutputBackend for CapturingOutput {
             let mut buf = vec![0.0f32; frames_per_tick * channels];
             let mut gain = 0.0f32;
             while !stop.load(Ordering::Relaxed) {
-                fill_from_ring(&mut buf, channels, &mut consumer, &shared, &mut gain, ramp_step);
+                shared.begin_callback();
+                let got = fill_from_ring(
+                    &mut buf,
+                    channels,
+                    &mut consumer,
+                    &shared,
+                    &mut gain,
+                    ramp_step,
+                );
+                shared.finish_callback(got);
                 captured.lock().unwrap().extend_from_slice(&buf);
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -327,7 +336,10 @@ fn loudness_gain_scales_what_reaches_the_device() {
     let halved = peak_through_engine(&path, Some(0.5), None);
     let boosted = peak_through_engine(&path, Some(2.0), None);
 
-    assert!((plain - 0.3).abs() < 0.01, "不加增益应保持源振幅，实际 {plain}");
+    assert!(
+        (plain - 0.3).abs() < 0.01,
+        "不加增益应保持源振幅，实际 {plain}"
+    );
     assert!(
         (halved / plain - 0.5).abs() < 0.02,
         "0.5 倍增益应让峰值减半：{halved} / {plain}"
@@ -400,7 +412,8 @@ impl OutputBackend for EagerOpenOutput {
         let config = self.negotiate(request)?;
         let mut out = vec![0.0; 64 * request.layout.count() as usize];
         let mut gain = 0.0;
-        fill_from_ring(
+        shared.begin_callback();
+        let got = fill_from_ring(
             &mut out,
             request.layout.count() as usize,
             &mut consumer,
@@ -408,6 +421,7 @@ impl OutputBackend for EagerOpenOutput {
             &mut gain,
             1.0,
         );
+        shared.finish_callback(got);
         self.consumer = Some(consumer);
         self.config = Some(config.clone());
         Ok(config)
@@ -434,6 +448,136 @@ struct LoadRecordingOutput {
     inner: NullOutput,
     gains: Arc<Mutex<Vec<f32>>>,
     positions: Arc<Mutex<Vec<u64>>>,
+}
+
+/// 第一轮协商停在测试控制的栅栏上，用来把「更新命令在 Load 进行中到达」稳定放大。
+struct BlockingFirstNegotiateOutput {
+    inner: NullOutput,
+    entered: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+    calls: AtomicU64,
+}
+
+impl OutputBackend for BlockingFirstNegotiateOutput {
+    fn name(&self) -> &'static str {
+        "blocking-negotiate-test"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        if self.calls.fetch_add(1, Ordering::Relaxed) == 0 {
+            self.entered.store(true, Ordering::Release);
+            while !self.release.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        }
+        self.inner.negotiate(request)
+    }
+
+    fn open(
+        &mut self,
+        request: &OutputRequest,
+        consumer: RingConsumer,
+        shared: Arc<OutputShared>,
+    ) -> Result<OutputConfig> {
+        self.inner.open(request, consumer, shared)
+    }
+
+    fn close(&mut self) {
+        self.inner.close();
+    }
+
+    fn config(&self) -> Option<&OutputConfig> {
+        self.inner.config()
+    }
+}
+
+/// 报告固定设备延迟的无声后端。它让测试能区分「ring 已被回调取空」与
+/// 「最后一帧已经到达扬声器」这两个时刻。
+struct DelayedOutput {
+    config: Option<OutputConfig>,
+    delay_frames: u64,
+    stop: Arc<AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl DelayedOutput {
+    fn new(delay_frames: u64) -> Self {
+        Self {
+            config: None,
+            delay_frames,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        }
+    }
+}
+
+impl OutputBackend for DelayedOutput {
+    fn name(&self) -> &'static str {
+        "delayed-test"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        Ok(OutputConfig {
+            sample_rate: request.sample_rate,
+            layout: request.layout,
+            sample_format: "f32".into(),
+            device_name: "延迟测试后端".into(),
+        })
+    }
+
+    fn open(
+        &mut self,
+        request: &OutputRequest,
+        mut consumer: RingConsumer,
+        shared: Arc<OutputShared>,
+    ) -> Result<OutputConfig> {
+        self.close();
+        let config = self.negotiate(request)?;
+        let channels = config.layout.count() as usize;
+        let frames_per_tick = config.sample_rate as usize / 100;
+        let ramp_step = shannon_audio::output::ramp_step_for(config.sample_rate);
+        let delay_frames = self.delay_frames;
+        let stop = Arc::new(AtomicBool::new(false));
+        self.stop = stop.clone();
+        self.worker = Some(std::thread::spawn(move || {
+            let mut out = vec![0.0; frames_per_tick * channels];
+            let mut gain = 0.0;
+            while !stop.load(Ordering::Relaxed) {
+                shared.begin_callback();
+                shared.set_output_delay_frames(delay_frames);
+                let got = fill_from_ring(
+                    &mut out,
+                    channels,
+                    &mut consumer,
+                    &shared,
+                    &mut gain,
+                    ramp_step,
+                );
+                shared.finish_callback(got);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }));
+        self.config = Some(config.clone());
+        Ok(config)
+    }
+
+    fn close(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        self.config = None;
+    }
+
+    fn config(&self) -> Option<&OutputConfig> {
+        self.config.as_ref()
+    }
+}
+
+impl Drop for DelayedOutput {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 impl OutputBackend for LoadRecordingOutput {
@@ -529,7 +673,7 @@ fn output_is_quiescent_before_open_can_invoke_its_first_callback() {
 }
 
 #[test]
-fn load_context_stays_with_its_events_and_initial_gain() {
+fn queued_loads_coalesce_to_the_latest_context_and_initial_gain() {
     // 同一首连续装载两次，track_id 刻意相同：若只按曲目 ID 过滤，上一代事件仍会漏过。
     // 两条命令紧挨着投递也复现了外壳“共享最新 ID”曾经会盖错章的窗口。
     let path = corpus("load_context", 2, RATE as usize);
@@ -563,16 +707,191 @@ fn load_context_stays_with_its_events_and_initial_gain() {
         .unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(2);
-    while opened.lock().unwrap().len() < 2 && Instant::now() < deadline {
+    while opened.lock().unwrap().is_empty() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
 
-    assert_eq!(*opened.lock().unwrap(), vec![first, second]);
+    assert_eq!(
+        *opened.lock().unwrap(),
+        vec![second],
+        "同一批积压的旧 Load 不该再打开设备或发事件"
+    );
     let actual_gains = gains.lock().unwrap();
-    assert_eq!(actual_gains.len(), 2);
-    assert!((actual_gains[0] - 0.18).abs() < f32::EPSILON);
-    assert!((actual_gains[1] - 0.42).abs() < f32::EPSILON);
-    assert_eq!(*positions.lock().unwrap(), vec![0, 0]);
+    assert_eq!(actual_gains.len(), 1);
+    assert!((actual_gains[0] - 0.42).abs() < f32::EPSILON);
+    assert_eq!(*positions.lock().unwrap(), vec![0]);
+}
+
+#[test]
+fn a_new_load_cancels_one_already_inside_negotiation() {
+    let path = corpus("load_generation", 2, RATE as usize);
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let opened = Arc::new(Mutex::new(Vec::<LoadContext>::new()));
+    let engine = {
+        let opened = opened.clone();
+        Engine::spawn_stamped(
+            Box::new(BlockingFirstNegotiateOutput {
+                inner: NullOutput::new(),
+                entered: entered.clone(),
+                release: release.clone(),
+                calls: AtomicU64::new(0),
+            }),
+            move |stamped| {
+                if matches!(stamped.event, EngineEvent::Opened { .. }) {
+                    opened.lock().unwrap().push(stamped.context);
+                }
+            },
+        )
+    };
+
+    engine
+        .load_request(LoadRequest::new(
+            &path,
+            true,
+            LoadContext::new(Some("old".into()), "load-old"),
+        ))
+        .unwrap();
+    let entered_deadline = Instant::now() + Duration::from_secs(2);
+    while !entered.load(Ordering::Acquire) && Instant::now() < entered_deadline {
+        std::thread::yield_now();
+    }
+    assert!(entered.load(Ordering::Acquire), "第一代应已进入耗时协商");
+
+    let latest = LoadContext::new(Some("latest".into()), "load-latest");
+    engine
+        .load_request(LoadRequest::new(&path, false, latest.clone()))
+        .unwrap();
+    release.store(true, Ordering::Release);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while opened.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        *opened.lock().unwrap(),
+        vec![latest],
+        "协商途中失效的旧代际不能再打开输出或短暂出声"
+    );
+}
+
+#[test]
+fn pause_sent_during_load_cannot_be_overwritten_by_autoplay() {
+    let path = corpus("pause_during_load", 2, RATE as usize * 2);
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let opened = Arc::new(AtomicBool::new(false));
+    let states = Arc::new(Mutex::new(Vec::new()));
+    let engine = {
+        let (opened, states) = (opened.clone(), states.clone());
+        Engine::spawn(
+            Box::new(BlockingFirstNegotiateOutput {
+                inner: NullOutput::new(),
+                entered: entered.clone(),
+                release: release.clone(),
+                calls: AtomicU64::new(0),
+            }),
+            move |event| match event {
+                EngineEvent::Opened { .. } => opened.store(true, Ordering::Relaxed),
+                EngineEvent::StateChanged(state) => states.lock().unwrap().push(state),
+                _ => {}
+            },
+        )
+    };
+
+    engine.load(&path, true).unwrap();
+    let entered_deadline = Instant::now() + Duration::from_secs(2);
+    while !entered.load(Ordering::Acquire) && Instant::now() < entered_deadline {
+        std::thread::yield_now();
+    }
+    assert!(entered.load(Ordering::Acquire));
+    engine.pause().unwrap();
+    release.store(true, Ordering::Release);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !opened.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(opened.load(Ordering::Relaxed), "暂停不应取消装载本身");
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        engine.stats().position_frames,
+        0,
+        "加载中发出的暂停必须在首帧前生效"
+    );
+    assert!(
+        !states.lock().unwrap().contains(&PlaybackState::Playing),
+        "旧 Load 的 autoplay 不能覆盖稍后到达的 Pause"
+    );
+}
+
+#[test]
+fn stop_sent_during_load_cancels_the_open() {
+    let path = corpus("stop_during_load", 2, RATE as usize);
+    let entered = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let opened = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let opened = opened.clone();
+        Engine::spawn(
+            Box::new(BlockingFirstNegotiateOutput {
+                inner: NullOutput::new(),
+                entered: entered.clone(),
+                release: release.clone(),
+                calls: AtomicU64::new(0),
+            }),
+            move |event| {
+                if matches!(event, EngineEvent::Opened { .. }) {
+                    opened.store(true, Ordering::Relaxed);
+                }
+            },
+        )
+    };
+
+    engine.load(&path, true).unwrap();
+    let entered_deadline = Instant::now() + Duration::from_secs(2);
+    while !entered.load(Ordering::Acquire) && Instant::now() < entered_deadline {
+        std::thread::yield_now();
+    }
+    assert!(entered.load(Ordering::Acquire));
+    engine.stop().unwrap();
+    release.store(true, Ordering::Release);
+    std::thread::sleep(Duration::from_millis(100));
+
+    assert!(
+        !opened.load(Ordering::Relaxed),
+        "Stop 后旧 Load 不得继续打开输出"
+    );
+    assert_eq!(engine.stats().position_frames, 0);
+}
+
+#[test]
+fn track_ended_waits_for_the_reported_device_tail() {
+    let path = corpus("device_tail", 2, RATE as usize / 20); // 50 ms
+    let ended = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let ended = ended.clone();
+        Engine::spawn(
+            Box::new(DelayedOutput::new((RATE / 5) as u64)), // 200 ms 设备延迟
+            move |event| {
+                if matches!(event, EngineEvent::TrackEnded) {
+                    ended.store(true, Ordering::Relaxed);
+                }
+            },
+        )
+    };
+
+    let started = Instant::now();
+    engine.load(&path, true).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !ended.load(Ordering::Relaxed) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(ended.load(Ordering::Relaxed), "短曲应正常结束");
+    assert!(
+        started.elapsed() >= Duration::from_millis(200),
+        "TrackEnded 不能在设备报告的尾部延迟之前发出"
+    );
 }
 
 #[test]

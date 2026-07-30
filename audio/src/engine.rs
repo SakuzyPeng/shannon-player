@@ -20,7 +20,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -123,6 +123,22 @@ pub enum PlayerCmd {
     Shutdown,
 }
 
+/// 发送端给命令盖的内部代际。公开的 `PlayerCmd` 保持领域语义，调度所需的序号不泄漏给
+/// Tauri 外壳；引擎线程据此跳过已经被更新意图取代的重活。
+struct QueuedCmd {
+    cmd: PlayerCmd,
+    load_generation: Option<u64>,
+    transport_generation: Option<u64>,
+}
+
+/// 调用方此刻真正想要的传输状态。发送端与引擎线程只在更新两个原子可见动作时短暂持锁，
+/// 输出回调仍只读 `OutputShared` 的原子量，不进入这把锁。
+#[derive(Default)]
+struct TransportIntent {
+    generation: u64,
+    playing: bool,
+}
+
 /// 引擎事件。
 #[derive(Debug, Clone)]
 pub enum EngineEvent {
@@ -187,9 +203,13 @@ pub struct EngineStats {
 
 /// 引擎句柄。命令投递到引擎线程，事件经构造时传入的回调送出。
 pub struct Engine {
-    cmd_tx: Sender<PlayerCmd>,
+    cmd_tx: Sender<QueuedCmd>,
     shared: Arc<OutputShared>,
     alive: Arc<AtomicBool>,
+    /// 最近一次 Load 的代际。旧装载即使已经进入耗时的打开/预缓冲，也会在阶段边界
+    /// 看见自己过期并静默退出，不把旧曲的 PCM 交给设备。
+    latest_load_generation: Arc<AtomicU64>,
+    transport: Arc<Mutex<TransportIntent>>,
     load_sequence: AtomicU64,
     worker: Option<JoinHandle<()>>,
 }
@@ -212,14 +232,24 @@ impl Engine {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let shared = Arc::new(OutputShared::default());
         let alive = Arc::new(AtomicBool::new(true));
+        let latest_load_generation = Arc::new(AtomicU64::new(0));
+        let transport = Arc::new(Mutex::new(TransportIntent::default()));
 
         let worker = {
             let shared = shared.clone();
             let alive = alive.clone();
+            let latest_load_generation = latest_load_generation.clone();
+            let transport = transport.clone();
             std::thread::Builder::new()
                 .name("shannon-audio".into())
                 .spawn(move || {
-                    let mut engine = Worker::new(backend, shared, Box::new(on_event));
+                    let mut engine = Worker::new(
+                        backend,
+                        shared,
+                        latest_load_generation,
+                        transport,
+                        Box::new(on_event),
+                    );
                     engine.run(cmd_rx);
                     alive.store(false, Ordering::Relaxed);
                 })
@@ -230,6 +260,8 @@ impl Engine {
             cmd_tx,
             shared,
             alive,
+            latest_load_generation,
+            transport,
             load_sequence: AtomicU64::new(0),
             worker: Some(worker),
         }
@@ -237,8 +269,55 @@ impl Engine {
 
     /// 投递命令。引擎线程已退出时返回错误。
     pub fn send(&self, cmd: PlayerCmd) -> Result<()> {
+        let load_generation = match &cmd {
+            PlayerCmd::Load(_) => {
+                Some(self.latest_load_generation.fetch_add(1, Ordering::AcqRel) + 1)
+            }
+            PlayerCmd::Stop | PlayerCmd::Shutdown => {
+                // Stop 的含义是卸载；若控制线程正卡在打开文件或设备协商，立刻让那一代失效。
+                self.latest_load_generation.fetch_add(1, Ordering::AcqRel);
+                None
+            }
+            _ => None,
+        };
+        let transport_generation = match &cmd {
+            PlayerCmd::Load(request) => {
+                let mut intent = lock_transport(&self.transport);
+                intent.generation = intent.generation.wrapping_add(1);
+                intent.playing = request.autoplay;
+                // 新装载一经提出，旧曲就不该再继续出声。真正拆流仍由引擎线程完成。
+                self.shared.set_paused(true);
+                Some(intent.generation)
+            }
+            PlayerCmd::Play => {
+                let mut intent = lock_transport(&self.transport);
+                intent.generation = intent.generation.wrapping_add(1);
+                intent.playing = true;
+                Some(intent.generation)
+            }
+            PlayerCmd::Pause | PlayerCmd::Stop | PlayerCmd::Shutdown => {
+                let mut intent = lock_transport(&self.transport);
+                intent.generation = intent.generation.wrapping_add(1);
+                intent.playing = false;
+                // 与意图代际在同一临界区写入：装载完成端不可能在其后把暂停覆盖回播放。
+                self.shared.set_paused(true);
+                Some(intent.generation)
+            }
+            PlayerCmd::Seek(_) => {
+                let mut intent = lock_transport(&self.transport);
+                intent.generation = intent.generation.wrapping_add(1);
+                // 定位不改变「定位后要不要继续播」，但要立刻阻止旧位置 PCM 继续外送。
+                self.shared.set_paused(true);
+                Some(intent.generation)
+            }
+            PlayerCmd::SetVolume(_) => None,
+        };
         self.cmd_tx
-            .send(cmd)
+            .send(QueuedCmd {
+                cmd,
+                load_generation,
+                transport_generation,
+            })
             .map_err(|_| EngineError::new(Stage::Output, ErrorKind::Stream, "引擎线程已停止"))
     }
 
@@ -293,7 +372,7 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        let _ = self.cmd_tx.send(PlayerCmd::Shutdown);
+        let _ = self.send(PlayerCmd::Shutdown);
         if let Some(handle) = self.worker.take() {
             let _ = handle.join();
         }
@@ -325,11 +404,16 @@ struct Loaded {
     flushed: bool,
     /// `TrackEnded` 是否已发出，避免排空后反复上报。
     ended_reported: bool,
+    /// ring 被最后一次设备回调取空之后，仍需等待「设备延迟 + 本回调有效帧」才能
+    /// 确认耳朵真正听完。`None` 表示尚未观察到稳定的排空时刻。
+    drain_deadline: Option<Instant>,
 }
 
 struct Worker {
     backend: Box<dyn OutputBackend>,
     shared: Arc<OutputShared>,
+    latest_load_generation: Arc<AtomicU64>,
+    transport: Arc<Mutex<TransportIntent>>,
     on_event: Box<dyn Fn(StampedEngineEvent) + Send>,
     context: Option<LoadContext>,
     state: PlaybackState,
@@ -345,11 +429,15 @@ impl Worker {
     fn new(
         backend: Box<dyn OutputBackend>,
         shared: Arc<OutputShared>,
+        latest_load_generation: Arc<AtomicU64>,
+        transport: Arc<Mutex<TransportIntent>>,
         on_event: Box<dyn Fn(StampedEngineEvent) + Send>,
     ) -> Self {
         Self {
             backend,
             shared,
+            latest_load_generation,
+            transport,
             on_event,
             context: None,
             state: PlaybackState::Idle,
@@ -360,16 +448,16 @@ impl Worker {
         }
     }
 
-    fn run(&mut self, rx: Receiver<PlayerCmd>) {
+    fn run(&mut self, rx: Receiver<QueuedCmd>) {
         loop {
             // 一轮里把积压的命令收干净，避免连续拖动进度条时逐条滞后。
             loop {
                 match rx.try_recv() {
-                    Ok(PlayerCmd::Shutdown) => {
+                    Ok(queued) if matches!(&queued.cmd, PlayerCmd::Shutdown) => {
                         self.teardown();
                         return;
                     }
-                    Ok(cmd) => self.handle(cmd),
+                    Ok(queued) => self.handle(queued),
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
                         self.teardown();
@@ -446,28 +534,49 @@ impl Worker {
         }
     }
 
-    fn handle(&mut self, cmd: PlayerCmd) {
+    fn handle(&mut self, queued: QueuedCmd) {
+        let QueuedCmd {
+            cmd,
+            load_generation,
+            transport_generation,
+        } = queued;
         match cmd {
             PlayerCmd::Load(request) => {
+                let load_generation = load_generation.expect("Load 必须带装载代际");
+                let transport_generation = transport_generation.expect("Load 必须带传输意图代际");
+                // 同一轮里已经排了更新的 Load，旧请求连文件都不打开。若更新请求是在
+                // 打开途中到达，`load` 还会在各阶段边界再次检查。
+                if !self.is_current_load(load_generation) {
+                    return;
+                }
                 self.context = Some(request.context.clone());
                 if let Some(volume) = request.initial_volume {
                     self.volume = volume.clamp(0.0, 1.0);
                     self.shared.set_gain(self.volume);
                 }
                 self.set_state(PlaybackState::Loading);
-                if let Err(err) = self.load(&request) {
-                    self.fail(err);
+                match self.load(&request, load_generation) {
+                    Ok(true) => self.finish_transport(transport_generation),
+                    Ok(false) => self.discard_stale_load(),
+                    Err(err) if self.is_current_load(load_generation) => self.fail(err),
+                    Err(_) => self.discard_stale_load(),
                 }
             }
             PlayerCmd::Play => {
+                let generation = transport_generation.expect("Play 必须带传输意图代际");
                 if self.loaded.is_some() {
-                    self.shared.set_paused(false);
-                    self.set_state(PlaybackState::Playing);
+                    if let Some(playing) = self.apply_transport(generation) {
+                        self.set_state(if playing {
+                            PlaybackState::Playing
+                        } else {
+                            PlaybackState::Paused
+                        });
+                    }
                 }
             }
             PlayerCmd::Pause => {
-                if self.loaded.is_some() {
-                    self.shared.set_paused(true);
+                let generation = transport_generation.expect("Pause 必须带传输意图代际");
+                if self.loaded.is_some() && self.apply_transport(generation).is_some() {
                     self.set_state(PlaybackState::Paused);
                 }
             }
@@ -479,6 +588,15 @@ impl Worker {
             PlayerCmd::Seek(sec) => {
                 if let Err(err) = self.seek(sec) {
                     self.fail(err);
+                } else if self.loaded.is_some() {
+                    let generation = transport_generation.expect("Seek 必须带传输意图代际");
+                    if let Some(playing) = self.apply_transport(generation) {
+                        self.set_state(if playing {
+                            PlaybackState::Playing
+                        } else {
+                            PlaybackState::Paused
+                        });
+                    }
                 }
             }
             PlayerCmd::SetVolume(v) => {
@@ -489,11 +607,49 @@ impl Worker {
         }
     }
 
-    fn load(&mut self, request: &LoadRequest) -> Result<()> {
+    fn is_current_load(&self, generation: u64) -> bool {
+        self.latest_load_generation.load(Ordering::Acquire) == generation
+    }
+
+    /// 长装载结束时才提交 autoplay。发送端与这里共用一把极短的控制锁，因此加载中
+    /// 到达的 Pause / Stop / 新 Load 不会被结尾那句 set_paused(false) 反向覆盖。
+    fn finish_transport(&mut self, generation: u64) {
+        match self.apply_transport(generation) {
+            Some(true) => self.set_state(PlaybackState::Playing),
+            Some(false) => self.set_state(PlaybackState::Paused),
+            None => {
+                // 更新意图已经在队列里；发送端对 Pause / Stop / Load / Seek 已同步静音，
+                // 当前装载只保持安静，等下一条命令决定最终状态。
+                self.shared.set_paused(true);
+                self.set_state(PlaybackState::Paused);
+            }
+        }
+    }
+
+    /// 若命令仍是最新传输意图，就把它原子提交到输出共享状态，并返回目标是否为播放。
+    fn apply_transport(&self, generation: u64) -> Option<bool> {
+        let intent = lock_transport(&self.transport);
+        if intent.generation != generation {
+            return None;
+        }
+        self.shared.set_paused(!intent.playing);
+        Some(intent.playing)
+    }
+
+    fn discard_stale_load(&mut self) {
+        self.teardown();
+        // 不给已经失效的上下文发事件，但让下一代 Load 能重新发出 Loading。
+        self.state = PlaybackState::Idle;
+    }
+
+    fn load(&mut self, request: &LoadRequest, generation: u64) -> Result<bool> {
         // 换曲先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
         self.teardown();
 
         let mut decoder = Decoder::open(&request.path)?;
+        if !self.is_current_load(generation) {
+            return Ok(false);
+        }
         let spec = decoder.spec().clone();
 
         // 阶段 0 的目标布局恒为立体声。多声道整体走平台原生后端；
@@ -510,6 +666,9 @@ impl Worker {
             layout: out_layout,
         };
         let probe = self.backend.negotiate(&output_request)?;
+        if !self.is_current_load(generation) {
+            return Ok(false);
+        }
         let out_rate = probe.sample_rate;
 
         let resampler = Resampling::new(spec.sample_rate, out_rate, spec.layout.count() as usize)?;
@@ -520,6 +679,9 @@ impl Worker {
             Some(seconds) => decoder.seek(seconds)?,
             None => 0,
         };
+        if !self.is_current_load(generation) {
+            return Ok(false);
+        }
         let capacity_frames = (out_rate as f64 * RING_SECONDS) as usize;
         let (producer, consumer) = crate::ring::ring(capacity_frames, out_channels);
 
@@ -532,8 +694,11 @@ impl Worker {
         self.shared.set_source_drained(false);
         self.shared.set_rebuffering(true);
         self.shared.set_paused(true);
+        self.shared.reset_callback_timing();
 
-        let output = self.backend.open(&output_request, consumer, self.shared.clone())?;
+        let output = self
+            .backend
+            .open(&output_request, consumer, self.shared.clone())?;
         if output.sample_rate != out_rate {
             // 协商预演与实际打开给出不同结果说明后端实现自相矛盾，
             // 继续下去链路里的采样率就对不上了——宁可明确报错。
@@ -546,6 +711,10 @@ impl Worker {
                     output.sample_rate
                 ),
             ));
+        }
+        if !self.is_current_load(generation) {
+            self.backend.close();
+            return Ok(false);
         }
         self.loaded = Some(Loaded {
             src_channels: spec.layout.count() as usize,
@@ -562,39 +731,39 @@ impl Worker {
             eof: false,
             flushed: false,
             ended_reported: false,
+            drain_deadline: None,
         });
 
-        self.prebuffer()?;
+        if !self.prebuffer(Some(generation))? || !self.is_current_load(generation) {
+            return Ok(false);
+        }
         self.shared.set_rebuffering(false);
         self.emit(EngineEvent::Opened { spec, output });
-
-        if request.autoplay {
-            self.shared.set_paused(false);
-            self.set_state(PlaybackState::Playing);
-        } else {
-            self.set_state(PlaybackState::Paused);
-        }
-        Ok(())
+        Ok(true)
     }
 
     /// 填到预缓冲阈值。填不满（短文件）也返回，由 `check_ended` 处理结束。
-    fn prebuffer(&mut self) -> Result<()> {
+    /// 传入装载代际时，每批解码前检查是否已被更新的 Load 取代。
+    fn prebuffer(&mut self, load_generation: Option<u64>) -> Result<bool> {
         let Some(loaded) = &self.loaded else {
-            return Ok(());
+            return Ok(true);
         };
         let target = (loaded.out_rate as f64 * PREBUFFER_MS / 1000.0) as usize;
         for _ in 0..4096 {
+            if load_generation.is_some_and(|generation| !self.is_current_load(generation)) {
+                return Ok(false);
+            }
             let Some(loaded) = &self.loaded else {
-                return Ok(());
+                return Ok(true);
             };
             if loaded.producer.queued_frames() >= target || loaded.eof {
-                return Ok(());
+                return Ok(true);
             }
             if !self.pump()? {
-                return Ok(());
+                return Ok(true);
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     /// 解码并向环形缓冲喂料。返回是否推进了工作（用于决定要不要休眠）。
@@ -685,7 +854,6 @@ impl Worker {
             return Ok(());
         }
 
-        let resume = self.state == PlaybackState::Playing;
         // 准确定位可能触发容器 I/O；先让输出回调进入静音/重缓冲态，避免它在定位期间
         // 继续把旧 PCM 往外送。回调仍保持运行，所以能处理下面的 flush 请求。
         self.shared.set_source_drained(false);
@@ -720,20 +888,17 @@ impl Worker {
         loaded.eof = false;
         loaded.flushed = false;
         loaded.ended_reported = false;
+        loaded.drain_deadline = None;
         // 位置计数器记的是输出帧，源帧要按比率换算。
         self.shared
             .reset_position(loaded.resampler.src_frames_to_out(frames));
 
-        self.prebuffer()?;
+        let _ = self.prebuffer(None)?;
         self.shared.set_rebuffering(false);
-        if self.state == PlaybackState::Ended {
-            self.set_state(PlaybackState::Paused);
-        }
-        self.shared.set_paused(!resume);
         Ok(())
     }
 
-    /// 解码到末尾且缓冲排空即为播完。
+    /// 解码到末尾、缓冲排空且设备域尾部已发声才算播完。
     ///
     /// 判据里必须带上「缓冲排空」：解码可以领先播放一秒以上，只看 EOF 会在
     /// 最后一秒还在发声时就报播完。
@@ -745,6 +910,22 @@ impl Worker {
             return;
         }
         if loaded.pending_pos < loaded.pending.len() || loaded.producer.queued_frames() > 0 {
+            loaded.drain_deadline = None;
+            return;
+        }
+        // 回调可能刚推进 ring 的读下标、还没来得及发布设备时间戳与本块帧数。
+        // 先等它退出，避免把默认的 0 延迟误当成设备已经排空。
+        if self.shared.callback_in_progress() {
+            return;
+        }
+        let deadline = *loaded.drain_deadline.get_or_insert_with(|| {
+            let tail_frames = self
+                .shared
+                .output_delay_frames()
+                .saturating_add(self.shared.last_callback_audio_frames());
+            Instant::now() + Duration::from_secs_f64(tail_frames as f64 / loaded.out_rate as f64)
+        });
+        if Instant::now() < deadline {
             return;
         }
         loaded.ended_reported = true;
@@ -771,6 +952,10 @@ impl Worker {
             buffered_sec,
         });
     }
+}
+
+fn lock_transport(mutex: &Mutex<TransportIntent>) -> MutexGuard<'_, TransportIntent> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// 归一化增益的取值过滤。

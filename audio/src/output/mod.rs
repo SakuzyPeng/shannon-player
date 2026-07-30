@@ -69,6 +69,12 @@ pub struct OutputShared {
     source_drained: AtomicBool,
     /// 设备输出延迟（帧）。播放位置 = 消费帧数 − 该值。
     output_delay_frames: AtomicU64,
+    /// 输出回调正在搬运一块数据。控制线程看到 ring 已空时还必须等这次回调发布完
+    /// 尾部时序，不能在它读下标刚推进、时间戳尚未写回的窗口里误报播完。
+    callback_in_progress: AtomicBool,
+    /// 最近一次回调从 ring 取走的有效音频帧数。最后一帧真正发声的时刻约为
+    /// `回调时刻 + output_delay + 此帧数`，播完判定据此等待设备域排空。
+    last_callback_audio_frames: AtomicU64,
     /// 当前链路是否插入了重采样。回调不读它，放这里只是因为它与输出配置同生命周期，
     /// 且要跨线程被 stats 查询。
     resampled: AtomicBool,
@@ -87,6 +93,8 @@ impl Default for OutputShared {
             rebuffering: AtomicBool::new(false),
             source_drained: AtomicBool::new(false),
             output_delay_frames: AtomicU64::new(0),
+            callback_in_progress: AtomicBool::new(false),
+            last_callback_audio_frames: AtomicU64::new(0),
             resampled: AtomicBool::new(false),
         }
     }
@@ -150,6 +158,38 @@ impl OutputShared {
 
     pub fn output_delay_frames(&self) -> u64 {
         self.output_delay_frames.load(Ordering::Relaxed)
+    }
+
+    /// 输出后端在一次设备回调开始时调用。只有原子写，符合实时线程纪律。
+    pub fn begin_callback(&self) {
+        self.callback_in_progress.store(true, Ordering::Release);
+    }
+
+    /// 输出后端在一次设备回调结束前调用，并发布这次实际取走的有效音频帧数。
+    pub fn finish_callback(&self, audio_frames: usize) {
+        self.last_callback_audio_frames
+            .store(audio_frames as u64, Ordering::Relaxed);
+        self.callback_in_progress.store(false, Ordering::Release);
+    }
+
+    pub fn callback_in_progress(&self) -> bool {
+        self.callback_in_progress.load(Ordering::Acquire)
+    }
+
+    pub fn last_callback_audio_frames(&self) -> u64 {
+        self.last_callback_audio_frames.load(Ordering::Relaxed)
+    }
+
+    /// 更新设备报告的回调到发声延迟。输出后端从设备时间戳换算后写入。
+    pub fn set_output_delay_frames(&self, frames: u64) {
+        self.output_delay_frames.store(frames, Ordering::Relaxed);
+    }
+
+    /// 换流时清掉上一台设备留下的回调时序，避免新曲沿用旧延迟。
+    pub fn reset_callback_timing(&self) {
+        self.output_delay_frames.store(0, Ordering::Relaxed);
+        self.last_callback_audio_frames.store(0, Ordering::Relaxed);
+        self.callback_in_progress.store(false, Ordering::Release);
     }
 
     /// 已发声的位置（帧）。扣除设备延迟——共享模式的输出延迟普遍达数十毫秒，
@@ -217,7 +257,7 @@ pub fn fill_from_ring(
     shared: &OutputShared,
     current_gain: &mut f32,
     ramp_step: f32,
-) {
+) -> usize {
     // 无条件处理 flush：暂停期间不消费数据，但 seek 的回执不能因此卡住。
     consumer.poll_flush();
 
@@ -231,7 +271,7 @@ pub fn fill_from_ring(
     if shared.is_paused() && *current_gain <= f32::EPSILON {
         *current_gain = 0.0;
         out.fill(0.0);
-        return;
+        return 0;
     }
 
     let got = consumer.read(out);
@@ -263,6 +303,7 @@ pub fn fill_from_ring(
     let frames = (got / channels) as u64;
     shared.position_frames.fetch_add(frames, Ordering::Relaxed);
     shared.total_frames.fetch_add(frames, Ordering::Relaxed);
+    frames as usize
 }
 
 /// 按采样率算出每帧的增益步进。

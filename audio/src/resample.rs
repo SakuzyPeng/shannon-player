@@ -36,6 +36,15 @@ pub struct Active {
     channels: usize,
     src_rate: u32,
     dst_rate: u32,
+    /// 本轮（构造或 reset 之后）实际收到的源帧数。flush 用它算出**精确**输出长度，
+    /// 不能把 FFT 固定块为对齐而补的零也当成曲目内容。
+    input_frames: u64,
+    /// 已经交给下游的输出帧数。与 `input_frames` 配对，保证最终长度严格等于
+    /// `ceil(input * dst / src)`。
+    output_frames: u64,
+    /// FFT 重采样器开头的群延迟。rubato 的分块接口不会替调用方裁掉，必须在第一批
+    /// 输出里显式跳过，否则每次切歌都会多一段静音。
+    trim_remaining: usize,
     /// 攒够一整块才能送进重采样器，不足的留到下次。
     pending: Vec<f32>,
     /// 复用的输出缓冲，避免每块都分配。
@@ -63,11 +72,15 @@ impl Resampling {
             )
         })?;
         let scratch = vec![0.0; resampler.output_frames_max() * channels];
+        let trim_remaining = resampler.output_delay();
         Ok(Resampling::Active(Box::new(Active {
             resampler,
             channels,
             src_rate,
             dst_rate,
+            input_frames: 0,
+            output_frames: 0,
+            trim_remaining,
             pending: Vec::with_capacity(CHUNK_FRAMES * 2 * channels),
             scratch,
         })))
@@ -113,20 +126,27 @@ impl Resampling {
         if let Resampling::Active(a) = self {
             a.resampler.reset();
             a.pending.clear();
+            a.input_frames = 0;
+            a.output_frames = 0;
+            a.trim_remaining = a.resampler.output_delay();
         }
     }
 }
 
 impl Active {
     fn process(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        debug_assert_eq!(input.len() % self.channels, 0, "输入必须按声道数对齐");
+        self.input_frames = self
+            .input_frames
+            .saturating_add((input.len() / self.channels) as u64);
         self.pending.extend_from_slice(input);
-        self.drain(out, false);
+        self.drain(out, false, None);
     }
 
     /// 把 `pending` 里够一整块的部分送进重采样器。
     ///
     /// `finish` 为真时，最后不足一块的残余也用 `partial_len` 补零送出。
-    fn drain(&mut self, out: &mut Vec<f32>, finish: bool) {
+    fn drain(&mut self, out: &mut Vec<f32>, finish: bool, target_frames: Option<u64>) {
         loop {
             let need = self.resampler.input_frames_next();
             let have = self.pending.len() / self.channels;
@@ -159,7 +179,7 @@ impl Active {
                 .process_into_buffer(&input, &mut output, Some(&indexing))
                 .expect("块大小与缓冲容量均由 resampler 自己报出，不应失配");
 
-            out.extend_from_slice(&self.scratch[..written * self.channels]);
+            self.append_scratch(out, written, target_frames);
             self.pending.drain(..need * self.channels);
 
             if partial.is_some() {
@@ -169,34 +189,58 @@ impl Active {
     }
 
     fn flush(&mut self, out: &mut Vec<f32>) {
-        self.drain(out, true);
+        let target_frames = self.expected_output_frames();
+        self.drain(out, true, Some(target_frames));
 
-        // 再喂一块静音，把滤波器里还压着的延迟推出来。
-        let delay = self.resampler.output_delay();
-        if delay == 0 {
-            return;
+        // partial 块之后仍可能没把滤波器延迟全部推出。继续喂「有效长度为 0」的块，
+        // 但只接到目标帧数为止；rubato 自带的 process_all_into_buffer 也是这套语义。
+        while self.output_frames < target_frames {
+            let need = self.resampler.input_frames_next();
+            self.pending.clear();
+            self.pending.resize(need * self.channels, 0.0);
+            let out_cap = self.scratch.len() / self.channels;
+            let input =
+                InterleavedSlice::new(&self.pending, self.channels, need).expect("静音块尺寸正确");
+            let mut output = InterleavedSlice::new_mut(&mut self.scratch, self.channels, out_cap)
+                .expect("输出缓冲按 output_frames_max 预留");
+            let indexing = Indexing {
+                partial_len: Some(0),
+                ..Indexing::new()
+            };
+            let Ok((_read, written)) =
+                self.resampler
+                    .process_into_buffer(&input, &mut output, Some(&indexing))
+            else {
+                break;
+            };
+            if written == 0 {
+                break;
+            }
+            self.append_scratch(out, written, Some(target_frames));
         }
-        let need = self.resampler.input_frames_next();
         self.pending.clear();
-        self.pending.resize(need * self.channels, 0.0);
-        let out_cap = self.scratch.len() / self.channels;
-        let input =
-            InterleavedSlice::new(&self.pending, self.channels, need).expect("静音块尺寸正确");
-        let mut output = InterleavedSlice::new_mut(&mut self.scratch, self.channels, out_cap)
-            .expect("输出缓冲按 output_frames_max 预留");
-        let indexing = Indexing {
-            partial_len: Some(0),
-            ..Indexing::new()
-        };
-        if let Ok((_r, written)) =
-            self.resampler
-                .process_into_buffer(&input, &mut output, Some(&indexing))
-        {
-            // 只取延迟那么多帧，多出来的是补零本身产生的静音尾巴。
-            let take = written.min(delay);
-            out.extend_from_slice(&self.scratch[..take * self.channels]);
-        }
-        self.pending.clear();
+    }
+
+    /// 追加一次 rubato 输出：先裁开头的群延迟，流末尾再按精确目标长度截断块填充。
+    fn append_scratch(&mut self, out: &mut Vec<f32>, written: usize, target_frames: Option<u64>) {
+        let trim = self.trim_remaining.min(written);
+        self.trim_remaining -= trim;
+        let available = written - trim;
+        let remaining = target_frames
+            .map(|target| target.saturating_sub(self.output_frames))
+            .unwrap_or(u64::MAX);
+        let take = available.min(usize::try_from(remaining).unwrap_or(usize::MAX));
+        let start = trim * self.channels;
+        let end = start + take * self.channels;
+        out.extend_from_slice(&self.scratch[start..end]);
+        self.output_frames = self.output_frames.saturating_add(take as u64);
+    }
+
+    fn expected_output_frames(&self) -> u64 {
+        let numerator = u128::from(self.input_frames) * u128::from(self.dst_rate);
+        let denominator = u128::from(self.src_rate);
+        let frames = numerator.div_ceil(denominator);
+        u64::try_from(frames).unwrap_or(u64::MAX)
     }
 }
 
@@ -246,18 +290,42 @@ mod tests {
 
     #[test]
     fn output_length_follows_ratio() {
-        let mut r = Resampling::new(44_100, 48_000, 2).unwrap();
-        assert!(r.is_active());
-        let frames = 44_100; // 一秒
-        let input = vec![0.0; frames * 2];
+        // 固定 FFT 块会为不足一块的输入补零，滤波器本身还有群延迟；两者都不能
+        // 泄漏到曲目时长里。短到 1 帧与刚好跨块的长度最容易暴露这个问题。
+        for frames in [1usize, 68, 1_024, 44_100, 44_101] {
+            let mut r = Resampling::new(44_100, 48_000, 2).unwrap();
+            assert!(r.is_active());
+            let input = vec![0.0; frames * 2];
+            let mut out = Vec::new();
+            r.process(&input, &mut out);
+            r.flush(&mut out);
+            let got = out.len() / 2;
+            let expected = (frames as u128 * 48_000).div_ceil(44_100) as usize;
+            assert_eq!(
+                got, expected,
+                "{frames} 帧的 44.1k 输入必须精确映射到目标域，不能带块填充或群延迟"
+            );
+        }
+    }
+
+    #[test]
+    fn startup_delay_is_trimmed_from_the_signal() {
+        let mut r = Resampling::new(44_100, 48_000, 1).unwrap();
+        let mut input = vec![0.0; 4_096];
+        input[0] = 1.0;
         let mut out = Vec::new();
         r.process(&input, &mut out);
         r.flush(&mut out);
-        let got = out.len() / 2;
-        // 一秒的输入应当产出约一秒的输出（容差留给块对齐与滤波器延迟）。
+
+        let peak = out
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.abs().total_cmp(&b.abs()))
+            .map(|(index, _)| index)
+            .unwrap();
         assert!(
-            (got as i64 - 48_000).abs() < 2_000,
-            "44.1k 的一秒重采样到 48k 应约得 48000 帧，实际 {got}"
+            peak <= 1,
+            "输入首帧的脉冲不应被 FFT 群延迟推到曲目中段，实际峰值在第 {peak} 帧"
         );
     }
 
@@ -273,7 +341,7 @@ mod tests {
         let mut out = Vec::new();
         r.process(&input, &mut out);
 
-        // 跳过起始的滤波器延迟段，取中间一整段比对。
+        // 群延迟已由转换器裁掉；仍取中间一整段，避开有限长度信号两端的滤波过渡。
         let start = 4_000;
         let len = 8_000;
         assert!(out.len() > start + len, "输出长度不足以比对");
