@@ -207,3 +207,35 @@ pub fn player_set_volume(
 pub fn player_stop(state: State<'_, PlayerState>) -> Result<(), String> {
     state.with_engine(|e| e.send(PlayerCmd::Stop))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 前端发过来的形状。
+    ///
+    /// 这类边界只能靠测试钉住：字段名写错不会有任何编译期报错，运行期表现是
+    /// 「无缝换曲静默失效」——`next` 被当成缺席，引擎照旧在曲目之间停一下，
+    /// 而日志里什么都没有。同类教训见 `PlayerEvent` 那条 `rename_all_fields`。
+    #[test]
+    fn next_track_accepts_the_frontend_shape() {
+        let json = r#"{
+            "path": "/音乐/专辑/02.flac",
+            "context": { "trackId": "t-1", "loadId": "load-9" },
+            "queueRevision": 7
+        }"#;
+        let next: NextTrack = serde_json::from_str(json).expect("前端形状必须能解开");
+        assert_eq!(next.path, "/音乐/专辑/02.flac");
+        assert_eq!(next.context.track_id.as_deref(), Some("t-1"));
+        assert_eq!(next.context.load_id, "load-9");
+        assert_eq!(next.queue_revision, 7);
+    }
+
+    #[test]
+    fn no_next_track_is_expressible() {
+        // 「放完就停」必须能明说：不说的话引擎会一直接着上次指定的那首，
+        // 用户删掉队尾之后反而会绕回去。
+        let absent: Option<NextTrack> = serde_json::from_str("null").expect("null 要能解成 None");
+        assert!(absent.is_none());
+    }
+}

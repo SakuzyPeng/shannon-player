@@ -1670,3 +1670,29 @@ fn a_handoff_survives_a_sample_rate_change() {
     );
     assert_eq!(chain.engine.stats().underruns, 0);
 }
+
+#[test]
+fn hammering_the_next_slot_never_leaves_playback_stuck() {
+    // 第一首必须**短于缓冲**（高水位 1.5 秒），它的解码才会立刻吐完，
+    // 后面每指定一次下一首都真的走一遍「接上并打点」——否则这个用例连打点都碰不到。
+    let first = corpus_with("hammer-a", 2, RATE as usize, chirp);
+    // 每次都换一首**不同的**下一首，逼引擎真的重新打点。
+    let candidates: Vec<PathBuf> = (0..24)
+        .map(|i| flat(&format!("hammer-n{i}"), RATE as usize / 4, 0.9))
+        .collect();
+
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&candidates[0], "N0", 1);
+    // 缓冲超过第一首的总时长（1 秒）= 缓冲里确实已经躺着接上来的那首，打点已经发生。
+    chain.wait_until_buffered(1.02);
+
+    for (i, path) in candidates.iter().enumerate().skip(1) {
+        chain.set_next(path, &format!("N{i}"), i as u32 + 1);
+        // 留出一轮喂料的时间，让引擎真的把这一首接上并打点。
+        std::thread::sleep(Duration::from_millis(12));
+    }
+
+    // 无论最终接上了哪一首、还是一首都没接上，播放都必须走到终点而不是卡住。
+    chain.wait_ended();
+}
