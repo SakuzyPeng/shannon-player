@@ -20,6 +20,7 @@ use std::sync::Mutex;
 
 use shannon_audio::contract::PlayerEvent;
 use shannon_audio::output::cpal_out::CpalOutput;
+use shannon_audio::engine::LoadRequest;
 use shannon_audio::{Engine, LoadContext, PlayerCmd};
 use tauri::{Emitter, State};
 
@@ -95,12 +96,10 @@ pub fn player_load(
     let running = slot.as_ref().expect("ensure 保证已装配");
     running
         .engine
-        .load_with_context(
-            path,
-            autoplay,
-            context,
-            Some(initial_volume),
-            initial_position_sec,
+        .load_request(
+            LoadRequest::new(path, autoplay, context)
+                .with_volume(initial_volume)
+                .with_position(initial_position_sec),
         )
         .map_err(|e| e.to_string())
 }

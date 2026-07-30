@@ -17,7 +17,7 @@
 //! 而平台原生输出后端尚未接入，因此当前遇到多声道会报明确的路由错误。
 //! 采样率不受此限——设备给不出源采样率时插入重采样，并在 stats 里如实标记。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
@@ -57,20 +57,64 @@ pub enum PlaybackState {
     Error,
 }
 
+/// 一次装载的全部参数。
+///
+/// 这些值**必须与装载原子生效**，所以是一个结构体而不是几条独立命令：多次 IPC 的
+/// 完成顺序没有保证，音量晚到会让第一首偶发以满音量炸出来，位置晚到会先漏出一段曲首
+/// PCM，响度增益晚到则是前几百毫秒响一截。参数一多，平铺成函数参数也不好读了。
+#[derive(Debug, Clone)]
+pub struct LoadRequest {
+    pub path: PathBuf,
+    pub autoplay: bool,
+    /// 不透明上下文，引擎不解释，只在这一代的事件上原样回带。
+    pub context: LoadContext,
+    /// 与装载原子生效的初始音量。诊断工具传 `None`，沿用引擎当前音量；
+    /// 前端传当前有效音量，避免首次 open 仍使用默认的 1.0。
+    pub initial_volume: Option<f32>,
+    /// 可选的初始播放位置。播放会话续播必须在预缓冲与解除暂停之前完成定位，
+    /// 不能等 `Opened` 跨 IPC 回到前端后再补发 `Seek`。
+    pub initial_position_sec: Option<f64>,
+    /// 响度归一化的**整曲常量**增益（线性倍率）。`None` 与 1.0 同义：不处理。
+    ///
+    /// 与音量相反，它在管线里施加而不是输出回调里——做 gapless 后环形缓冲会同时躺着
+    /// 两首歌的 PCM，回调里那个「当前增益」必然在边界处把前一首的尾巴用后一首的
+    /// 增益放出去。写进管线时那段 PCM 属于哪首歌是确定的。
+    pub loudness_gain: Option<f32>,
+}
+
+impl LoadRequest {
+    pub fn new(path: impl Into<PathBuf>, autoplay: bool, context: LoadContext) -> Self {
+        Self {
+            path: path.into(),
+            autoplay,
+            context,
+            initial_volume: None,
+            initial_position_sec: None,
+            loudness_gain: None,
+        }
+    }
+
+    pub fn with_volume(mut self, volume: f32) -> Self {
+        self.initial_volume = Some(volume);
+        self
+    }
+
+    /// 设初始位置。非有限值与非正数一律当作「从头开始」。
+    pub fn with_position(mut self, position_sec: Option<f64>) -> Self {
+        self.initial_position_sec = position_sec.filter(|sec| sec.is_finite() && *sec > 0.0);
+        self
+    }
+
+    pub fn with_loudness_gain(mut self, gain: f32) -> Self {
+        self.loudness_gain = Some(gain);
+        self
+    }
+}
+
 /// 控制命令。经通道投递，调用方不阻塞，结果一律走事件。
 #[derive(Debug)]
 pub enum PlayerCmd {
-    Load {
-        path: PathBuf,
-        autoplay: bool,
-        context: LoadContext,
-        /// 与装载命令原子生效的初始音量。诊断工具传 `None`，沿用引擎当前音量；
-        /// 前端传当前有效音量，避免首次 open 仍使用默认的 1.0。
-        initial_volume: Option<f32>,
-        /// 可选的初始播放位置。播放会话续播必须在预缓冲与解除暂停之前完成定位，
-        /// 不能等 `Opened` 跨 IPC 回到前端后再补发 `Seek`。
-        initial_position_sec: Option<f64>,
-    },
+    Load(LoadRequest),
     Play,
     Pause,
     Stop,
@@ -200,34 +244,16 @@ impl Engine {
 
     pub fn load(&self, path: impl Into<PathBuf>, autoplay: bool) -> Result<()> {
         let sequence = self.load_sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        self.load_with_context(
+        self.load_request(LoadRequest::new(
             path,
             autoplay,
             LoadContext::new(None, format!("engine-{sequence}")),
-            None,
-            None,
-        )
+        ))
     }
 
-    /// 装载并把调用方给出的上下文、有效音量与初始位置绑定到同一条命令。
-    ///
-    /// `initial_volume` / `initial_position_sec` 不能拆成单独命令：多次 IPC 的完成顺序
-    /// 没有保证，前者会让第一首偶发以默认满音量打开，后者会让续播先漏出曲首 PCM。
-    pub fn load_with_context(
-        &self,
-        path: impl Into<PathBuf>,
-        autoplay: bool,
-        context: LoadContext,
-        initial_volume: Option<f32>,
-        initial_position_sec: Option<f64>,
-    ) -> Result<()> {
-        self.send(PlayerCmd::Load {
-            path: path.into(),
-            autoplay,
-            context,
-            initial_volume,
-            initial_position_sec: initial_position_sec.filter(|sec| sec.is_finite() && *sec > 0.0),
-        })
+    /// 按完整的装载请求装载。见 [`LoadRequest`]：那些参数必须与装载一起生效。
+    pub fn load_request(&self, request: LoadRequest) -> Result<()> {
+        self.send(PlayerCmd::Load(request))
     }
 
     pub fn play(&self) -> Result<()> {
@@ -282,6 +308,8 @@ struct Loaded {
     adapt: ChannelAdapt,
     /// 源声道数。重采样在声道适配**之前**做，中间缓冲仍是源声道布局。
     src_channels: usize,
+    /// 响度归一化增益（线性倍率）。1.0 表示不处理，此时连乘法都不做。
+    loudness_gain: f32,
     out_channels: usize,
     /// **输出**采样率。环形缓冲、位置计数与进度换算一律用它——
     /// 重采样之后链路里流动的就是输出域的帧，混用源采样率会让进度按比率走偏。
@@ -420,20 +448,14 @@ impl Worker {
 
     fn handle(&mut self, cmd: PlayerCmd) {
         match cmd {
-            PlayerCmd::Load {
-                path,
-                autoplay,
-                context,
-                initial_volume,
-                initial_position_sec,
-            } => {
-                self.context = Some(context);
-                if let Some(volume) = initial_volume {
+            PlayerCmd::Load(request) => {
+                self.context = Some(request.context.clone());
+                if let Some(volume) = request.initial_volume {
                     self.volume = volume.clamp(0.0, 1.0);
                     self.shared.set_gain(self.volume);
                 }
                 self.set_state(PlaybackState::Loading);
-                if let Err(err) = self.load(&path, autoplay, initial_position_sec) {
+                if let Err(err) = self.load(&request) {
                     self.fail(err);
                 }
             }
@@ -467,16 +489,11 @@ impl Worker {
         }
     }
 
-    fn load(
-        &mut self,
-        path: &Path,
-        autoplay: bool,
-        initial_position_sec: Option<f64>,
-    ) -> Result<()> {
+    fn load(&mut self, request: &LoadRequest) -> Result<()> {
         // 换曲先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
         self.teardown();
 
-        let mut decoder = Decoder::open(path)?;
+        let mut decoder = Decoder::open(&request.path)?;
         let spec = decoder.spec().clone();
 
         // 阶段 0 的目标布局恒为立体声。多声道整体走平台原生后端；
@@ -488,18 +505,18 @@ impl Worker {
 
         // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
         // 输出域的采样率才是链路后半段的基准。
-        let request = OutputRequest {
+        let output_request = OutputRequest {
             sample_rate: spec.sample_rate,
             layout: out_layout,
         };
-        let probe = self.backend.negotiate(&request)?;
+        let probe = self.backend.negotiate(&output_request)?;
         let out_rate = probe.sample_rate;
 
         let resampler = Resampling::new(spec.sample_rate, out_rate, spec.layout.count() as usize)?;
         // 新装载还没有任何在途 PCM，直接在解码器上定位即可；随后按返回的**源域帧**
         // 换算输出域位置。这样 open、预缓冲与 autoplay 从一开始看到的就是同一位置，
         // 不会先放出曲首再由一条迟到的 Seek 把它冲掉。
-        let initial_source_frame = match initial_position_sec {
+        let initial_source_frame = match request.initial_position_sec {
             Some(seconds) => decoder.seek(seconds)?,
             None => 0,
         };
@@ -516,7 +533,7 @@ impl Worker {
         self.shared.set_rebuffering(true);
         self.shared.set_paused(true);
 
-        let output = self.backend.open(&request, consumer, self.shared.clone())?;
+        let output = self.backend.open(&output_request, consumer, self.shared.clone())?;
         if output.sample_rate != out_rate {
             // 协商预演与实际打开给出不同结果说明后端实现自相矛盾，
             // 继续下去链路里的采样率就对不上了——宁可明确报错。
@@ -532,6 +549,7 @@ impl Worker {
         }
         self.loaded = Some(Loaded {
             src_channels: spec.layout.count() as usize,
+            loudness_gain: sanitize_gain(request.loudness_gain),
             decoder,
             producer,
             resampler,
@@ -550,7 +568,7 @@ impl Worker {
         self.shared.set_rebuffering(false);
         self.emit(EngineEvent::Opened { spec, output });
 
-        if autoplay {
+        if request.autoplay {
             self.shared.set_paused(false);
             self.set_state(PlaybackState::Playing);
         } else {
@@ -626,6 +644,10 @@ impl Worker {
             self.decode_scratch.clear();
             let more = loaded.decoder.next_frames(&mut self.decode_scratch)?;
             if more {
+                // ReplayGain 在**重采样之前**施加（管线顺序见实现计划）：重采样器里
+                // 压着上一轮的尾部延迟，中途换增益会让那段尾巴用错倍率；放在前面则
+                // 连 flush 冲出来的尾部都是已经归一化过的。
+                apply_gain(&mut self.decode_scratch, loaded.loudness_gain);
                 loaded
                     .resampler
                     .process(&self.decode_scratch, &mut loaded.resampled);
@@ -748,5 +770,58 @@ impl Worker {
             duration_sec,
             buffered_sec,
         });
+    }
+}
+
+/// 归一化增益的取值过滤。
+///
+/// 非有限值、负数一律当作「不处理」而不是钳到 0：那意味着静音，而一个算歪了的增益
+/// 让整首歌没声音，比不归一化糟糕得多。上限 8 倍（+18 dB）是给「安静但峰值也低」的
+/// 曲目留的余量，同时挡住离谱值——真峰值保护已经在增益公式里咬住了削顶。
+fn sanitize_gain(gain: Option<f32>) -> f32 {
+    match gain {
+        Some(g) if g.is_finite() && g > 0.0 => g.min(8.0),
+        _ => 1.0,
+    }
+}
+
+/// 就地施加整曲常量增益。1.0 时不做任何事——绝大多数曲目都要走这条路径。
+fn apply_gain(samples: &mut [f32], gain: f32) {
+    if gain == 1.0 {
+        return;
+    }
+    for sample in samples {
+        *sample *= gain;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_broken_gain_means_no_processing_not_silence() {
+        // 算歪的增益让整首歌没声音，比不归一化糟糕得多——所以异常值一律回落到 1.0，
+        // 而不是钳到 0。
+        assert_eq!(sanitize_gain(None), 1.0);
+        assert_eq!(sanitize_gain(Some(f32::NAN)), 1.0);
+        assert_eq!(sanitize_gain(Some(f32::INFINITY)), 1.0);
+        assert_eq!(sanitize_gain(Some(-2.0)), 1.0);
+        assert_eq!(sanitize_gain(Some(0.0)), 1.0);
+        assert_eq!(sanitize_gain(Some(0.5)), 0.5);
+        assert_eq!(sanitize_gain(Some(100.0)), 8.0, "离谱的提升要有上限");
+    }
+
+    #[test]
+    fn unit_gain_leaves_samples_untouched() {
+        // 绝大多数曲目最终都落在某个具体倍率上，但「不处理」这条路必须是逐位不变的：
+        // 关掉响度归一化时不该有任何浮点尾数上的差异。
+        let original = vec![0.1f32, -0.25, 0.5, -1.0];
+        let mut samples = original.clone();
+        apply_gain(&mut samples, 1.0);
+        assert_eq!(samples, original);
+
+        apply_gain(&mut samples, 0.5);
+        assert_eq!(samples, vec![0.05, -0.125, 0.25, -0.5]);
     }
 }

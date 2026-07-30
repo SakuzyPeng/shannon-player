@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use shannon_audio::decode::Decoder;
-use shannon_audio::engine::{Engine, EngineEvent, LoadContext, PlaybackState};
+use shannon_audio::engine::{Engine, EngineEvent, LoadContext, LoadRequest, PlaybackState};
 use shannon_audio::layout::ChannelLayout;
 use shannon_audio::mix::ChannelAdapt;
 use shannon_audio::output::null::NullOutput;
@@ -194,6 +194,162 @@ fn missing_file_reports_io_error_not_panic() {
     };
     assert_eq!(err.kind, ErrorKind::Io);
     assert_eq!(err.stage, Stage::Open);
+}
+
+/// 采集实际送到设备的样本，用于验证管线里施加的增益。
+///
+/// 按真实节奏消费（与 `NullOutput` 同样 10 ms 一拍）：抽干式消费会让环形缓冲
+/// 频繁见底，`fill_from_ring` 补的零会混进采集结果，两次运行的零还落在不同位置。
+struct CapturingOutput {
+    config: Option<OutputConfig>,
+    captured: Arc<Mutex<Vec<f32>>>,
+    /// 模拟只支持单一采样率的设备，用来把采集延伸到重采样路径。
+    fixed_rate: Option<u32>,
+    stop: Arc<AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl CapturingOutput {
+    fn new(captured: Arc<Mutex<Vec<f32>>>, fixed_rate: Option<u32>) -> Self {
+        Self {
+            config: None,
+            captured,
+            fixed_rate,
+            stop: Arc::new(AtomicBool::new(false)),
+            worker: None,
+        }
+    }
+}
+
+impl OutputBackend for CapturingOutput {
+    fn name(&self) -> &'static str {
+        "capturing-test"
+    }
+
+    fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        Ok(OutputConfig {
+            sample_rate: self.fixed_rate.unwrap_or(request.sample_rate),
+            layout: request.layout,
+            sample_format: "f32".into(),
+            device_name: "采集".into(),
+        })
+    }
+
+    fn open(
+        &mut self,
+        request: &OutputRequest,
+        mut consumer: RingConsumer,
+        shared: Arc<OutputShared>,
+    ) -> Result<OutputConfig> {
+        let config = self.negotiate(request)?;
+        let channels = config.layout.count() as usize;
+        let frames_per_tick = config.sample_rate as usize / 100;
+        let ramp_step = shannon_audio::output::ramp_step_for(config.sample_rate);
+        let stop = Arc::new(AtomicBool::new(false));
+        self.stop = stop.clone();
+        let captured = self.captured.clone();
+        self.worker = Some(std::thread::spawn(move || {
+            let mut buf = vec![0.0f32; frames_per_tick * channels];
+            let mut gain = 0.0f32;
+            while !stop.load(Ordering::Relaxed) {
+                fill_from_ring(&mut buf, channels, &mut consumer, &shared, &mut gain, ramp_step);
+                captured.lock().unwrap().extend_from_slice(&buf);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }));
+        self.config = Some(config.clone());
+        Ok(config)
+    }
+
+    fn close(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        self.config = None;
+    }
+
+    fn config(&self) -> Option<&OutputConfig> {
+        self.config.as_ref()
+    }
+}
+
+impl Drop for CapturingOutput {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+/// 放完一首，返回送到设备的样本峰值。
+fn peak_through_engine(path: &Path, loudness_gain: Option<f32>, device_rate: Option<u32>) -> f32 {
+    let captured: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    let ended = Arc::new(AtomicBool::new(false));
+    let engine = {
+        let ended = ended.clone();
+        Engine::spawn(
+            Box::new(CapturingOutput::new(captured.clone(), device_rate)),
+            move |event| {
+                if matches!(event, EngineEvent::TrackEnded) {
+                    ended.store(true, Ordering::Relaxed);
+                }
+            },
+        )
+    };
+
+    let mut request = LoadRequest::new(
+        path,
+        true,
+        LoadContext::new(Some("gain-track".into()), "gain-load"),
+    )
+    .with_volume(1.0);
+    if let Some(gain) = loudness_gain {
+        request = request.with_loudness_gain(gain);
+    }
+    engine.load_request(request).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !ended.load(Ordering::Relaxed) {
+        assert!(Instant::now() < deadline, "播放未在预期时间内结束");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(engine);
+
+    let samples = captured.lock().unwrap();
+    samples.iter().fold(0.0f32, |peak, s| peak.max(s.abs()))
+}
+
+#[test]
+fn loudness_gain_scales_what_reaches_the_device() {
+    // 语料振幅 0.3（见 `sine`），音量固定 1.0，所以峰值差异只能来自响度增益。
+    // 比峰值而不是逐样本比：偶发欠载补的零会挪动样本位置，却不会抬高峰值。
+    let path = corpus("loudness_gain", 2, RATE as usize);
+    let plain = peak_through_engine(&path, None, None);
+    let halved = peak_through_engine(&path, Some(0.5), None);
+    let boosted = peak_through_engine(&path, Some(2.0), None);
+
+    assert!((plain - 0.3).abs() < 0.01, "不加增益应保持源振幅，实际 {plain}");
+    assert!(
+        (halved / plain - 0.5).abs() < 0.02,
+        "0.5 倍增益应让峰值减半：{halved} / {plain}"
+    );
+    assert!(
+        (boosted / plain - 2.0).abs() < 0.05,
+        "增益要能双向——有曲目需要提升（实测应用增益范围 -14.8 到 +7.0 dB）：{boosted} / {plain}"
+    );
+}
+
+#[test]
+fn loudness_gain_survives_the_resampling_path() {
+    // 设备给不出源采样率是常态（实测本机默认设备只有 24 / 48 kHz），所以归一化不能
+    // 只在「刚好对得上」的那条路上成立。两次都过同一个重采样器，比值才只反映增益。
+    let path = corpus("loudness_gain_resampled", 2, RATE as usize);
+    let plain = peak_through_engine(&path, None, Some(48_000));
+    let quartered = peak_through_engine(&path, Some(0.25), Some(48_000));
+
+    assert!(
+        (quartered / plain - 0.25).abs() < 0.02,
+        "重采样后仍应保持 0.25 倍：{quartered} / {plain}"
+    );
 }
 
 /// 收集引擎事件，供端到端用例断言。
@@ -400,10 +556,10 @@ fn load_context_stays_with_its_events_and_initial_gain() {
     let first = LoadContext::new(Some("track-same".into()), "load-1");
     let second = LoadContext::new(Some("track-same".into()), "load-2");
     engine
-        .load_with_context(&path, false, first.clone(), Some(0.18), None)
+        .load_request(LoadRequest::new(&path, false, first.clone()).with_volume(0.18))
         .unwrap();
     engine
-        .load_with_context(&path, false, second.clone(), Some(0.42), None)
+        .load_request(LoadRequest::new(&path, false, second.clone()).with_volume(0.42))
         .unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -456,12 +612,14 @@ fn initial_position_is_applied_before_output_opens() {
         .seek(initial_position_sec)
         .unwrap();
     engine
-        .load_with_context(
-            &path,
-            true,
-            LoadContext::new(Some("resume-track".into()), "resume-load"),
-            Some(0.5),
-            Some(initial_position_sec),
+        .load_request(
+            LoadRequest::new(
+                &path,
+                true,
+                LoadContext::new(Some("resume-track".into()), "resume-load"),
+            )
+            .with_volume(0.5)
+            .with_position(Some(initial_position_sec)),
         )
         .unwrap();
 
