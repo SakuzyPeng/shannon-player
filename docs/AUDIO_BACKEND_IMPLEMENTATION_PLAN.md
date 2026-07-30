@@ -12,8 +12,9 @@
   测试策略与实施阶段。
 - **实现进度**：阶段 0 的立体声路径已从 `shannon-audio` 接入 Tauri 与前端，
   真实进度、结构化错误、MockEngine、统一后继算法与洗牌顺序均已落地，详见
-  「阶段 0 的实现现状」。next 预解码与 queueRevision 随 gapless 放在阶段 1；
-  阶段 1 及以后其余部分仍为设计。
+  「阶段 0 的实现现状」。阶段 1 的**响度归一化已落地**（测量、存储、优先级队列、
+  后台 QoS worker、管线增益、前端开关，见本文「响度归一化」各节的现状标注）；
+  next 预解码与 queueRevision 随 gapless 仍为设计，阶段 1 其余部分同。
 
 ## 工程结构
 
@@ -182,6 +183,19 @@ Symphonia 管线加自定义解码器注册：
   实测开销：44.1 → 48 kHz 立体声，release 构建下播放 10 秒耗 0.12 秒 CPU（约 1.2%）。
 
 ## 响度归一化（ReplayGain 2.0）
+
+**现状：已落地**（`audio/src/loudness/`：`mod.rs` 测量、`store.rs` 存储、`service.rs` 队列与
+worker、`qos.rs` 后台优先级；外壳在 `src-tauri/src/loudness.rs`，前端顺序在
+`src/hooks/useLoudnessQueue.ts`）。本节除下列两处外描述的都是已实现行为：
+
+- **专辑增益仍未提供**（见「产品契约」末条），只做逐曲增益。
+- **并发度仍是 1 个 worker**，提高默认值的前提条件未变（目标平台重跑 `--loudness`
+  的 1/2/4/8 线程 + 同时跑欠载测试）。「现在全部分析」这个意图级动作也尚未做成入口
+  ——当前等价于「打开开关」，队列本来就是整库。
+
+QoS 三平台的验证程度不同：macOS 有运行时读回校验，Windows / Linux 只做了 FFI 签名的
+交叉编译检查（且 `cargo check --target x86_64-pc-windows-msvc` 目前卡在 cpal 0.18.1 与
+windows-core 0.62 不兼容，与本功能无关，但意味着 Windows 侧当前整体不可构建）。
 
 ### 标签靠不住，必须自己算
 
