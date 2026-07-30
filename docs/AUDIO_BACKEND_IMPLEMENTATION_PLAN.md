@@ -560,7 +560,7 @@ QoS 就是把判断交给它的正规途径。`audio/examples/bench_decode.rs --
 | store 后继算法、洗牌顺序与队列面板同步 | 完成 |
 | next 预解码与 queueRevision | 完成（见「队列归属与切歌交接」；换曲不再拆输出流） |
 
-验证方式：`cargo test -p shannon-audio`（51 项，无头，语料现生成不入库）与
+验证方式：`cargo test -p shannon-audio`（108 项，无头，语料现生成不入库）与
 `cargo run -p shannon-audio --example play -- <文件>`。设备诊断用
 `--example devices`。二者均为架构约束允许的开发期工具。
 
