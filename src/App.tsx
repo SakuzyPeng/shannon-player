@@ -115,10 +115,10 @@ function useRestoreLibrary() {
       // 两条路都只换不放：启动即出声是没人要的行为。
       const byId = new Map(snapshot.tracks.map((t) => [t.id, t]));
       const player = usePlayerStore.getState();
-      const restored =
-        player === playerBaseline
-          ? await player.restoreSession((id) => byId.get(id), controller.signal)
-          : false;
+      const restored = await player.restoreSession((id) => byId.get(id), {
+        signal: controller.signal,
+        baseline: playerBaseline,
+      });
       if (controller.signal.aborted) return;
       if (!restored) player.adoptLibrary(snapshot.tracks);
       // 就绪状态由恢复流程的汇合点统一置位，不能依赖 adoptLibrary 是否真的接管队列：

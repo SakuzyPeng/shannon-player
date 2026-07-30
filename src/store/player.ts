@@ -40,6 +40,33 @@ function uniqueTracksById(tracks: Track[], seen = new Set<Id>()): Track[] {
   });
 }
 
+/**
+ * 恢复会话前后要比对的播放域快照。
+ *
+ * 恢复要跨两次 IPC（曲库 + 会话文件），期间用户完全可能已经动过播放器。判据必须
+ * **按意图分组**，而不是「整个 store 有没有变过」：Zustand 每次 `set` 都换新对象，
+ * 那种判据下调一次音量就会让整份会话作废——队列被整库入队顶掉，下一次持久化再把它
+ * 写回文件，用户上次听到哪就永久没了。而调音量并不包含「忘掉我的队列」的意思。
+ */
+export interface PlaybackBaseline {
+  queue: QueueItem[];
+  currentIndex: number;
+  loadedTrackId: Id | null;
+  volume: number;
+  muted: boolean;
+  repeat: RepeatMode;
+  shuffle: boolean;
+}
+
+/** 用户已经自己选了要放什么——整份会话作废，不能再把队列换掉。 */
+function chosePlayback(before: PlaybackBaseline, after: PlaybackBaseline): boolean {
+  return (
+    before.queue !== after.queue ||
+    before.currentIndex !== after.currentIndex ||
+    before.loadedTrackId !== after.loadedTrackId
+  );
+}
+
 interface PlayerState {
   /** ---- 播放队列 ---- */
   queue: QueueItem[];
@@ -178,7 +205,7 @@ interface PlayerState {
    */
   restoreSession: (
     lookup: (id: Id) => Track | undefined,
-    signal?: AbortSignal,
+    options?: { signal?: AbortSignal; baseline?: PlaybackBaseline },
   ) => Promise<boolean>;
   /** 真实曲库的恢复 / 首次接管已经结束，从此允许写播放会话。 */
   markSessionReady: () => void;
@@ -656,12 +683,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
   },
 
-  restoreSession: async (lookup, signal) => {
-    // 只允许覆盖调用这一刻的未操作状态。读会话跨 IPC，期间任何播放域变化都说明
-    // 用户已经表达了更新意图；StrictMode 的另一轮恢复也会改变这个对象引用。
-    const baseline = get();
+  restoreSession: async (lookup, options) => {
+    // 基线默认取调用这一刻，但调用方应当把**整个恢复流程开始时**的快照传进来：
+    // 曲库 IPC 本身也可能很慢，那段时间里的操作同样要优先于旧会话。
+    const baseline = options?.baseline ?? get();
     const json = await loadSession();
-    if (signal?.aborted || get() !== baseline) return false;
+    if (options?.signal?.aborted) return false;
+    const now = get();
+    // 只有「用户已经选了要放什么」才整份作废（也包括 StrictMode 另一轮恢复留下的队列）。
+    if (chosePlayback(baseline, now)) return false;
+    // 音量与模式是各自独立的意图：用户刚调好的值不该被旧会话盖回去，
+    // 但那也不意味着他想丢掉队列。
+    const keepVolume = now.volume !== baseline.volume || now.muted !== baseline.muted;
+    const keepMode = now.repeat !== baseline.repeat || now.shuffle !== baseline.shuffle;
     const restored = json ? fromSession(json, lookup) : null;
     if (!restored) {
       // 没有会话、或会话已失效：调用方会回落到整库入队，并在两条路径汇合后
@@ -675,15 +709,26 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       source: "auto" as const,
     }));
     const idx = Math.min(restored.currentIndex, queue.length - 1);
+    const shuffle = keepMode ? now.shuffle : restored.shuffle;
+    const volume = keepVolume ? now.volume : restored.volume;
+    const muted = keepVolume ? now.muted : restored.muted;
     set({
       queue,
       currentIndex: idx,
-      // 存的是下标排列，这里映射回本次运行新生成的 uid。
-      shuffleOrder: restored.shuffleOrder?.map((i) => queue[i]?.uid).filter((u): u is Id => !!u) ?? null,
-      shuffle: restored.shuffle,
-      repeat: restored.repeat,
-      volume: restored.volume,
-      muted: restored.muted,
+      shuffleOrder: shuffle
+        ? keepMode
+          ? // 用户刚开的随机：他洗的是种子队列，那份顺序对恢复的队列没有意义，现洗一份。
+            shuffled(
+              queue.map((item) => item.uid),
+              queue[idx]?.uid,
+            )
+          : // 存的是下标排列，这里映射回本次运行新生成的 uid。
+            (restored.shuffleOrder?.map((i) => queue[i]?.uid).filter((u): u is Id => !!u) ?? null)
+        : null,
+      shuffle,
+      repeat: keepMode ? now.repeat : restored.repeat,
+      volume,
+      muted,
       // 恢复不自动播放，但进度条要显示上次的位置。
       playing: false,
       status: "idle",
@@ -703,7 +748,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     });
     // 音量要立刻同步给引擎：它是与装载无关的全局设置，
     // 等到第一次 load 才带过去的话，用户开播前调音量会打在默认值上。
-    void engine.setVolume(restored.muted ? 0 : restored.volume);
+    void engine.setVolume(muted ? 0 : volume);
     return true;
   },
 
