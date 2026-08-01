@@ -42,11 +42,7 @@ mod imp {
         let mut class = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
         // 安全性：`class` 是栈上的合法可写对象，priority 传空指针是 API 允许的。
         unsafe {
-            libc::pthread_get_qos_class_np(
-                libc::pthread_self(),
-                &mut class,
-                std::ptr::null_mut(),
-            );
+            libc::pthread_get_qos_class_np(libc::pthread_self(), &mut class, std::ptr::null_mut());
         }
         class as u32
     }

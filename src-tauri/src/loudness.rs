@@ -56,10 +56,12 @@ pub struct QueueItem {
 #[tauri::command]
 pub fn loudness_set_queue(state: State<'_, LoudnessState>, items: Vec<QueueItem>) -> usize {
     log::info!("响度分析队列：收到 {} 首", items.len());
-    state.service.set_queue(items.into_iter().map(|item| AnalysisItem {
-        track_id: item.track_id,
-        path: PathBuf::from(item.path),
-    }))
+    state
+        .service
+        .set_queue(items.into_iter().map(|item| AnalysisItem {
+            track_id: item.track_id,
+            path: PathBuf::from(item.path),
+        }))
 }
 
 /// 还有多少首没分析完。0 表示当前队列范围内已全部完成。

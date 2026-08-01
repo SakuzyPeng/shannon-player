@@ -31,8 +31,8 @@ fn write_wav(path: &Path, seconds: f64, freq: f64, amplitude: f64) {
     buf.extend_from_slice(&data_len.to_le_bytes());
     for i in 0..frames {
         let t = i as f64 / RATE as f64;
-        let v = ((amplitude * (2.0 * std::f64::consts::PI * freq * t).sin()) * i16::MAX as f64)
-            as i16;
+        let v =
+            ((amplitude * (2.0 * std::f64::consts::PI * freq * t).sin()) * i16::MAX as f64) as i16;
         buf.extend_from_slice(&v.to_le_bytes());
         buf.extend_from_slice(&v.to_le_bytes());
     }
@@ -138,7 +138,10 @@ fn silence_is_a_conclusion_and_is_not_retried() {
     service.set_queue([item.clone()]);
     wait_until_drained(&service);
 
-    assert_eq!(service.outcome("t-silent"), Some(LoudnessOutcome::Unmeasurable));
+    assert_eq!(
+        service.outcome("t-silent"),
+        Some(LoudnessOutcome::Unmeasurable)
+    );
     assert_eq!(service.linear_gain("t-silent"), 1.0, "测不出就不处理");
     assert_eq!(service.set_queue([item]), 0, "确定结论不该重测");
 }
@@ -158,7 +161,11 @@ fn analysis_can_be_interrupted_without_leaving_a_half_answer() {
     })
     .expect("打断不是错误");
     assert_eq!(outcome, None, "被打断时不给结论");
-    assert!(asked.get() <= 4, "应当很快停下，实际问了 {} 次", asked.get());
+    assert!(
+        asked.get() <= 4,
+        "应当很快停下，实际问了 {} 次",
+        asked.get()
+    );
 
     // 不打断则照常得出结论，证明上面停下的是分析而不是文件本身有问题。
     assert!(matches!(

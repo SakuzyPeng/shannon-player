@@ -175,7 +175,10 @@ mod tests {
 
         let loaded = LoudnessStore::load(&path).unwrap();
         assert_eq!(loaded.get("t-measured"), Some(measured(-6.7, 3.3)));
-        assert_eq!(loaded.get("t-unmeasurable"), Some(LoudnessOutcome::Unmeasurable));
+        assert_eq!(
+            loaded.get("t-unmeasurable"),
+            Some(LoudnessOutcome::Unmeasurable)
+        );
         assert_eq!(
             loaded.get("t-unsupported"),
             Some(LoudnessOutcome::UnsupportedLayout)
@@ -219,11 +222,7 @@ mod tests {
         // 文件一个字节没变，换个测量器版本真峰值也可能变——不能只靠曲目 ID 复用。
         let mut store = LoudnessStore::new();
         store.set("t-1", measured(-10.0, -2.0));
-        store
-            .records
-            .get_mut("t-1")
-            .unwrap()
-            .analysis_version = ANALYSIS_VERSION + 1;
+        store.records.get_mut("t-1").unwrap().analysis_version = ANALYSIS_VERSION + 1;
 
         assert_eq!(store.get("t-1"), None, "版本不符视为没有结果");
         assert_eq!(store.linear_gain("t-1"), 1.0, "未命中不处理");

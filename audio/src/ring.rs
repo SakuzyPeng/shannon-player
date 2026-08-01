@@ -524,8 +524,7 @@ mod tests {
         tx.write(&[7.0; 4]); // 旧的下一首
 
         // 消费端还没碰到边界。
-        assert!(with_running_callback(&rx, || tx
-            .truncate_after(boundary, Duration::from_secs(2))));
+        assert!(with_running_callback(&rx, || tx.truncate_after(boundary, Duration::from_secs(2))));
 
         tx.write(&[9.0; 3]); // 新的下一首
         assert!(tx.mark_boundary(0));

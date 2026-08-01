@@ -49,7 +49,11 @@ pub const ANALYSIS_VERSION: u32 = 1;
 /// 三种状态都是**确定**的，可以缓存；I/O 与解码失败属于瞬态错误，走 `Err` 而不进这里
 /// ——把一次网络盘掉线写成永久结论，等于让那首歌再也不会被分析。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum LoudnessOutcome {
     Measured {
         integrated_lufs: f64,
