@@ -10,6 +10,7 @@ import { useLoudnessQueue } from "@/hooks/useLoudnessQueue";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
 import { usePersistSession } from "@/hooks/usePersistSession";
 import { usePersistSettings } from "@/hooks/usePersistSettings";
+import { useSyncDevice } from "@/hooks/useSyncDevice";
 import { useSyncNext } from "@/hooks/useSyncNext";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
 import { getCoverDir, getLibrary, getMusicFolders } from "@/lib/backend";
@@ -147,6 +148,7 @@ export default function App() {
   usePersistSettings();
   useLoudnessQueue();
   useSyncNext();
+  useSyncDevice();
   useRestoreLibrary();
   useGlobalHotkeys();
 

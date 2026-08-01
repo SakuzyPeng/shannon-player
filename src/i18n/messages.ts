@@ -53,6 +53,18 @@ export interface Messages {
   "settings.cloudDesc": string;
   "settings.loudness": string;
   "settings.loudnessDesc": string;
+  "settings.outputDevice": string;
+  "settings.outputDeviceDesc": string;
+  /** 「跟随系统默认」不是某一台设备，所以单列一项。 */
+  "settings.outputDeviceSystem": string;
+  /** 设备列表中由操作系统标记的默认端点。 */
+  "settings.outputDeviceDefaultBadge": string;
+  /** 引擎此刻真正打开的端点，不等同于持久化偏好。 */
+  "settings.outputDeviceActiveBadge": string;
+  /** 存下来的那台设备现在不在（拔了 / 关了 / 换了机器）。偏好仍保留。 */
+  "settings.outputDeviceUnavailable": string;
+  /** 换不过去，但音乐还在原来那台设备上响着——措辞不能像播放失败。 */
+  "settings.outputDeviceRejected": string;
   "settings.onlineLyrics": string;
   "settings.onlineLyricsDesc": string;
   "settings.wordByWord": string;
@@ -318,6 +330,13 @@ const zhHans: Messages = {
   "settings.cloudDesc": "跳过尚未下载到本地的占位文件，避免触发云端下载",
   "settings.loudness": "响度均一化",
   "settings.loudnessDesc": "仅调整整曲音量增益，不压缩动态范围",
+  "settings.outputDevice": "输出设备",
+  "settings.outputDeviceDesc": "声音从哪台设备出去。选中的设备用不了时会明说，不会悄悄换一台",
+  "settings.outputDeviceSystem": "跟随系统默认",
+  "settings.outputDeviceDefaultBadge": "系统默认",
+  "settings.outputDeviceActiveBadge": "正在输出",
+  "settings.outputDeviceUnavailable": "{name}（当前不可用）",
+  "settings.outputDeviceRejected": "换不过去：{reason}。仍在原来的设备上播放",
   "settings.onlineLyrics": "在线歌词源",
   "settings.onlineLyricsDesc": "从 AMLL TTML DB 获取逐字歌词，本地歌词优先",
   "settings.wordByWord": "逐字高亮",
@@ -578,6 +597,13 @@ const zhHant: Messages = {
   "settings.cloudDesc": "略過尚未下載到本機的佔位檔，避免觸發雲端下載",
   "settings.loudness": "響度均一化",
   "settings.loudnessDesc": "僅調整整曲音量增益，不壓縮動態範圍",
+  "settings.outputDevice": "輸出裝置",
+  "settings.outputDeviceDesc": "聲音從哪台裝置出去。選中的裝置用不了時會明說，不會悄悄換一台",
+  "settings.outputDeviceSystem": "跟隨系統預設",
+  "settings.outputDeviceDefaultBadge": "系統預設",
+  "settings.outputDeviceActiveBadge": "正在輸出",
+  "settings.outputDeviceUnavailable": "{name}（目前不可用）",
+  "settings.outputDeviceRejected": "換不過去：{reason}。仍在原來的裝置上播放",
   "settings.onlineLyrics": "線上歌詞源",
   "settings.onlineLyricsDesc": "從 AMLL TTML DB 取得逐字歌詞，本機歌詞優先",
   "settings.wordByWord": "逐字高亮",
@@ -838,6 +864,13 @@ const en: Messages = {
   "settings.cloudDesc": "Skip placeholder files not yet downloaded locally, avoiding cloud fetches",
   "settings.loudness": "Loudness normalization",
   "settings.loudnessDesc": "Adjusts per-track gain only; does not compress dynamic range",
+  "settings.outputDevice": "Output device",
+  "settings.outputDeviceDesc": "Where the sound goes. If your choice can't be used you'll be told, not quietly switched",
+  "settings.outputDeviceSystem": "Follow system default",
+  "settings.outputDeviceDefaultBadge": "System default",
+  "settings.outputDeviceActiveBadge": "Active output",
+  "settings.outputDeviceUnavailable": "{name} (currently unavailable)",
+  "settings.outputDeviceRejected": "Couldn't switch: {reason}. Still playing on the previous device",
   "settings.onlineLyrics": "Online lyrics source",
   "settings.onlineLyricsDesc": "Fetch word-by-word lyrics from AMLL TTML DB; local lyrics take priority",
   "settings.wordByWord": "Word-by-word highlight",
@@ -1098,6 +1131,13 @@ const ja: Messages = {
   "settings.cloudDesc": "未ダウンロードのプレースホルダーをスキップし、クラウド取得を回避",
   "settings.loudness": "ラウドネス正規化",
   "settings.loudnessDesc": "曲ごとのゲインのみ調整し、ダイナミックレンジは圧縮しません",
+  "settings.outputDevice": "出力デバイス",
+  "settings.outputDeviceDesc": "音の出力先。選んだデバイスが使えない場合は明示します。黙って切り替えることはありません",
+  "settings.outputDeviceSystem": "システム既定に従う",
+  "settings.outputDeviceDefaultBadge": "システム既定",
+  "settings.outputDeviceActiveBadge": "出力中",
+  "settings.outputDeviceUnavailable": "{name}（現在利用できません）",
+  "settings.outputDeviceRejected": "切り替えできません：{reason}。元のデバイスで再生を続けています",
   "settings.onlineLyrics": "オンライン歌詞ソース",
   "settings.onlineLyricsDesc": "AMLL TTML DB から逐語歌詞を取得。ローカル歌詞を優先します",
   "settings.wordByWord": "逐語ハイライト",

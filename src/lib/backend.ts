@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { LibrarySnapshot, ScanProgress } from "@/types/generated/library";
 import type { TrackMetadataPatch } from "@/types/generated/overrides";
-import type { PlayerEvent } from "@/types/generated/player";
+import type { AudioDeviceInfo, PlayerEvent } from "@/types/generated/player";
 
 /**
  * Rust 后端适配层。
@@ -131,6 +131,8 @@ export interface LoadArgs {
   loudness: boolean;
   /** 无缝接续的下一首；`null` = 放完就停。 */
   next: NextTrackArgs | null;
+  /** 这份初始 next 的版本；`next = null` 时同样有效。 */
+  queueRevision: number;
 }
 
 /** 「下一首」的指定。 */
@@ -139,8 +141,13 @@ export interface NextTrackArgs {
   trackId: string;
   /** 为下一首**预先**生成的装载 ID：越过边界后的事件都由它认领。 */
   loadId: string;
-  /** 这次指定依据的队列版本。引擎不解释，只在切歌事件里回带。 */
+}
+
+/** 一次后续的 next 更新。chain 只在显式 Load 时变化，revision 在链内递增。 */
+export interface NextUpdateArgs {
+  chainId: string;
   queueRevision: number;
+  next: NextTrackArgs | null;
 }
 
 export interface EngineAdapter {
@@ -170,7 +177,20 @@ export interface EngineAdapter {
    * 「没有下一首」也必须明说：不说的话引擎会一直接着上次指定的那首，
    * 用户删掉队尾之后反而会绕回去。
    */
-  setNext(next: NextTrackArgs | null, loudness: boolean): Promise<void>;
+  setNext(update: NextUpdateArgs, loudness: boolean): Promise<void>;
+  /**
+   * 列出可用的输出端点。
+   *
+   * **每次调用都重新问系统**，不缓存：设备会插拔，缓存一份只会让菜单显示已经拔掉的耳机。
+   */
+  listDevices(): Promise<AudioDeviceInfo[]>;
+  /**
+   * 选定输出端点；`null` = 跟随系统默认。
+   *
+   * 选中的端点用不了时不会静默回落，而是回一条 `deviceRejected` 事件、继续在原端点上
+   * 放——静默换一台意味着用户以为声音在 DAC 上、实际从笔记本喇叭里出来。
+   */
+  setDevice(deviceId: string | null, deviceRevision: number): Promise<void>;
   play(): Promise<void>;
   pause(): Promise<void>;
   seek(positionSec: number): Promise<void>;
@@ -192,14 +212,23 @@ function toNextPayload(next: NextTrackArgs | null) {
     : {
         path: next.path,
         context: { trackId: next.trackId, loadId: next.loadId },
-        queueRevision: next.queueRevision,
       };
 }
 
 /** 真引擎：命令走 IPC，事件走 Tauri event。 */
 const tauriEngine: EngineAdapter = {
   requiresPath: true,
-  load: ({ path, trackId, loadId, autoplay, initialVolume, initialPositionSec, loudness, next }) =>
+  load: ({
+    path,
+    trackId,
+    loadId,
+    autoplay,
+    initialVolume,
+    initialPositionSec,
+    loudness,
+    next,
+    queueRevision,
+  }) =>
     invoke<void>("player_load", {
       path,
       context: { trackId, loadId },
@@ -208,9 +237,18 @@ const tauriEngine: EngineAdapter = {
       initialPositionSec,
       loudness,
       next: toNextPayload(next),
+      queueRevision,
     }),
-  setNext: (next, loudness) =>
-    invoke<void>("player_set_next", { next: toNextPayload(next), loudness }),
+  setNext: ({ chainId, queueRevision, next }, loudness) =>
+    invoke<void>("player_set_next", {
+      next: toNextPayload(next),
+      loudness,
+      chainId,
+      queueRevision,
+    }),
+  listDevices: () => invoke<AudioDeviceInfo[]>("player_list_devices"),
+  setDevice: (deviceId, deviceRevision) =>
+    invoke<void>("player_set_device", { deviceId, deviceRevision }),
   play: () => invoke<void>("player_play"),
   pause: () => invoke<void>("player_pause"),
   seek: (positionSec) => invoke<void>("player_seek", { positionSec }),
@@ -230,6 +268,16 @@ const tauriEngine: EngineAdapter = {
  * 假引擎若一律发 `ended`，浏览器预览走的就是另一条前端代码路径——而队列推进、
  * 当前曲目对账恰恰是最需要在浏览器里反复看的交互。
  */
+/**
+ * 浏览器预览的假端点表。第一台标为系统默认，与真后端一致。
+ *
+ * 两台是最少的有意义数量：一台的话「换设备」这条交互在浏览器里根本走不到。
+ */
+const MOCK_DEVICES: AudioDeviceInfo[] = [
+  { id: "mock:builtin", label: "内建扬声器（预览）", isDefault: true },
+  { id: "mock:usb-dac", label: "外接 DAC（预览）", isDefault: false },
+];
+
 function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec: number): void } {
   const handlers = new Set<(e: PlayerEvent) => void>();
   let timer: ReturnType<typeof setInterval> | null = null;
@@ -237,7 +285,14 @@ function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec:
   let loadId = "mock-idle";
   let position = 0;
   let duration = 0;
-  let next: NextTrackArgs | null = null;
+  let next: { track: NextTrackArgs; revision: number } | null = null;
+  let chainId = "mock-idle";
+  let queueRevision = 0;
+  let deviceId = MOCK_DEVICES[0].id;
+  let deviceName = MOCK_DEVICES[0].label;
+  let preferredDeviceId: string | null = null;
+  let preferredDeviceLabel: string | null = null;
+  let acceptedDeviceRevision = 0;
   // 按曲目 ID 记时长。队列有多长它就有多少条，仅存在于 dev 构建。
   const durations = new Map<string, number>();
 
@@ -250,7 +305,8 @@ function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec:
     channels: 2,
     layout: "stereo",
     durationSec,
-    deviceName: "浏览器预览（无声）",
+    deviceName,
+    deviceId,
     outputSampleRate: 44100,
     sampleFormat: "f32",
     resampled: false,
@@ -278,7 +334,8 @@ function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec:
       }
       // 无缝交接：换成下一首继续跑表，不停 timer。真引擎在这里是「消费端越过边界」。
       const from = trackId;
-      const { trackId: to, loadId: toLoad, queueRevision } = next;
+      const { trackId: to, loadId: toLoad } = next.track;
+      const crossedRevision = next.revision;
       next = null;
       trackId = to;
       loadId = toLoad;
@@ -289,7 +346,7 @@ function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec:
         trackId,
         loadId,
         fromTrackId: from,
-        queueRevision,
+        queueRevision: crossedRevision,
         format: mockFormat(duration),
       });
     }, 200);
@@ -303,11 +360,20 @@ function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec:
     },
     // 假引擎不出声，响度增益对它没有可观测效果，但参数照收——两边签名一致，
     // 调用点才不会长出「浏览器里少传一个」的分支。
-    load: async ({ trackId: id, loadId: idForLoad, autoplay, initialPositionSec, next: after }) => {
+    load: async ({
+      trackId: id,
+      loadId: idForLoad,
+      autoplay,
+      initialPositionSec,
+      next: after,
+      queueRevision: initialRevision,
+    }) => {
       trackId = id;
       loadId = idForLoad;
+      chainId = idForLoad;
+      queueRevision = initialRevision;
       duration = durations.get(id) ?? 0;
-      next = after;
+      next = after ? { track: after, revision: initialRevision } : null;
       position =
         initialPositionSec !== null && Number.isFinite(initialPositionSec)
           ? Math.max(0, Math.min(initialPositionSec, duration))
@@ -317,8 +383,50 @@ function createMockEngine(): EngineAdapter & { setDuration(trackId: string, sec:
       emit({ type: "status", trackId, loadId, status: autoplay ? "playing" : "paused" });
       if (autoplay) startTimer();
     },
-    setNext: async (after) => {
-      next = after;
+    setNext: async (update) => {
+      if (update.chainId !== chainId || update.queueRevision <= queueRevision) return;
+      queueRevision = update.queueRevision;
+      next = update.next ? { track: update.next, revision: update.queueRevision } : null;
+    },
+    listDevices: async () => MOCK_DEVICES,
+    setDevice: async (id, deviceRevision) => {
+      // 假引擎不出声，但状态机要走全：换端点发 outputChanged，选一台不存在的发
+      // deviceRejected。少了这一步，浏览器里就看不出「被拒之后菜单该退回哪一项」。
+      if (deviceRevision <= acceptedDeviceRevision) return;
+      acceptedDeviceRevision = deviceRevision;
+      const picked =
+        id === null
+          ? MOCK_DEVICES.find((device) => device.isDefault)
+          : MOCK_DEVICES.find((device) => device.id === id);
+      if (!picked) {
+        emit({
+          type: "deviceRejected",
+          trackId,
+          loadId,
+          deviceRevision,
+          preferredDeviceId,
+          preferredDeviceLabel,
+          error: {
+            stage: "output",
+            kind: "noDevice",
+            container: null,
+            codec: null,
+            message: `标识为「${id}」的输出设备已不可用`,
+          },
+        });
+        return;
+      }
+      preferredDeviceId = id;
+      preferredDeviceLabel = id === null ? null : picked.label;
+      deviceId = picked.id;
+      deviceName = picked.label;
+      emit({
+        type: "outputChanged",
+        trackId,
+        loadId,
+        deviceRevision,
+        format: mockFormat(duration),
+      });
     },
     play: async () => {
       emit({ type: "status", trackId, loadId, status: "playing" });

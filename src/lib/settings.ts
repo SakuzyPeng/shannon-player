@@ -29,6 +29,19 @@ const SETTINGS_VERSION = 1;
 const THEMES: ThemeMode[] = ["light", "dark", "system"];
 const VIEWS: LibraryView[] = ["grid", "list"];
 
+/**
+ * 用户选定的输出端点。
+ *
+ * **连名字一起存**，虽然选设备只用得上标识。理由是那台设备可能不在了（拔了、关了、
+ * 换了一台机器）：只存标识的话，界面只能显示成「系统默认」，用户既看不出自己的偏好
+ * 还在，也无从理解为什么下次插回去声音又自己跑过去了。存了名字就能如实说
+ * 「外接 DAC（当前不可用）」。
+ */
+export interface PersistedDevice {
+  id: string;
+  label: string;
+}
+
 export interface PersistedSettings {
   version: number;
   theme: ThemeMode;
@@ -36,6 +49,8 @@ export interface PersistedSettings {
   language: Language;
   /** 设置页开关。按键存，读时与默认值合并。 */
   settings: Partial<Record<SettingKey, boolean>>;
+  /** 输出端点偏好；`null` = 跟随系统默认。 */
+  outputDevice: PersistedDevice | null;
 }
 
 /** 从当前 store 状态构造要落盘的设置。 */
@@ -44,6 +59,7 @@ export function toSettings(state: {
   view: LibraryView;
   language: Language;
   settings: Record<SettingKey, boolean>;
+  outputDevice: PersistedDevice | null;
 }): PersistedSettings {
   return {
     version: SETTINGS_VERSION,
@@ -51,6 +67,7 @@ export function toSettings(state: {
     view: state.view,
     language: state.language,
     settings: { ...state.settings },
+    outputDevice: state.outputDevice,
   };
 }
 
@@ -60,6 +77,7 @@ export interface RestoredSettings {
   view?: LibraryView;
   language?: Language;
   settings: Partial<Record<SettingKey, boolean>>;
+  outputDevice: PersistedDevice | null;
 }
 
 /**
@@ -93,5 +111,20 @@ export function fromSettings(json: string): RestoredSettings | null {
     // 只认对外承诺的那几种语言，见文件头。
     language: LANGUAGES.find((l) => l === raw.language),
     settings,
+    outputDevice: parseDevice(raw.outputDevice),
   };
+}
+
+/**
+ * 端点偏好。两个字段缺一不可就当没有——半份记录只会让界面显示一台没有名字的设备。
+ *
+ * 这里**不校验设备是否存在**：那要问系统，而这个函数在首帧之前跑，且校验结果随时会
+ * 变（用户插上耳机它就又存在了）。是否可用由 `useSyncDevice` 拿到真实列表后判断。
+ */
+function parseDevice(raw: unknown): PersistedDevice | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const device = raw as Record<string, unknown>;
+  if (typeof device.id !== "string" || typeof device.label !== "string") return null;
+  if (device.id === "") return null;
+  return { id: device.id, label: device.label };
 }

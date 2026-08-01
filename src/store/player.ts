@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type {
-  AudioDevice,
   Id,
   PlaybackProgress,
   Playlist,
@@ -24,7 +23,7 @@ import {
 } from "@/lib/backend";
 import { fromSession, toSession } from "@/lib/session";
 import { useUiStore } from "@/store/ui";
-import type { PlaybackError, PlayerStatus } from "@/types/generated/player";
+import type { AudioDeviceInfo, PlaybackError, PlayerStatus } from "@/types/generated/player";
 
 /** 生成队列项 uid（后期可换成后端下发的稳定 ID）。 */
 let uidSeq = 0;
@@ -141,6 +140,8 @@ interface PlayerState {
    * 只比曲目 ID 无法识别上一代迟到的状态与结束事件。
    */
   activeLoadId: Id | null;
+  /** 当前显式装载创建的播放链 ID；gapless 交接只换 activeLoadId，不换这一个。 */
+  activeChainId: Id | null;
   /**
    * 已发出、引擎还没回过任何事件的**显式**装载。
    *
@@ -160,6 +161,13 @@ interface PlayerState {
    * 越过边界后正是靠它在当前队列里定位。
    */
   nextHandoff: NextHandoff | null;
+  /**
+   * 尚可能从引擎回来的 handoff 历史，按 loadId 对账。
+   *
+   * 改 next 时旧边界可能已经越过；只留最新一项会把旧曲事件误认成新指定。
+   * 作废项不会回事件，因此保留一个小窗口并在交接、显式装载或失败时清理。
+   */
+  handoffHistory: NextHandoff[];
   /**
    * 队列版本号，每次重新指定下一首时 +1，随命令下发并由切歌事件回带。
    *
@@ -194,8 +202,24 @@ interface PlayerState {
   playlists: Playlist[];
 
   /** ---- 音频设备 ---- */
-  devices: AudioDevice[];
-  activeDeviceId: Id | null;
+  /**
+   * 可用输出端点，来自后端。空数组表示还没问过——**不是**「一台设备都没有」。
+   *
+   * 不持久化：设备会插拔，存一份只会让菜单显示已经拔掉的耳机。用户的**选择**是另一
+   * 回事，那份跟着界面设置走（`useUiStore.outputDevice`）。
+   */
+  devices: AudioDeviceInfo[];
+  /**
+   * 此刻实际在哪台端点上出声。由引擎事件回带，**不是**用户的选择。
+   *
+   * 两者必须分开：用户选的那台可能已经拔了，而「跟随系统默认」本身也不是一个端点。
+   * 界面要如实回答「现在声音从哪出来」，只能问这一个。
+   */
+  effectiveDeviceId: Id | null;
+  /** 前端已发出的最新设备选择版本；端点回执只接纳这一版。 */
+  deviceRevision: number;
+  /** 选定的端点用不了。播放**未受影响**，仍在原端点上放（见 `deviceRejected`）。 */
+  deviceError: PlaybackError | null;
 
   /** ---- 动作 ---- */
   current: () => Track | null;
@@ -273,7 +297,16 @@ interface PlayerState {
   enqueueNext: (track: Track) => void;
   /** 追加到队尾。 */
   enqueue: (track: Track) => void;
-  setActiveDevice: (id: Id) => void;
+  /** 重新问后端要一份端点列表。菜单每次打开都该调。 */
+  refreshDevices: () => Promise<void>;
+  /**
+   * 把选定的端点下发给引擎；`null` = 跟随系统默认。
+   *
+   * 调用点是 `useSyncDevice`，不是设置页——「用户选了哪台」的权威在界面设置里，
+   * 这里只负责落实。核对设备是否还在也归那个 hook（它拿得到列表）。
+   */
+  setDeviceOnEngine: (deviceId: Id | null, deviceRevision: number) => Promise<void>;
+  dismissDeviceError: () => void;
 }
 
 const REPEAT_CYCLE: RepeatMode[] = ["off", "all", "one"];
@@ -403,9 +436,16 @@ function designate(item: QueueItem, revision: number): { handoff: NextHandoff; a
       path: item.track.path ?? "",
       trackId: item.track.id,
       loadId,
-      queueRevision: revision,
     },
   };
+}
+
+const HANDOFF_HISTORY_LIMIT = 32;
+
+function rememberHandoff(history: NextHandoff[], handoff: NextHandoff): NextHandoff[] {
+  return [...history.filter((item) => item.loadId !== handoff.loadId), handoff].slice(
+    -HANDOFF_HISTORY_LIMIT,
+  );
 }
 
 /** 初始队列：仅放入演示曲目，进度停在 43%（对齐设计稿）。 */
@@ -434,8 +474,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   status: "idle",
   loadedTrackId: null,
   activeLoadId: null,
+  activeChainId: null,
   pendingLoadId: null,
   nextHandoff: null,
+  handoffHistory: [],
   queueRevision: 0,
   pendingSeek: null,
   sessionReady: false,
@@ -448,11 +490,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   favoritePlaylists: { "pl-nightdrive": true },
   playlists: PLAYLISTS.map((p) => ({ ...p, tracks: [...p.tracks] })),
 
-  devices: [
-    { id: "dev-default", label: "系统默认输出", isDefault: true },
-    { id: "dev-speakers", label: "MacBook Pro 扬声器", isDefault: false },
-  ],
-  activeDeviceId: "dev-default",
+  devices: [],
+  effectiveDeviceId: null,
+  deviceRevision: 0,
+  deviceError: null,
 
   current: () => {
     const { queue, currentIndex } = get();
@@ -711,8 +752,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         error: null,
         loadedTrackId: null,
         activeLoadId: null,
+        activeChainId: null,
         pendingLoadId: null,
         nextHandoff: null,
+        handoffHistory: [],
       });
       return;
     }
@@ -729,8 +772,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       error: null,
       loadedTrackId: track.id,
       activeLoadId: loadId,
+      activeChainId: loadId,
       pendingLoadId: loadId,
       nextHandoff: next?.handoff ?? null,
+      handoffHistory: next ? [next.handoff] : [],
       queueRevision: revision,
       playing: autoplay,
     });
@@ -750,29 +795,67 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         // 缓冲里那段 PCM 的增益已经写死了，假装立刻生效只会让人以为开关坏了。
         loudness: useUiStore.getState().settings.loudness,
         next: next?.args ?? null,
+        queueRevision: revision,
       })
       .catch((error) => {
-        // 命令根本没发出去。必须撤掉在途标记，否则此后每一条越界通知都会被当成
-        // 「已被更新的装载取代」而丢掉——表现为界面再也不跟着换曲了。
+        // 命令根本没发出去。整份乐观装载都要撤掉；只清 pendingLoadId 会留下一个
+        // 实际不存在的 activeLoadId，界面继续显示播放且初始 next 也永远不会重发。
         console.error("装载命令发送失败", error);
-        set((st) => (st.pendingLoadId === loadId ? { pendingLoadId: null } : {}));
+        set((st) =>
+          st.activeLoadId === loadId
+            ? {
+                playing: false,
+                status: "idle",
+                loadedTrackId: null,
+                activeLoadId: null,
+                activeChainId: null,
+                pendingLoadId: null,
+                nextHandoff: null,
+                handoffHistory: [],
+              }
+            : {},
+        );
       });
   },
 
   syncNext: () => {
     const s = get();
     // 引擎那边什么都没在放，就谈不上「下一首」。
-    if (s.activeLoadId === null || s.loadedTrackId === null) return;
+    if (s.activeLoadId === null || s.activeChainId === null || s.loadedTrackId === null) return;
     const successor = successorItem(s);
     // 与已经下发的那份一致就不重发：拖拽重排、在队尾增删常常并不改变下一首，
     // 而每次重发都会让引擎丢掉已经预解码好的那份、重新打开文件。
     if ((s.nextHandoff?.queueUid ?? null) === (successor?.uid ?? null)) return;
     const revision = s.queueRevision + 1;
     const next = successor ? designate(successor, revision) : null;
-    set({ nextHandoff: next?.handoff ?? null, queueRevision: revision });
+    set({
+      nextHandoff: next?.handoff ?? null,
+      handoffHistory: next ? rememberHandoff(s.handoffHistory, next.handoff) : s.handoffHistory,
+      queueRevision: revision,
+    });
     // 「没有下一首」也要明说：不说的话引擎会一直接着上次指定的那首，
     // 用户删掉队尾之后反而会绕回去。
-    void engine.setNext(next?.args ?? null, useUiStore.getState().settings.loudness);
+    void engine
+      .setNext(
+        {
+          chainId: s.activeChainId,
+          queueRevision: revision,
+          next: next?.args ?? null,
+        },
+        useUiStore.getState().settings.loudness,
+      )
+      .catch((error) => {
+        console.error("更新下一首命令发送失败", error);
+        // 只撤回仍是本次 revision 的乐观指定；更新的意图已经到来时不能反向覆盖。
+        set((state) =>
+          state.queueRevision === revision
+            ? {
+                nextHandoff: null,
+                handoffHistory: state.handoffHistory.filter((h) => h.revision !== revision),
+              }
+            : {},
+        );
+      });
   },
 
   adoptLibrary: (tracks) => {
@@ -795,8 +878,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       status: "idle",
       loadedTrackId: null,
       activeLoadId: null,
+      activeChainId: null,
       pendingLoadId: null,
       nextHandoff: null,
+      handoffHistory: [],
       needsLibrary: false,
       pendingSeek: null,
       progress: freshProgress(tracks[0]),
@@ -854,8 +939,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       status: "idle",
       loadedTrackId: null,
       activeLoadId: null,
+      activeChainId: null,
       pendingLoadId: null,
       nextHandoff: null,
+      handoffHistory: [],
       needsLibrary: false,
       error: null,
       progress: {
@@ -894,9 +981,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (event.type === "trackChanged") {
         // 唯一该丢掉它的情形：用户已经另点了一首（显式装载在途）。见 pendingLoadId。
         if (s.pendingLoadId !== null) return;
-        const handoff = s.nextHandoff;
+        // 事件可能晚于一次甚至多次 `setNext` 才抵达。只能按引擎回带的 loadId + revision
+        // 去历史里认领，不能拿「此刻最新的 next」冒充：否则旧 B 的越界会被映射成新 C，
+        // UI 先跳错曲，随后所有 B 的进度又因 loadId 不匹配而被丢掉，看起来像彻底冻住。
+        const handoff = s.handoffHistory.find(
+          (item) =>
+            item.loadId === event.loadId &&
+            item.revision === event.queueRevision &&
+            (event.trackId == null || item.trackId === event.trackId),
+        );
+        const remainingHistory = s.handoffHistory.filter(
+          (item) => item.revision > event.queueRevision && item.loadId !== event.loadId,
+        );
+        const remainingNext =
+          s.nextHandoff?.loadId === event.loadId ? null : s.nextHandoff;
+        // 显式 Load 会清空上一条播放链的历史。若它的迟到事件绕过了 pendingLoad 窗口，
+        // 这里仍不能把“完全不认识”误当成“已知 handoff 后来被移出队列”去触发 fallback。
+        if (!handoff) return;
         // 按 uid 对账，不做下标递增：随机顺序与拖拽重排都会让「下一个下标」失去意义。
-        const idx = handoff ? s.queue.findIndex((q) => q.uid === handoff.queueUid) : -1;
+        const idx = s.queue.findIndex((q) => q.uid === handoff.queueUid);
         if (idx < 0) {
           // 边界越过之后才收到「这首已被移出队列」——它已经在响，撤不回来了。
           // 但用户的意思是别放它，所以显式装载新队列此刻该放的那首：
@@ -906,13 +1009,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             set({
               currentIndex: fallback,
               nextHandoff: null,
+              handoffHistory: [],
               pendingSeek: null,
               progress: freshProgress(s.queue[fallback].track),
             });
             get().loadCurrent(true);
           } else {
             void engine.pause();
-            set({ playing: false, nextHandoff: null });
+            set({ playing: false, nextHandoff: null, handoffHistory: [] });
           }
           return;
         }
@@ -920,11 +1024,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           currentIndex: idx,
           loadedTrackId: event.trackId ?? s.queue[idx].track.id,
           activeLoadId: event.loadId,
-          // 这一份指定已经被用掉，引擎那边空了；下面立刻补上新的。
-          nextHandoff: null,
+          // 只消费事件认领的那份；若旧边界越过后用户已经指定了更新的 next，必须保留。
+          nextHandoff: remainingNext,
+          handoffHistory: remainingHistory,
           pendingSeek: null,
-          playing: true,
-          status: "playing",
+          // 不在这里猜 transport 状态：Pause 可能与越界事件交错，强行写 playing 会把
+          // 已经生效的暂停覆盖掉。真正的状态由同一代的 status 事件负责。
           error: null,
           needsLibrary: false,
           progress: {
@@ -935,6 +1040,37 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           },
         });
         get().syncNext();
+        return;
+      }
+
+      // 端点事件与「现在放的是哪一首」无关：换端点不改变曲目，而且用户在**什么都
+      // 没放**的时候也能改，那一刻引擎根本没有装载上下文可盖章。所以它们和
+      // `trackChanged` 一样走在代际过滤之前，否则空闲时那一条会被整条丢掉。
+      if (event.type === "outputChanged") {
+        if (event.deviceRevision !== s.deviceRevision) return;
+        // 不是新装载：队列位置与待定位都不因它改变，只更新「现在从哪台设备出声」。
+        // 提示由下一次明确选择在 pick() 里撤掉；拒绝后的自动回滚也会收到确认，若在这里
+        // 清错，用户只会看到菜单弹回去，却来不及看见为什么。
+        set({ effectiveDeviceId: event.format.deviceId });
+        return;
+      }
+      if (event.type === "deviceRejected") {
+        if (event.deviceRevision !== s.deviceRevision) return;
+        // **不是播放失败**：音乐仍在原端点上响着，所以只记提示，不动任何播放状态。
+        set({ deviceError: event.error });
+        // 回滚依据必须来自引擎真正保留的偏好，而不是前端的一格点击历史：连续快速选择时，
+        // 多次预检会交错返回，一格历史既可能指向被拒项，也可能覆盖更早的有效选择。
+        const fallback =
+          event.preferredDeviceId === null
+            ? null
+            : {
+                id: event.preferredDeviceId,
+                label:
+                  event.preferredDeviceLabel ??
+                  s.devices.find((device) => device.id === event.preferredDeviceId)?.label ??
+                  event.preferredDeviceId,
+              };
+        useUiStore.getState().setOutputDevice(fallback);
         return;
       }
 
@@ -955,6 +1091,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           set((st) => ({
             status: "loading",
             error: null,
+            // 「跟随系统默认」不是一个端点，只有装载完成才知道它解析到了哪一台。
+            effectiveDeviceId: event.format.deviceId,
             // 初始位置已经随 Load 在引擎侧生效；Opened 到达说明这份待办可以作废。
             pendingSeek: null,
             progress: { ...st.progress, durationSec: event.format.durationSec ?? st.progress.durationSec },
@@ -985,7 +1123,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           // 到这里说明引擎手上**没有**下一首：要么队列到头了，要么那首没能预先接上
           // （文件没了、格式不支持、种子曲目没有路径）。无缝换曲走的是 trackChanged，
           // 这条分支于是成了兜底路径——它照常按循环规则推进，只是会有一声停顿。
-          set({ nextHandoff: null });
+          set({ nextHandoff: null, handoffHistory: [] });
           if (s.repeat === "one") {
             void engine.seek(0);
             void engine.play();
@@ -1012,9 +1150,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
             error: event.error,
             loadedTrackId: null,
             activeLoadId: null,
+            activeChainId: null,
             pendingLoadId: null,
             // 引擎已经拆掉整条链路，待接续的那份跟着作废。
             nextHandoff: null,
+            handoffHistory: [],
           });
           break;
       }
@@ -1119,5 +1259,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       };
     }),
 
-  setActiveDevice: (id) => set({ activeDeviceId: id }),
+  refreshDevices: async () => {
+    try {
+      set({ devices: await engine.listDevices() });
+    } catch (error) {
+      // 列不出设备不该弹错误：菜单里已经有「系统默认输出」那一项，用户照样能用。
+      console.error("列举输出设备失败", error);
+    }
+  },
+
+  setDeviceOnEngine: async (deviceId, deviceRevision) => {
+    set({ deviceRevision });
+    await engine.setDevice(deviceId, deviceRevision);
+  },
+
+  dismissDeviceError: () => set({ deviceError: null }),
 }));

@@ -5,6 +5,7 @@ import { Icon } from "@/components/common/Icon";
 import { SegmentedControl } from "@/components/common/SegmentedControl";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { LANGUAGES } from "@/data/library";
+import { usePlayerStore } from "@/store/player";
 import { useUiStore, type MusicFolder, type SettingKey } from "@/store/ui";
 import { useT } from "@/i18n";
 import type { MessageKey } from "@/i18n/messages";
@@ -90,6 +91,120 @@ function ShortcutList() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * 输出设备行。
+ *
+ * 界面上要同时说清三件互不相同的事，所以不能只画一个下拉：
+ *
+ * 1. **用户选了哪台**（偏好，跟着设置持久化）；
+ * 2. **系统默认是哪台**（设备枚举的事实，不等同于用户偏好）；
+ * 3. **此刻真正从哪台输出**（引擎打开的端点，也不等同于用户偏好）；
+ * 4. **这台现在还在不在**——不在就照常列出来并标注「当前不可用」，而不是悄悄退回默认。
+ *    偏好保留是为了插回去还能自动生效，但那件事必须让用户看得见，否则他会觉得声音
+ *    某天自己跑了；
+ * 5. **换不过去时的说明**——那不是播放失败，音乐仍在原来那台上响着，措辞要分开。
+ */
+function OutputDeviceRow() {
+  const { t } = useT();
+  const devices = usePlayerStore((s) => s.devices);
+  const refreshDevices = usePlayerStore((s) => s.refreshDevices);
+  const effectiveDeviceId = usePlayerStore((s) => s.effectiveDeviceId);
+  const deviceError = usePlayerStore((s) => s.deviceError);
+  const dismissDeviceError = usePlayerStore((s) => s.dismissDeviceError);
+  const preferred = useUiStore((s) => s.outputDevice);
+  const setOutputDevice = useUiStore((s) => s.setOutputDevice);
+
+  const missing = preferred !== null && !devices.some((d) => d.id === preferred.id);
+  const current = preferred
+    ? missing
+      ? t("settings.outputDeviceUnavailable", { name: preferred.label })
+      : preferred.label
+    : t("settings.outputDeviceSystem");
+
+  const pick = (device: { id: string; label: string } | null) => {
+    dismissDeviceError();
+    setOutputDevice(device);
+  };
+
+  return (
+    <div className="border-b border-bd px-0.5 py-[15px]">
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-tx">{t("settings.outputDevice")}</div>
+          <div className="mt-[3px] text-[12.5px] text-tx2">{t("settings.outputDeviceDesc")}</div>
+        </div>
+        {/* 每次展开都重新问系统：设备会插拔，用缓存的列表会显示已经拔掉的耳机。 */}
+        <DropdownMenu.Root onOpenChange={(open) => open && void refreshDevices()}>
+          <DropdownMenu.Trigger asChild>
+            <button className="flex max-w-[240px] flex-none cursor-pointer items-center gap-2 rounded-full border border-bd bg-srf px-[14px] py-2 text-[13px] text-tx transition-colors hover:bg-hv">
+              <span className="min-w-0 truncate">{current}</span>
+              <Icon name="chevronDown" size={12} strokeWidth={2} />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={6}
+              className="surface-corners animate-menu-pop menu-shadow z-50 w-[260px] origin-top-right rounded-[14px] border border-bd bg-srf p-1.5"
+            >
+              <DropdownMenu.Item
+                onSelect={() => pick(null)}
+                className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
+              >
+                <span className="min-w-0 truncate">{t("settings.outputDeviceSystem")}</span>
+                {preferred === null && (
+                  <Icon name="check" size={14} className="flex-none text-ac" strokeWidth={2.4} />
+                )}
+              </DropdownMenu.Item>
+              {devices.map((device) => (
+                <DropdownMenu.Item
+                  key={device.id}
+                  onSelect={() => pick({ id: device.id, label: device.label })}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx outline-none data-[highlighted]:bg-hv"
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <span className="min-w-0 truncate">{device.label}</span>
+                    {device.isDefault && (
+                      <span className="flex-none text-[10px] text-tx2">
+                        {t("settings.outputDeviceDefaultBadge")}
+                      </span>
+                    )}
+                    {effectiveDeviceId === device.id && (
+                      <span className="flex-none text-[10px] font-semibold text-ac">
+                        {t("settings.outputDeviceActiveBadge")}
+                      </span>
+                    )}
+                  </span>
+                  {preferred?.id === device.id && (
+                    <Icon name="check" size={14} className="flex-none text-ac" strokeWidth={2.4} />
+                  )}
+                </DropdownMenu.Item>
+              ))}
+              {missing && preferred && (
+                // 选不了但要看得见：它是用户的偏好，插回去就会重新生效。
+                <DropdownMenu.Item
+                  disabled
+                  className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-[13px] text-tx2 opacity-60 outline-none"
+                >
+                  <span className="min-w-0 truncate">
+                    {t("settings.outputDeviceUnavailable", { name: preferred.label })}
+                  </span>
+                  <Icon name="check" size={14} className="flex-none text-ac" strokeWidth={2.4} />
+                </DropdownMenu.Item>
+              )}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+      {deviceError && (
+        <div className="mt-2.5 text-[12.5px] text-danger">
+          {t("settings.outputDeviceRejected", { reason: deviceError.message })}
+        </div>
+      )}
     </div>
   );
 }
@@ -262,6 +377,7 @@ export function SettingsScreen() {
 
           {/* 播放 */}
           <SectionTitle labelKey="settings.secPlayback" refCb={secRef("playback")} />
+          <OutputDeviceRow />
           {PLAY_TOGGLES.map((tg) => (
             <ToggleRow key={tg.key} labelKey={tg.labelKey} descKey={tg.descKey} settingKey={tg.key} />
           ))}

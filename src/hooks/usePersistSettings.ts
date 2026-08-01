@@ -34,7 +34,8 @@ export function usePersistSettings() {
         state.theme === prev.theme &&
         state.view === prev.view &&
         state.language === prev.language &&
-        state.settings === prev.settings
+        state.settings === prev.settings &&
+        state.outputDevice === prev.outputDevice
       ) {
         return;
       }

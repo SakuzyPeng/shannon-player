@@ -123,13 +123,6 @@ export interface Lyrics {
   synced: boolean;
 }
 
-/** 音频输出设备。 */
-export interface AudioDevice {
-  id: Id;
-  label: string;
-  isDefault: boolean;
-}
-
 /** 播放进度快照（供 UI 订阅，避免每帧重渲染整个 store）。 */
 export interface PlaybackProgress {
   /** 当前播放位置（秒）。 */

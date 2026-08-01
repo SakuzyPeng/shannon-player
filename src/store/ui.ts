@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { RestoredSettings } from "@/lib/settings";
+import type { PersistedDevice, RestoredSettings } from "@/lib/settings";
 import type { Id, Language, LibraryView, NavKey, ThemeMode } from "@/types/player";
 
 /** 设置页开关键。落盘格式见 `src/lib/settings.ts`。 */
@@ -43,6 +43,14 @@ interface UiState {
   playlistSort: PlaylistSort;
   /** 设置页开关状态。 */
   settings: Record<SettingKey, boolean>;
+  /**
+   * 用户选定的输出端点；`null` = 跟随系统默认。
+   *
+   * 放在这里而不是播放器 store：它是**用户的选择**，与响度归一化开关同一性质，
+   * 跟着 `ui-settings.json` 一起持久化。「此刻实际在哪台设备上出声」是另一回事
+   * （设备可能已经拔了），那份事实留在播放器 store 里。
+   */
+  outputDevice: PersistedDevice | null;
   /** 音乐文件夹列表。 */
   musicFolders: MusicFolder[];
 
@@ -55,6 +63,7 @@ interface UiState {
   setLanguage: (l: Language) => void;
   setPlaylistSort: (s: PlaylistSort) => void;
   toggleSetting: (key: SettingKey) => void;
+  setOutputDevice: (device: PersistedDevice | null) => void;
   /** 用后端的真实扫描目录替换整份列表。 */
   setMusicFolders: (folders: MusicFolder[]) => void;
   removeMusicFolder: (path: string) => void;
@@ -94,6 +103,7 @@ export const useUiStore = create<UiState>((set) => ({
   searchRecents: ["万能青年旅店", "In Rainbows", "陈绮贞"],
   playlistSort: "recent",
   settings: { watch: true, cloud: true, loudness: false, ttml: true, karaoke: true },
+  outputDevice: null,
   musicFolders: [
     { path: "/Users/shannon/Music/曲库", tracks: 1532, watching: false },
     { path: "/Volumes/NAS/无损音乐", tracks: 281, watching: false },
@@ -128,6 +138,7 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   toggleSetting: (key) =>
     set((s) => ({ settings: { ...s.settings, [key]: !s.settings[key] } })),
+  setOutputDevice: (outputDevice) => set({ outputDevice }),
 
   hydrateSettings: (restored) =>
     set((s) => ({
@@ -137,6 +148,7 @@ export const useUiStore = create<UiState>((set) => ({
       // 与默认值合并而不是整份替换：将来加的新开关在旧文件里没有，
       // 整份替换会把它变成 undefined。
       settings: { ...s.settings, ...restored.settings },
+      outputDevice: restored.outputDevice,
     })),
 
   setPlaylistSort: (playlistSort) => set({ playlistSort }),
