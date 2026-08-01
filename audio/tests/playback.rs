@@ -19,7 +19,8 @@ use shannon_audio::engine::{
 };
 use shannon_audio::layout::ChannelLayout;
 use shannon_audio::mix::ChannelAdapt;
-use shannon_audio::output::null::NullOutput;
+use shannon_audio::output::null::{NullDevice, NullOutput};
+use shannon_audio::output::DeviceEnumerator;
 use shannon_audio::output::{
     fill_from_ring, OutputBackend, OutputConfig, OutputRequest, OutputShared,
 };
@@ -207,6 +208,9 @@ struct CapturingOutput {
     captured: Arc<Mutex<Vec<f32>>>,
     /// 模拟只支持单一采样率的设备，用来把采集延伸到重采样路径。
     fixed_rate: Option<u32>,
+    /// 可切换的假端点。空表时退化成单一「采集」设备，与引入设备切换前一致。
+    devices: Vec<NullDevice>,
+    prefer: Option<String>,
     stop: Arc<AtomicBool>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -217,9 +221,36 @@ impl CapturingOutput {
             config: None,
             captured,
             fixed_rate,
+            devices: Vec::new(),
+            prefer: None,
             stop: Arc::new(AtomicBool::new(false)),
             worker: None,
         }
+    }
+
+    /// 带一组可切换端点的采集后端。第一台是默认。
+    fn with_devices(captured: Arc<Mutex<Vec<f32>>>, devices: Vec<NullDevice>) -> Self {
+        let mut out = Self::new(captured, None);
+        out.devices = devices;
+        out
+    }
+
+    fn resolve(&self) -> Result<Option<&NullDevice>> {
+        if self.devices.is_empty() {
+            return Ok(None);
+        }
+        let Some(want) = self.prefer.as_deref() else {
+            return Ok(self.devices.first());
+        };
+        self.devices
+            .iter()
+            .find(|d| d.id == want)
+            .map(Some)
+            .ok_or(EngineError::new(
+                Stage::Output,
+                ErrorKind::NoDevice,
+                format!("标识为「{want}」的输出设备已不可用"),
+            ))
     }
 }
 
@@ -228,12 +259,37 @@ impl OutputBackend for CapturingOutput {
         "capturing-test"
     }
 
+    fn set_preferred_device(&mut self, id: Option<String>) {
+        self.prefer = id;
+    }
+
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
+        let Some(device) = self.resolve()? else {
+            return Ok(OutputConfig {
+                sample_rate: self.fixed_rate.unwrap_or(request.sample_rate),
+                layout: request.layout,
+                sample_format: "f32".into(),
+                device_name: "采集".into(),
+                device_id: None,
+            });
+        };
+        if device.channels != request.layout.count() {
+            return Err(EngineError::new(
+                Stage::Output,
+                ErrorKind::DeviceConfig,
+                format!(
+                    "设备「{}」不支持 {} 声道输出",
+                    device.label,
+                    request.layout.count()
+                ),
+            ));
+        }
         Ok(OutputConfig {
-            sample_rate: self.fixed_rate.unwrap_or(request.sample_rate),
+            sample_rate: device.fixed_rate.unwrap_or(request.sample_rate),
             layout: request.layout,
             sample_format: "f32".into(),
-            device_name: "采集".into(),
+            device_name: device.label.clone(),
+            device_id: Some(device.id.clone()),
         })
     }
 
@@ -396,12 +452,16 @@ impl OutputBackend for EagerOpenOutput {
         "eager-test"
     }
 
+    /// 测试替身只有一台设备，选谁都是它。真后端必须真的实现（见 trait 上的说明）。
+    fn set_preferred_device(&mut self, _id: Option<String>) {}
+
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
         Ok(OutputConfig {
             sample_rate: request.sample_rate,
             layout: request.layout,
             sample_format: "f32".into(),
             device_name: "同步首回调测试后端".into(),
+            device_id: None,
         })
     }
 
@@ -465,6 +525,9 @@ impl OutputBackend for BlockingFirstNegotiateOutput {
         "blocking-negotiate-test"
     }
 
+    /// 测试替身只有一台设备，选谁都是它。真后端必须真的实现（见 trait 上的说明）。
+    fn set_preferred_device(&mut self, _id: Option<String>) {}
+
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
         if self.calls.fetch_add(1, Ordering::Relaxed) == 0 {
             self.entered.store(true, Ordering::Release);
@@ -518,12 +581,16 @@ impl OutputBackend for DelayedOutput {
         "delayed-test"
     }
 
+    /// 测试替身只有一台设备，选谁都是它。真后端必须真的实现（见 trait 上的说明）。
+    fn set_preferred_device(&mut self, _id: Option<String>) {}
+
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
         Ok(OutputConfig {
             sample_rate: request.sample_rate,
             layout: request.layout,
             sample_format: "f32".into(),
             device_name: "延迟测试后端".into(),
+            device_id: None,
         })
     }
 
@@ -587,6 +654,9 @@ impl OutputBackend for LoadRecordingOutput {
         "load-recording-test"
     }
 
+    /// 测试替身只有一台设备，选谁都是它。真后端必须真的实现（见 trait 上的说明）。
+    fn set_preferred_device(&mut self, _id: Option<String>) {}
+
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
         self.inner.negotiate(request)
     }
@@ -618,6 +688,9 @@ impl OutputBackend for FailingOutput {
     fn name(&self) -> &'static str {
         "failing-test"
     }
+
+    /// 测试替身只有一台设备，选谁都是它。真后端必须真的实现（见 trait 上的说明）。
+    fn set_preferred_device(&mut self, _id: Option<String>) {}
 
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig> {
         self.inner.negotiate(request)
@@ -1056,7 +1129,10 @@ fn plays_to_completion_through_null_backend() {
                 rec.last_position_ms
                     .store((position_sec * 1000.0) as u64, Ordering::Relaxed);
             }
-            EngineEvent::Opened { .. } | EngineEvent::TrackChanged { .. } => {}
+            EngineEvent::Opened { .. }
+            | EngineEvent::TrackChanged { .. }
+            | EngineEvent::OutputChanged { .. }
+            | EngineEvent::DeviceRejected { .. } => {}
         })
     };
 
@@ -1336,6 +1412,15 @@ enum ChainEvent {
     },
     Ended,
     Failed(String),
+    /// 换到了另一台端点：记下新端点名与输出采样率。
+    Output {
+        device: String,
+        rate: u32,
+        revision: u64,
+    },
+    /// 换端点被拒（播放未中断）。
+    Rejected(String),
+    State(PlaybackState),
 }
 
 /// 一条无缝播放链的测试台：采集全部输出样本，并按序记录事件。
@@ -1343,49 +1428,79 @@ struct Chain {
     engine: Engine,
     captured: Arc<Mutex<Vec<f32>>>,
     events: Arc<Mutex<Vec<ChainEvent>>>,
+    chain_id: String,
+    device_revision: AtomicU64,
 }
 
 impl Chain {
     fn start(device_rate: Option<u32>) -> Self {
         let captured: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+        Self::with_backend(
+            captured.clone(),
+            CapturingOutput::new(captured, device_rate),
+        )
+    }
+
+    /// 带一组可切换端点的测试台。第一台是默认。
+    fn start_with_devices(devices: Vec<NullDevice>) -> Self {
+        let captured: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+        Self::with_backend(
+            captured.clone(),
+            CapturingOutput::with_devices(captured, devices),
+        )
+    }
+
+    fn with_backend(captured: Arc<Mutex<Vec<f32>>>, backend: CapturingOutput) -> Self {
         let events: Arc<Mutex<Vec<ChainEvent>>> = Arc::new(Mutex::new(Vec::new()));
         let engine = {
             let events = events.clone();
-            Engine::spawn_stamped(
-                Box::new(CapturingOutput::new(captured.clone(), device_rate)),
-                move |stamped| {
-                    // 事件盖的是**正在发声**那首的章，交接后自动换成新曲的。
-                    let to = stamped.context.track_id.clone();
-                    let mut log = events.lock().unwrap();
-                    match stamped.event {
-                        EngineEvent::TrackChanged {
-                            from,
-                            queue_revision,
-                            ..
-                        } => log.push(ChainEvent::Changed {
-                            from: from.and_then(|c| c.track_id),
-                            to,
-                            revision: queue_revision,
-                        }),
-                        EngineEvent::Progress {
-                            position_sec,
-                            buffered_sec,
-                            ..
-                        } => log.push(ChainEvent::Progress {
-                            position_sec,
-                            buffered_sec,
-                        }),
-                        EngineEvent::TrackEnded => log.push(ChainEvent::Ended),
-                        EngineEvent::Error(err) => log.push(ChainEvent::Failed(err.to_string())),
-                        EngineEvent::Opened { .. } | EngineEvent::StateChanged(_) => {}
+            Engine::spawn_stamped(Box::new(backend), move |stamped| {
+                // 事件盖的是**正在发声**那首的章，交接后自动换成新曲的。
+                let to = stamped.context.track_id.clone();
+                let mut log = events.lock().unwrap();
+                match stamped.event {
+                    EngineEvent::TrackChanged {
+                        from,
+                        queue_revision,
+                        ..
+                    } => log.push(ChainEvent::Changed {
+                        from: from.and_then(|c| c.track_id),
+                        to,
+                        revision: queue_revision,
+                    }),
+                    EngineEvent::Progress {
+                        position_sec,
+                        buffered_sec,
+                        ..
+                    } => log.push(ChainEvent::Progress {
+                        position_sec,
+                        buffered_sec,
+                    }),
+                    EngineEvent::TrackEnded => log.push(ChainEvent::Ended),
+                    EngineEvent::Error(err) => log.push(ChainEvent::Failed(err.to_string())),
+                    EngineEvent::OutputChanged {
+                        ref output,
+                        device_revision,
+                        ..
+                    } => log.push(ChainEvent::Output {
+                        device: output.device_name.clone(),
+                        rate: output.sample_rate,
+                        revision: device_revision,
+                    }),
+                    EngineEvent::DeviceRejected { error, .. } => {
+                        log.push(ChainEvent::Rejected(error.to_string()))
                     }
-                },
-            )
+                    EngineEvent::StateChanged(state) => log.push(ChainEvent::State(state)),
+                    EngineEvent::Opened { .. } => {}
+                }
+            })
         };
         Self {
             engine,
             captured,
             events,
+            chain_id: "integration-chain".into(),
+            device_revision: AtomicU64::new(0),
         }
     }
 
@@ -1394,18 +1509,65 @@ impl Chain {
             .load_request(LoadRequest::new(
                 path,
                 true,
-                LoadContext::new(Some(track.into()), format!("load-{track}")),
+                LoadContext::new(Some(track.into()), self.chain_id.clone()),
             ))
+            .unwrap();
+    }
+
+    fn load_with_next(
+        &self,
+        path: &Path,
+        track: &str,
+        next_path: &Path,
+        next_track: &str,
+        revision: u32,
+    ) {
+        self.engine
+            .load_request(
+                LoadRequest::new(
+                    path,
+                    true,
+                    LoadContext::new(Some(track.into()), self.chain_id.clone()),
+                )
+                .with_next(
+                    Some(NextRequest::new(
+                        next_path,
+                        LoadContext::new(Some(next_track.into()), format!("next-{next_track}")),
+                    )),
+                    revision,
+                ),
+            )
             .unwrap();
     }
 
     fn set_next(&self, path: &Path, track: &str, revision: u32) {
         self.engine
-            .set_next(Some(NextRequest::new(
-                path,
-                LoadContext::new(Some(track.into()), format!("next-{track}")),
+            .set_next(
+                &self.chain_id,
+                Some(NextRequest::new(
+                    path,
+                    LoadContext::new(Some(track.into()), format!("next-{track}")),
+                )),
                 revision,
-            )))
+            )
+            .unwrap();
+    }
+
+    fn clear_next(&self, revision: u32) {
+        self.engine
+            .set_next(&self.chain_id, None, revision)
+            .unwrap();
+    }
+
+    fn set_device(&self, id: Option<&str>) {
+        let revision = self.device_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        self.set_device_revision(id, revision);
+    }
+
+    fn set_device_revision(&self, id: Option<&str>, revision: u64) {
+        self.device_revision.fetch_max(revision, Ordering::Relaxed);
+        self.engine
+            .set_device(id.map(str::to_string), revision)
             .unwrap();
     }
 
@@ -1525,7 +1687,10 @@ fn the_position_restarts_at_the_boundary() {
         .filter_map(position_of)
         .next()
         .expect("交接之后必须还有进度事件");
-    assert!(before > 0.7, "交接前的进度应当接近第一首末尾，实际 {before}");
+    assert!(
+        before > 0.7,
+        "交接前的进度应当接近第一首末尾，实际 {before}"
+    );
     // 缓冲里两首歌的 PCM 之间没有任何分隔，位置能归零只可能是消费端结算了边界。
     assert!(after < 0.4, "交接后进度必须从新曲起算，实际 {after}");
 }
@@ -1567,6 +1732,96 @@ fn replacing_the_next_track_before_it_sounds_keeps_it_silent() {
 }
 
 #[test]
+fn clearing_a_prefetched_next_still_allows_pause_and_resume() {
+    // next 已经进 ring 后再清空会让解码头暂时变成 None；但当前曲目的尾巴仍在发声。
+    // Play/Pause 若把「有无解码头」误当成「有无播放链」，暂停后便再也恢复不了。
+    let first = corpus_with("clear-next-a", 2, (RATE as f64 * 0.8) as usize, chirp);
+    let removed = flat("clear-next-b", RATE as usize / 2, 0.9);
+
+    let chain = Chain::start(None);
+    chain.load(&first, "A");
+    chain.set_next(&removed, "REMOVED", 1);
+    chain.wait_until_buffered(0.9);
+    chain.clear_next(2);
+    chain.engine.pause().unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    chain.engine.play().unwrap();
+    chain.wait_ended();
+
+    assert!(chain.changes().is_empty(), "被清掉的 next 不应交接");
+    assert!(
+        !chain.captured().iter().any(|sample| *sample > 0.5),
+        "被清掉的 next 一个样本都不应发声"
+    );
+}
+
+#[test]
+fn stale_next_updates_cannot_cross_an_explicit_load() {
+    // 一条旧播放链的 SetNext 晚于新 Load 抵达时，不能把新 Load 原子携带的 next 覆盖掉；
+    // 同一条新链里 revision 更旧的更新也同理。两类乱序分别由 chain 与 revision 挡住。
+    let first = corpus_with("stale-chain-a", 2, (RATE as f64 * 0.4) as usize, chirp);
+    let intended = flat("stale-chain-intended", RATE as usize / 2, -0.9);
+    let stale = flat("stale-chain-old", RATE as usize / 2, 0.9);
+
+    let chain = Chain::start(None);
+    chain.load_with_next(&first, "A", &intended, "INTENDED", 10);
+    chain
+        .engine
+        .set_next(
+            "previous-chain",
+            Some(NextRequest::new(
+                &stale,
+                LoadContext::new(Some("OLD-CHAIN".into()), "old-chain-next"),
+            )),
+            100,
+        )
+        .unwrap();
+    chain.set_next(&stale, "OLD-REVISION", 9);
+    chain.wait_ended();
+
+    let captured = chain.captured();
+    assert!(
+        captured.iter().any(|sample| *sample < -0.5),
+        "新 Load 原子指定的 next 必须发声"
+    );
+    assert!(
+        !captured.iter().any(|sample| *sample > 0.5),
+        "旧链或旧 revision 都不能污染新 Load"
+    );
+    let changes = chain.changes();
+    assert!(
+        matches!(&changes[..], [ChainEvent::Changed { to: Some(to), revision: 10, .. }] if to == "INTENDED"),
+        "只应交接到新 Load 指定的 next：{changes:?}"
+    );
+}
+
+#[test]
+fn next_update_arriving_before_its_load_is_not_lost() {
+    // Tauri invoke 之间没有顺序保证：后发的 SetNext 可能先于建立播放链的 Load 进引擎。
+    // 它应暂存到同名 chain，等 Load 到达后以较新的 revision 覆盖初始指定。
+    let first = corpus_with("future-chain-a", 2, (RATE as f64 * 0.4) as usize, chirp);
+    let initial = flat("future-chain-initial", RATE as usize / 2, 0.9);
+    let updated = flat("future-chain-updated", RATE as usize / 2, -0.9);
+
+    let chain = Chain::start(None);
+    chain.set_next(&updated, "UPDATED", 2);
+    chain.load_with_next(&first, "A", &initial, "INITIAL", 1);
+    chain.wait_ended();
+
+    let captured = chain.captured();
+    assert!(captured.iter().any(|sample| *sample < -0.5));
+    assert!(
+        !captured.iter().any(|sample| *sample > 0.5),
+        "先到的更新不能被后到的 Load 初始值抹掉"
+    );
+    let changes = chain.changes();
+    assert!(
+        matches!(&changes[..], [ChainEvent::Changed { to: Some(to), revision: 2, .. }] if to == "UPDATED"),
+        "交接应采用暂存的更新：{changes:?}"
+    );
+}
+
+#[test]
 fn a_boundary_already_crossed_is_a_fact() {
     // 越过边界之后才改队列就是晚了：那首歌已经在响，撤不回来。此时引擎既要如实
     // 发出它的切歌事件（丢掉的话界面会停在一首早已放完的歌上），也要把新指定的
@@ -1599,7 +1854,10 @@ fn a_boundary_already_crossed_is_a_fact() {
         captured.iter().any(|s| *s > 0.5),
         "已经在响的那首不能被撤掉"
     );
-    assert!(captured.iter().any(|s| *s < -0.5), "新指定的那首应当接在它后面");
+    assert!(
+        captured.iter().any(|s| *s < -0.5),
+        "新指定的那首应当接在它后面"
+    );
 }
 
 #[test]
@@ -1626,8 +1884,10 @@ fn seeking_after_the_handoff_stays_on_the_sounding_track() {
         .iter()
         .filter_map(position_of)
         .fold(0.0f64, f64::max);
+    // 进度只有 5 Hz，边界前最后一条最多会早约 200 ms；这里只证明定位后确实继续
+    // 推进了相当一段，而「最终到达边界」已经由上面的 Changed 事件严格证明。
     assert!(
-        before > 0.7,
+        before > 0.4,
         "定位后第一首应当继续放到自己的末尾，实际只到 {before}"
     );
     assert_eq!(chain.changes().len(), 1, "交接既不该丢也不该重复");
@@ -1695,4 +1955,413 @@ fn hammering_the_next_slot_never_leaves_playback_stuck() {
 
     // 无论最终接上了哪一首、还是一首都没接上，播放都必须走到终点而不是卡住。
     chain.wait_ended();
+}
+
+// ── 设备切换 ──
+//
+// 架构约束不变量第 8 条把「设备切换、采样率变化和后端失效」列为必须显式的状态机，
+// 验收条件第 6 条要求它与 gapless、重采样分别测试。这些用例全部无声卡：真机上验证
+// 换端点得插拔硬件，那是进不了 CI 的，而这条路径恰恰会静默出错——切完仍在旧设备上
+// 出声、位置按旧时基走、暂停被切成播放，三种都不报任何错。
+
+/// 找出换端点事件之后的第一条进度。
+fn position_after_switch(events: &[ChainEvent]) -> Option<f64> {
+    let at = events
+        .iter()
+        .position(|e| matches!(e, ChainEvent::Output { .. }))?;
+    events[at..].iter().find_map(|e| match e {
+        ChainEvent::Progress { position_sec, .. } => Some(*position_sec),
+        _ => None,
+    })
+}
+
+/// 换端点事件之前的最后一条进度。
+fn position_before_switch(events: &[ChainEvent]) -> Option<f64> {
+    let at = events
+        .iter()
+        .position(|e| matches!(e, ChainEvent::Output { .. }))?;
+    events[..at].iter().rev().find_map(|e| match e {
+        ChainEvent::Progress { position_sec, .. } => Some(*position_sec),
+        _ => None,
+    })
+}
+
+#[test]
+fn switching_devices_resumes_where_it_left_off() {
+    // 换端点要把输出流整条拆掉重建（新设备的采样率未必相同，环形缓冲与位置时基都得
+    // 按它重来）。位置不接回去的表现是这首歌从头再放一遍，而进度条会跟着一起骗人。
+    let path = corpus_with("switch-position", 2, (RATE as f64 * 4.0) as usize, chirp);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_for("放到 1 秒", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Progress { position_sec, .. } if *position_sec > 1.0))
+    });
+
+    chain.set_device(Some("dev-b"));
+    chain.wait_for("换到端点 B", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { device, .. } if device == "端点 B"))
+    });
+    chain.wait_for("换端点后仍有进度", |events| {
+        position_after_switch(events).is_some()
+    });
+
+    let events = chain.events();
+    let before = position_before_switch(&events).expect("换之前必须有进度");
+    let after = position_after_switch(&events).expect("换之后必须有进度");
+    // 换端点期间是静音的，所以位置只该原地等待、不该倒退，也不该凭空前进：
+    // 上界给的是一个进度间隔（200 ms）加上重建本身的耗时。
+    assert!(
+        after >= before - 0.05,
+        "换端点后位置倒退了：{before} → {after}"
+    );
+    assert!(
+        after < before + 0.6,
+        "换端点后位置凭空前进：{before} → {after}"
+    );
+}
+
+#[test]
+fn switching_to_a_device_with_another_rate_rebuilds_the_time_base() {
+    // 新端点只吃 48 kHz 而源是 44.1 kHz：整条链路后半段的时基都要按新采样率重建。
+    // 漏掉任何一处（环形缓冲容量、重采样比率、位置换算）都不会报错，只会让进度按
+    // 比率走偏——44.1 → 48 kHz 快 8.8%，一首四分钟的歌最后差出二十秒。
+    let path = corpus_with("switch-rate", 2, (RATE as f64 * 4.0) as usize, chirp);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-native", "原生 44.1k"),
+        NullDevice::new("dev-48k", "只吃 48k").with_fixed_rate(48_000),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_for("放到 1 秒", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Progress { position_sec, .. } if *position_sec > 1.0))
+    });
+    assert!(
+        !chain.engine.stats().resampled,
+        "原生采样率的端点上不该有重采样"
+    );
+
+    chain.set_device(Some("dev-48k"));
+    chain.wait_for("换到 48k 端点", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { rate, .. } if *rate == 48_000))
+    });
+    // 「不静默降级」是硬要求：插了重采样就要能被上层看见。
+    assert!(
+        chain.engine.stats().resampled,
+        "换到 48k 端点后必须标记重采样"
+    );
+
+    // 位置继续按秒推进，而不是按输出帧数被 48/44.1 放大。
+    chain.wait_for("换端点后位置继续推进", |events| {
+        let Some(after) = position_after_switch(events) else {
+            return false;
+        };
+        events.iter().any(
+            |e| matches!(e, ChainEvent::Progress { position_sec, .. } if *position_sec > after + 0.5),
+        )
+    });
+    let events = chain.events();
+    let before = position_before_switch(&events).expect("换之前必须有进度");
+    let after = position_after_switch(&events).expect("换之后必须有进度");
+    assert!(
+        (after - before).abs() < 0.6,
+        "跨采样率换端点后位置对不上：{before} → {after}"
+    );
+}
+
+#[test]
+fn an_unusable_device_is_refused_without_stopping_the_music() {
+    // 两种「用不了」都要在**不打断播放**的前提下如实回报：设备不在（拔了 / 存的标识
+    // 过期）与能力不够（当前只有立体声路径）。这里的判据不是「报了错」，而是
+    // 「报了错、歌还在放、并且仍在原来那台设备上」——把正在听的歌掐掉，比换不成糟得多。
+    let path = corpus_with("switch-refused", 2, (RATE as f64 * 2.0) as usize, chirp);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-surround", "只有 5.1 口").with_channels(6),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_for("放到 0.5 秒", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Progress { position_sec, .. } if *position_sec > 0.5))
+    });
+
+    chain.set_device(Some("dev-gone")); // 根本不存在
+    chain.set_device(Some("dev-surround")); // 存在但给不出立体声
+    chain.wait_for("两次拒绝都回报", |events| {
+        events
+            .iter()
+            .filter(|e| matches!(e, ChainEvent::Rejected(_)))
+            .count()
+            >= 2
+    });
+
+    // 播放照常走到终点，一次都没换过端点，也没有失败事件。
+    chain.wait_ended();
+    let events = chain.events();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { .. })),
+        "被拒的端点不该产生换端点事件：{events:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(e, ChainEvent::Failed(_))),
+        "换端点被拒不是播放失败：{events:?}"
+    );
+    let peak = chain
+        .captured()
+        .iter()
+        .fold(0.0f32, |acc, s| acc.max(s.abs()));
+    assert!(peak > 0.2, "被拒之后声音必须照常出去，实际峰值 {peak}");
+}
+
+#[test]
+fn switching_while_paused_does_not_start_playing() {
+    // 换端点走的是「拆流 → 重建 → 预缓冲」，而预缓冲结束时最容易顺手把暂停解除掉。
+    // 用户在暂停状态下换耳机，不该因此突然放出声音。
+    let path = corpus_with("switch-paused", 2, (RATE as f64 * 3.0) as usize, chirp);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_for("放到 0.5 秒", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Progress { position_sec, .. } if *position_sec > 0.5))
+    });
+    chain.engine.pause().unwrap();
+    std::thread::sleep(Duration::from_millis(120));
+
+    chain.set_device(Some("dev-b"));
+    chain.wait_for("换到端点 B", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { device, .. } if device == "端点 B"))
+    });
+
+    let baseline = chain.captured().len();
+    std::thread::sleep(Duration::from_millis(300));
+    let silent_tail = &chain.captured()[baseline..];
+    let peak = silent_tail.iter().fold(0.0f32, |acc, s| acc.max(s.abs()));
+    assert!(
+        peak < 1e-4,
+        "暂停状态下换端点后不该出声，实际峰值 {peak}（{} 个样本）",
+        silent_tail.len()
+    );
+    let last_state = chain
+        .events()
+        .into_iter()
+        .rev()
+        .find_map(|e| match e {
+            ChainEvent::State(state) => Some(state),
+            _ => None,
+        })
+        .expect("必须有状态事件");
+    assert_eq!(last_state, PlaybackState::Paused, "换端点不改变传输状态");
+}
+
+#[test]
+fn a_stale_device_request_cannot_override_the_latest_choice() {
+    // Tauri 命令会并发执行，“较早点击的请求较晚进引擎”是合法时序。版本 2 已经选中 B
+    // 之后，迟到的版本 1 绝不能再把输出切回 A；否则设置里显示 B，实际却从 A 出声。
+    let path = corpus_with("switch-stale", 2, (RATE as f64 * 2.0) as usize, chirp);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_for("开始播放", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::State(PlaybackState::Playing)))
+    });
+
+    chain.set_device_revision(Some("dev-b"), 2);
+    chain.set_device_revision(Some("dev-a"), 1);
+    chain.wait_for("新版请求换到端点 B", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { device, .. } if device == "端点 B"))
+    });
+    std::thread::sleep(Duration::from_millis(150));
+
+    let outputs: Vec<_> = chain
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            ChainEvent::Output { device, .. } => Some(device),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(outputs, ["端点 B"], "迟到的旧请求不该再切一次端点");
+}
+
+#[test]
+fn the_latest_revision_is_acknowledged_even_for_the_same_device() {
+    // StrictMode 会重挂载同步 hook，同一偏好因而可能连续下发两版。前端在发出版本 2 后
+    // 会丢掉版本 1 的回执；若“设备没变”就不回新版确认，实际输出与 effectiveDeviceId
+    // 会永久失配。
+    let path = corpus_with(
+        "switch-same-revision",
+        2,
+        (RATE as f64 * 2.0) as usize,
+        chirp,
+    );
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_for("开始播放", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::State(PlaybackState::Playing)))
+    });
+
+    chain.set_device_revision(Some("dev-b"), 1);
+    chain.set_device_revision(Some("dev-b"), 2);
+    chain.wait_for("同一端点的新版请求也有确认", |events| {
+        events.iter().any(
+            |event| matches!(event, ChainEvent::Output { device, revision: 2, .. } if device == "端点 B"),
+        )
+    });
+}
+
+#[test]
+fn switching_device_after_natural_end_keeps_the_ended_state() {
+    // 自然结束必须同时收束“播放意图”。若只把 shared 暂停、却把 intent.playing 留在 true，
+    // 换设备重建尾部后会按旧意图解除暂停，Ended 短暂跳回 Playing，随后还会再报一次结束。
+    let path = corpus_with("switch-ended", 2, (RATE as f64 * 0.25) as usize, chirp);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    chain.load(&path, "A");
+    chain.wait_ended();
+    let first_ended = chain
+        .events()
+        .iter()
+        .position(|event| matches!(event, ChainEvent::Ended))
+        .expect("必须先自然结束");
+
+    chain.set_device(Some("dev-b"));
+    chain.wait_for("结束后仍能换到端点 B", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { device, .. } if device == "端点 B"))
+    });
+    std::thread::sleep(Duration::from_millis(200));
+
+    let events = chain.events();
+    assert!(
+        !events[first_ended + 1..]
+            .iter()
+            .any(|event| matches!(event, ChainEvent::State(PlaybackState::Playing))),
+        "结束后换端点不该复活播放态：{events:?}"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, ChainEvent::Ended))
+            .count(),
+        1,
+        "一次自然结束只能上报一次：{events:?}"
+    );
+    let last_state = events.iter().rev().find_map(|event| match event {
+        ChainEvent::State(state) => Some(*state),
+        _ => None,
+    });
+    assert_eq!(last_state, Some(PlaybackState::Ended));
+}
+
+#[test]
+fn the_next_track_survives_a_device_switch() {
+    // 换端点不改变「下一首是谁」。用 teardown 一把拆干净最省事，但那会把待接续的
+    // 下一首一并清掉——表现为用户每换一次设备就丢一次无缝接续，而且只在换过设备
+    // 的那一次曲目边界上才看得出来。
+    let first = corpus_with("switch-next-a", 2, (RATE as f64 * 2.0) as usize, chirp);
+    let second = flat("switch-next-b", RATE as usize / 2, 0.9);
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    chain.load(&first, "A");
+    chain.set_next(&second, "B", 1);
+    chain.wait_for("放到 0.5 秒", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Progress { position_sec, .. } if *position_sec > 0.5))
+    });
+
+    chain.set_device(Some("dev-b"));
+    chain.wait_for("换到端点 B", |events| {
+        events
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Output { device, .. } if device == "端点 B"))
+    });
+    chain.wait_ended();
+
+    let changes = chain.changes();
+    assert!(
+        matches!(&changes[..], [ChainEvent::Changed { to: Some(to), .. }] if to == "B"),
+        "换端点后仍应无缝接上原先指定的下一首：{changes:?}"
+    );
+    assert!(
+        chain.captured().iter().any(|s| *s > 0.5),
+        "接上的那首必须真的发声"
+    );
+}
+
+#[test]
+fn the_device_list_marks_the_system_default() {
+    // 「跟随系统默认」与「恰好选中了当前的默认设备」是两回事，但界面上要能看出
+    // 哪一台是系统默认——否则用户无从判断自己那台耳机是不是已经被系统接管了。
+    let backend = NullOutput::with_devices([
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-b", "端点 B"),
+    ]);
+    let listed = backend.enumerator().devices().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert!(listed[0].is_default, "第一台应标为系统默认");
+    assert!(!listed[1].is_default);
+    assert_eq!(listed[1].id, "dev-b");
+}
+
+#[test]
+fn an_unusable_device_is_refused_even_before_anything_plays() {
+    // 用户完全可以在暂停（甚至还没放过任何东西）时去设置里改设备。这时若只记下偏好
+    // 不作校验，错误要等到他下次按播放才冒出来——那时他已经忘了自己改过设备，
+    // 而报出来的是一条「播放失败」，看上去像是这首歌的问题。
+    let chain = Chain::start_with_devices(vec![
+        NullDevice::new("dev-a", "端点 A"),
+        NullDevice::new("dev-surround", "只有 5.1 口").with_channels(6),
+    ]);
+    chain.set_device(Some("dev-surround"));
+    chain.wait_for("空闲时也要当场回报", |events| {
+        events.iter().any(|e| matches!(e, ChainEvent::Rejected(_)))
+    });
+
+    // 被拒之后偏好没有落下：随后真的开始放，走的仍是原来那台，而不是那台 5.1 口。
+    let path = corpus_with("idle-refused", 2, (RATE as f64 * 0.4) as usize, chirp);
+    chain.load(&path, "A");
+    chain.wait_ended();
+    assert!(
+        !chain
+            .events()
+            .iter()
+            .any(|e| matches!(e, ChainEvent::Failed(_))),
+        "被拒的选择不该留下来污染下一次装载：{:?}",
+        chain.events()
+    );
 }

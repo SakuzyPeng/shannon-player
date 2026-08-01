@@ -5,9 +5,8 @@
 //!
 //! ## 引擎为什么是懒起的
 //!
-//! `Engine::spawn` 会立刻起一条线程并在首次 `load` 时打开输出设备。在 `setup` 里就
-//! 建好它，等于应用一启动就占用声卡——用户可能只是想整理曲库，却发现别的应用抢不到
-//! 独占设备。所以推迟到第一次真正要放东西的时候。
+//! `Engine::spawn` 只会立刻起控制线程，输出设备到首次 `load` 才打开。因此这里按需创建
+//! 引擎以免常驻一条无用线程；播放前的音量或 next 更新可以先创建它，但仍不会占用声卡。
 //!
 //! ## `track_id` / `load_id` 为什么要随命令进入引擎
 //!
@@ -19,9 +18,10 @@
 use std::sync::Mutex;
 
 use crate::loudness::LoudnessState;
-use shannon_audio::contract::PlayerEvent;
+use shannon_audio::contract::{AudioDeviceInfo, PlayerEvent};
 use shannon_audio::engine::{LoadRequest, NextRequest};
-use shannon_audio::output::cpal_out::CpalOutput;
+use shannon_audio::output::cpal_out::{CpalDevices, CpalOutput};
+use shannon_audio::output::DeviceEnumerator;
 use shannon_audio::{Engine, LoadContext, PlayerCmd};
 use tauri::{Emitter, State};
 
@@ -41,9 +41,10 @@ struct Running {
 }
 
 impl PlayerState {
-    /// 取已有引擎，没有就现起一个。
+    /// 取已有引擎，没有就现起一个控制线程。
     ///
-    /// 起引擎会打开音频设备，因此**不在应用启动时做**——见模块头注释。
+    /// 这里只创建控制线程，输出设备仍到首次 `Load` 才打开，因此 `SetVolume` 与可能
+    /// 先于 `Load` 到达的 `SetNext` 都可以安全调用它，不会提前占用声卡。
     fn ensure(
         &self,
         app: &tauri::AppHandle,
@@ -81,20 +82,19 @@ impl PlayerState {
 
 /// 前端指定的「下一首」。
 ///
-/// 队列的权威在前端，所以这里只是一条路径加一份不透明上下文；`queue_revision` 让前端
-/// 认出某次切歌依据的是哪一版队列。增益仍由后端查表，与 `player_load` 同一个理由。
+/// 队列的权威在前端，所以这里只是一条路径加一份不透明上下文；队列版本与播放链 ID
+/// 由命令顶层携带，即使 `next = null` 也不会丢。增益仍由后端查表。
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NextTrack {
     pub path: String,
     pub context: LoadContext,
-    pub queue_revision: u32,
 }
 
 impl NextTrack {
     fn into_request(self, loudness_state: &LoudnessState, loudness: bool) -> NextRequest {
         let gain = gain_for(loudness_state, loudness, &self.context, &self.path);
-        NextRequest::new(self.path, self.context, self.queue_revision).with_loudness_gain(gain)
+        NextRequest::new(self.path, self.context).with_loudness_gain(gain)
     }
 }
 
@@ -139,6 +139,7 @@ pub fn player_load(
     initial_position_sec: Option<f64>,
     loudness: bool,
     next: Option<NextTrack>,
+    queue_revision: u32,
 ) -> Result<(), String> {
     let gain = gain_for(&loudness_state, loudness, &context, &path);
     let next = next.map(|n| n.into_request(&loudness_state, loudness));
@@ -151,24 +152,68 @@ pub fn player_load(
                 .with_volume(initial_volume)
                 .with_position(initial_position_sec)
                 .with_loudness_gain(gain)
-                .with_next(next),
+                .with_next(next, queue_revision),
         )
         .map_err(|e| e.to_string())
 }
 
 /// 更新无缝接续的下一首；`next` 为 `null` 表示当前这首放完就停。
 ///
-/// **引擎还没起过时是 no-op**：那说明什么都没在放，也就没有「下一首」可言。
-/// 前端每次装载都会顺带指定（见 `player_load`），这条命令只负责后续的队列变化。
+/// 这里即使在首次 `Load` 之前也要创建控制线程并投递：多条 Tauri invoke 的到达顺序
+/// 没有保证，先到的更新必须由引擎按 chain 暂存，不能因为设备尚未打开就静默丢掉。
 #[tauri::command]
 pub fn player_set_next(
+    app: tauri::AppHandle,
     state: State<'_, PlayerState>,
     loudness_state: State<'_, LoudnessState>,
     next: Option<NextTrack>,
     loudness: bool,
+    chain_id: String,
+    queue_revision: u32,
 ) -> Result<(), String> {
     let request = next.map(|n| n.into_request(&loudness_state, loudness));
-    state.with_engine(|engine| engine.set_next(request))
+    let slot = state.ensure(&app)?;
+    slot.as_ref()
+        .expect("ensure 保证已装配")
+        .engine
+        .set_next(chain_id, request, queue_revision)
+        .map_err(|e| e.to_string())
+}
+
+/// 列出可用的输出端点。
+///
+/// **不经引擎**：枚举是查询不是命令，既不打开设备也不碰播放状态，没有理由排进引擎那条
+/// 串行命令队列（见 `DeviceEnumerator` 的说明）。因此这条命令也不会顺带把引擎起起来。
+///
+/// **每次都重新问系统**：设备会插拔，缓存一份只会让菜单显示已经拔掉的耳机。
+#[tauri::command]
+pub fn player_list_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    CpalDevices
+        .devices()
+        .map(|devices| devices.iter().map(AudioDeviceInfo::from).collect())
+        .map_err(|e| e.to_string())
+}
+
+/// 选定输出端点；`null` = 跟随系统默认。
+///
+/// 与 `player_set_next` 同理，引擎还没起过时也要创建控制线程并投递：用户可能在开播前
+/// 就在设置里选好了设备。输出设备仍到首次 `Load` 才打开，记一个偏好不占声卡。
+///
+/// 选中的端点用不了时**不回落默认**，而是回一条 `deviceRejected` 事件并继续在原端点上
+/// 放——静默换一台意味着用户以为声音在 DAC 上、实际从笔记本喇叭里出来。
+#[tauri::command]
+pub fn player_set_device(
+    app: tauri::AppHandle,
+    state: State<'_, PlayerState>,
+    device_id: Option<String>,
+    device_revision: u64,
+) -> Result<(), String> {
+    let slot = state.ensure(&app)?;
+    slot.as_ref()
+        .expect("ensure 保证已装配")
+        .engine
+        .set_device(device_id, device_revision)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -221,14 +266,12 @@ mod tests {
     fn next_track_accepts_the_frontend_shape() {
         let json = r#"{
             "path": "/音乐/专辑/02.flac",
-            "context": { "trackId": "t-1", "loadId": "load-9" },
-            "queueRevision": 7
+            "context": { "trackId": "t-1", "loadId": "load-9" }
         }"#;
         let next: NextTrack = serde_json::from_str(json).expect("前端形状必须能解开");
         assert_eq!(next.path, "/音乐/专辑/02.flac");
         assert_eq!(next.context.track_id.as_deref(), Some("t-1"));
         assert_eq!(next.context.load_id, "load-9");
-        assert_eq!(next.queue_revision, 7);
     }
 
     #[test]

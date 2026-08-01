@@ -303,6 +303,8 @@ pub fn run() {
             reset_album_metadata,
             player::player_load,
             player::player_set_next,
+            player::player_list_devices,
+            player::player_set_device,
             player::player_play,
             player::player_pause,
             player::player_seek,

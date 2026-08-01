@@ -32,7 +32,7 @@
 //! 而平台原生输出后端尚未接入，因此当前遇到多声道会报明确的路由错误。
 //! 采样率不受此限——设备给不出源采样率时插入重采样，并在 stats 里如实标记。
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -60,6 +60,8 @@ const IDLE_TICK: Duration = Duration::from_millis(3);
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 /// 等待输出回调回执 flush 的上限。超时说明回调没在跑，生产端自行重置。
 const FLUSH_TIMEOUT: Duration = Duration::from_millis(120);
+/// IPC 乱序时暂存的未来播放链更新上限。正常只有一条；上限只防异常调用方无限造链 ID。
+const DEFERRED_CHAIN_CAPACITY: usize = 32;
 
 /// 播放状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,10 +105,17 @@ pub struct LoadRequest {
     /// 处境）。晚到的 SetNext 被 teardown 抹掉、早到的被清掉，两种顺序都可能——
     /// 表现出来就是「无缝换曲时好时坏」，最难查的那一类。
     pub next: Option<NextRequest>,
+    /// 上面这份指定的版本号。即使 `next` 为 `None` 也必须有版本——
+    /// 「明确放完就停」同样是一条会覆盖旧 next 的更新。
+    pub next_revision: u32,
+    /// 一次显式装载创建一条新的播放链；后续 gapless 交接始终沿用它。
+    /// 旧链迟到的 `SetNext` 据此不会越过新 `Load` 污染下一首。
+    pub chain_id: String,
 }
 
 impl LoadRequest {
     pub fn new(path: impl Into<PathBuf>, autoplay: bool, context: LoadContext) -> Self {
+        let chain_id = context.load_id.clone();
         Self {
             path: path.into(),
             autoplay,
@@ -115,6 +124,8 @@ impl LoadRequest {
             initial_position_sec: None,
             loudness_gain: None,
             next: None,
+            next_revision: 0,
+            chain_id,
         }
     }
 
@@ -135,8 +146,9 @@ impl LoadRequest {
     }
 
     /// 顺带指定无缝接续的下一首。
-    pub fn with_next(mut self, next: Option<NextRequest>) -> Self {
+    pub fn with_next(mut self, next: Option<NextRequest>, queue_revision: u32) -> Self {
         self.next = next;
+        self.next_revision = queue_revision;
         self
     }
 }
@@ -144,8 +156,9 @@ impl LoadRequest {
 /// 下一首的装载参数。
 ///
 /// 与 [`LoadRequest`] 分开而不是复用：next 没有 `autoplay`（它接在当前这首后面，
-/// 传输状态早已确定），没有初始位置（无缝交接必然从头放起），却多一个队列版本号。
-/// 硬塞进同一个结构，就得靠注释解释「这几个字段在 next 语境下无意义」。
+/// 传输状态早已确定），也没有初始位置（无缝交接必然从头放起）。队列版本放在
+/// [`NextUpdate`] 或 `LoadRequest` 顶层，才能让 `next = None` 的“放完就停”同样带版本。
+/// 硬塞进一个结构，就得靠注释解释「这些字段在 next 语境下无意义」。
 #[derive(Debug, Clone)]
 pub struct NextRequest {
     pub path: PathBuf,
@@ -154,17 +167,14 @@ pub struct NextRequest {
     pub context: LoadContext,
     /// 响度归一化增益，语义同 [`LoadRequest::loudness_gain`]。
     pub loudness_gain: Option<f32>,
-    /// 队列版本号。引擎不解释它，只在切歌事件里回带，让前端认出这次交接依据的是哪一版队列。
-    pub queue_revision: u32,
 }
 
 impl NextRequest {
-    pub fn new(path: impl Into<PathBuf>, context: LoadContext, queue_revision: u32) -> Self {
+    pub fn new(path: impl Into<PathBuf>, context: LoadContext) -> Self {
         Self {
             path: path.into(),
             context,
             loudness_gain: None,
-            queue_revision,
         }
     }
 
@@ -174,12 +184,59 @@ impl NextRequest {
     }
 }
 
+/// 一次「下一首」更新。
+///
+/// `chain_id` 只在显式 `Load` 时变化，gapless 交接不变；`queue_revision` 则在同一条链内
+/// 每次重新指定下一首时递增。两者一起把两类乱序都挡住：旧链不能覆盖新装载，同链旧版本
+/// 不能覆盖新队列。`request = None` 仍是一条完整更新，表示明确放完就停。
+#[derive(Debug, Clone)]
+pub struct NextUpdate {
+    pub chain_id: String,
+    pub queue_revision: u32,
+    pub request: Option<NextRequest>,
+}
+
+impl NextUpdate {
+    pub fn new(
+        chain_id: impl Into<String>,
+        queue_revision: u32,
+        request: Option<NextRequest>,
+    ) -> Self {
+        Self {
+            chain_id: chain_id.into(),
+            queue_revision,
+            request,
+        }
+    }
+}
+
+/// 一次输出端点选择。
+///
+/// Tauri 命令可能并发抵达，引擎不能拿“收到的先后”冒充“用户点击的先后”。前端给每次
+/// 选择递增一版，控制线程只接纳更新的版本；回执也原样带回，前端据此丢掉迟到结果。
+#[derive(Debug, Clone)]
+pub struct DeviceUpdate {
+    pub device_id: Option<String>,
+    pub revision: u64,
+}
+
+impl DeviceUpdate {
+    pub fn new(device_id: Option<String>, revision: u64) -> Self {
+        Self {
+            device_id,
+            revision,
+        }
+    }
+}
+
 /// 控制命令。经通道投递，调用方不阻塞，结果一律走事件。
 #[derive(Debug)]
 pub enum PlayerCmd {
     Load(LoadRequest),
     /// 指定（或清空）无缝接续的下一首。
-    SetNext(Option<NextRequest>),
+    SetNext(NextUpdate),
+    /// 换输出端点；`None` = 跟随系统默认。
+    SetDevice(DeviceUpdate),
     Play,
     Pause,
     Stop,
@@ -221,6 +278,32 @@ pub enum EngineEvent {
         spec: SourceSpec,
         output: OutputConfig,
         queue_revision: u32,
+    },
+    /// 输出端点选择已落实，附当前流实际协商到的配置。
+    ///
+    /// 与 `Opened` 分开是因为**曲目没有变**：前端收到 `Opened` 会把它当成一次新装载
+    /// （置 loading 态、作废待定位），而换设备只该更新「现在从哪台设备出声、采样率
+    /// 是多少、有没有重采样」。同一偏好的更新 revision 也会用它确认当前配置，避免前端
+    /// 丢掉旧回执后无从确认。合成一个事件就得让前端从别处猜是哪一种。
+    OutputChanged {
+        spec: SourceSpec,
+        output: OutputConfig,
+        /// 产生这次结果的设备选择版本。
+        device_revision: u64,
+    },
+    /// 选定的端点用不了，**播放未受影响**——仍在原来那台设备上出声。
+    ///
+    /// 与 `Error` 分开是硬要求：`Error` 的含义是这条播放链已经拆了，前端据此把界面
+    /// 切到停止态。用它报「换设备没换成」会让界面显示已停止，而用户耳朵里音乐还在响，
+    /// 这种不一致比换不成本身更难解释。
+    DeviceRejected {
+        error: EngineError,
+        /// 被拒的设备选择版本。
+        device_revision: u64,
+        /// 拒绝后引擎仍保留的偏好；`None` = 跟随系统默认。
+        preferred_device_id: Option<String>,
+        /// 显式偏好的显示名。设备随后拔掉也能把界面准确退回原选择。
+        preferred_device_label: Option<String>,
     },
     StateChanged(PlaybackState),
     Progress {
@@ -385,6 +468,15 @@ impl Engine {
                 self.shared.set_paused(true);
                 Some(intent.generation)
             }
+            PlayerCmd::SetDevice(_) => {
+                let mut intent = lock_transport(&self.transport);
+                intent.generation = intent.generation.wrapping_add(1);
+                // 与 Seek 同理：换端点不改变「换完要不要继续播」，但要先止住旧设备。
+                // 不止的话，从此刻到控制线程真正拆流之间那段音频已经发声，而重建
+                // 是按拆流前读到的位置接回去的——用户会听到那一小段重放一遍。
+                self.shared.set_paused(true);
+                Some(intent.generation)
+            }
             // SetNext 不动传输意图，也不动装载代际：它不改变「现在放的是什么」。
             PlayerCmd::SetVolume(_) | PlayerCmd::SetNext(_) => None,
         };
@@ -415,8 +507,26 @@ impl Engine {
     ///
     /// 队列的权威在前端，引擎只认「下一个是谁」。每次队列、循环或随机状态变化都该重发，
     /// 已经预解码但尚未发声的旧 next 会被丢弃（见实现计划「队列归属与切歌交接」）。
-    pub fn set_next(&self, request: Option<NextRequest>) -> Result<()> {
-        self.send(PlayerCmd::SetNext(request))
+    pub fn set_next(
+        &self,
+        chain_id: impl Into<String>,
+        request: Option<NextRequest>,
+        queue_revision: u32,
+    ) -> Result<()> {
+        self.send(PlayerCmd::SetNext(NextUpdate::new(
+            chain_id,
+            queue_revision,
+            request,
+        )))
+    }
+
+    /// 换输出端点；`None` = 跟随系统默认。
+    ///
+    /// 正在放东西时会按当前位置重建输出链路并保持传输状态；没在放时只记下偏好，
+    /// 下次装载生效（不为一次设置动作打开声卡）。选中的端点用不了时**不回落默认**，
+    /// 而是回一条 `DeviceRejected` 并继续在原端点上放。
+    pub fn set_device(&self, id: Option<String>, revision: u64) -> Result<()> {
+        self.send(PlayerCmd::SetDevice(DeviceUpdate::new(id, revision)))
     }
 
     pub fn play(&self) -> Result<()> {
@@ -564,7 +674,6 @@ impl Source {
             path: self.path.clone(),
             context: self.context.clone(),
             loudness_gain: Some(self.loudness_gain),
-            queue_revision: self.queue_revision,
         }
     }
 
@@ -584,11 +693,29 @@ impl Source {
 /// 与解码头（`Worker::head`）分开是 gapless 带来的：解码领先播放最多一秒半，那段时间
 /// 里两者根本不是同一首。事件盖章、进度里的时长、以及 seek 该定位到哪个文件，全部以
 /// 这里为准；按解码头来会让界面提前一秒半切歌，也会让拖动进度条定位到下一首上。
+#[derive(Clone)]
 struct Sounding {
     context: LoadContext,
     spec: SourceSpec,
     path: PathBuf,
     loudness_gain: f32,
+}
+
+/// 一次换端点请求的结局。
+///
+/// 分三种而不是「成功 / 失败」两种，是因为**失败也分两类**，而它们对用户的意思相反：
+/// 预检没过时那首歌还在旧设备上好好放着（只是没换成），链路重建失败则是真的停了。
+/// 合成一类的话，前者会让界面显示成播放已中止，而用户耳朵里音乐还在响。
+enum DeviceSwitch {
+    /// 当前没有在放东西，只记下偏好，下次装载时生效。
+    Recorded,
+    /// 新端点已切换完成，或同一偏好已有流可供新版请求确认。
+    Resolved {
+        spec: SourceSpec,
+        output: OutputConfig,
+    },
+    /// 预检没通过：旧流原封不动，仍在旧端点上发声。
+    Rejected(EngineError),
 }
 
 /// 已打点、尚未被消费端越过的边界。与环形缓冲里的打点一一对应、同序。
@@ -619,6 +746,19 @@ struct Worker {
     sounding: Option<Sounding>,
     /// 前端指定的下一首。收到时只记请求，等缓冲喂满、控制线程本来就要休息时才打开文件。
     next_request: Option<NextRequest>,
+    /// 用户选定的输出端点；`None` = 跟随系统默认。**引擎这边也留一份**：换设备失败时
+    /// 要能把后端的偏好原样退回去，只存在后端里就没有可回退的基准了。
+    preferred_device: Option<String>,
+    /// 显式偏好的显示名。拒绝后要把前端退回**真实保留的选择**，不能让它猜。
+    preferred_device_label: Option<String>,
+    /// 已接纳的设备选择版本；旧版本即使后到也不能覆盖新选择。
+    device_revision: u64,
+    /// 当前显式装载创建的播放链。gapless 交接不会换链；只有新 `Load` 才会。
+    chain_id: Option<String>,
+    /// 当前链已经接纳的下一首版本；同链迟到的旧版本直接忽略。
+    next_revision: u32,
+    /// 先于对应 `Load` 到达的更新。IPC 命令可能乱序，不能因为链还没建立就把它丢掉。
+    deferred_next: HashMap<String, NextUpdate>,
     /// 已打开、尚未开始写入缓冲的下一首。
     staged: Option<Source>,
     /// 已打点未越过的边界，与缓冲里的打点同序。
@@ -631,6 +771,8 @@ struct Worker {
     /// 音量与暂停都记在 shared 里，这里只留下用户设定的音量，
     /// 以便换曲后仍按同一音量播放。
     volume: f32,
+    /// 最近一次真正提交到共享输出状态的传输意图版本。
+    applied_transport_generation: u64,
     last_progress: Instant,
     decode_scratch: Vec<f32>,
 }
@@ -655,11 +797,18 @@ impl Worker {
             head: None,
             sounding: None,
             next_request: None,
+            preferred_device: None,
+            preferred_device_label: None,
+            device_revision: 0,
+            chain_id: None,
+            next_revision: 0,
+            deferred_next: HashMap::new(),
             staged: None,
             marks: VecDeque::new(),
             ended_reported: false,
             drain_deadline: None,
             volume: 1.0,
+            applied_transport_generation: 0,
             last_progress: Instant::now(),
             decode_scratch: Vec::new(),
         }
@@ -674,7 +823,12 @@ impl Worker {
                         self.teardown();
                         return;
                     }
-                    Ok(queued) => self.handle(queued),
+                    Ok(queued) => {
+                        // 命令语义必须以此刻真正发声的曲目为准。回调可能刚越过边界但
+                        // TrackChanged 尚未结算；若直接处理 Seek，会错误地把上一首重开。
+                        self.settle_crossings();
+                        self.handle(queued);
+                    }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
                         self.teardown();
@@ -683,6 +837,10 @@ impl Worker {
                 }
             }
 
+            // 回调可能在上一轮之后越过了边界。先确认「正在发声的是谁」，后面的设备错误
+            // 与解码错误才会盖到正确上下文上；take_crossed 是幂等的，后面还能再结算一次。
+            self.settle_crossings();
+
             // 设备断开、被其它应用独占等错误从输出回调旁路投递；控制线程负责
             // 关闭整条链路并发出结构化事件，不能让状态停在一个实际已无声的 Playing。
             if self.poll_backend_error() {
@@ -690,7 +848,7 @@ impl Worker {
                 continue;
             }
 
-            let fed = match self.pump() {
+            let fed = match self.pump_preserving_sounding() {
                 Ok(fed) => fed,
                 Err(err) => {
                     self.fail(err);
@@ -723,6 +881,8 @@ impl Worker {
         // 待接续的下一首同样作废：显式装载之后「下一个是谁」要由前端按新处境重新指定，
         // 沿用旧的等于让引擎自作主张接上一个前端已经不这么想的曲目。
         self.next_request = None;
+        self.chain_id = None;
+        self.next_revision = 0;
         self.marks.clear();
         self.ended_reported = false;
         self.drain_deadline = None;
@@ -743,6 +903,19 @@ impl Worker {
             .context
             .clone()
             .expect("引擎事件必须隶属于一次装载请求");
+        (self.on_event)(StampedEngineEvent { context, event });
+    }
+
+    /// 发一条与曲目无关的端点事件。
+    ///
+    /// 换端点在**什么都没放的时候**也会发生（用户在设置里选一下），那一刻没有装载
+    /// 上下文可盖，而 [`emit`](Self::emit) 会因此 panic。这里补一个空上下文——前端对
+    /// 这两个事件本来就不按装载代际过滤（它们说的是「声音从哪出去」，不是「哪一首」）。
+    fn emit_device(&self, event: EngineEvent) {
+        let context = self
+            .context
+            .clone()
+            .unwrap_or_else(|| LoadContext::new(None, String::new()));
         (self.on_event)(StampedEngineEvent { context, event });
     }
 
@@ -789,10 +962,83 @@ impl Worker {
                     Err(_) => self.discard_stale_load(),
                 }
             }
-            PlayerCmd::SetNext(request) => self.set_next(request),
+            PlayerCmd::SetNext(update) => self.set_next(update),
+            PlayerCmd::SetDevice(update) => {
+                let generation = transport_generation.expect("SetDevice 必须带传输意图代际");
+                let was_ended = self.state == PlaybackState::Ended;
+                // 旧请求仍要走下面的传输状态交还：发送端已经同步静音，不交还会把当前
+                // 播放永久留在暂停。但它绝不能再碰设备，也不能产生一条冒充最新选择的回执。
+                let outcome = if update.revision <= self.device_revision {
+                    Ok(DeviceSwitch::Recorded)
+                } else {
+                    self.device_revision = update.revision;
+                    self.switch_device(update.device_id)
+                };
+                match outcome {
+                    // 链路已经拆掉又没能重建，这时确实什么都没在放了，按普通失败处理。
+                    Err(err) => self.fail(err),
+                    Ok(outcome) => {
+                        // 不管换没换成，都要把发送端那句「先静音」按当前传输意图交还，
+                        // 否则界面显示在播放、shared 却一直是暂停，表现为按钮正常但没声。
+                        // 自然结束是例外：它已经把传输意图收束为停止。换端点会重建一段
+                        // 尾部 PCM，但那只是为下次 seek 做准备，不能因此把 Ended 复活成
+                        // Playing，更不能再发第二次结束事件。
+                        if was_ended {
+                            // SetDevice 可能恰好在物理播完、Ended 尚未结算的窄窗口里先写入
+                            // 一版“保持 playing=true”的意图。若这条仍是最新命令，就在这里
+                            // 把它收束为停止；已有更新的 Seek / Play 则仍由更新命令决定。
+                            let settled = {
+                                let mut intent = lock_transport(&self.transport);
+                                if intent.generation == generation {
+                                    intent.playing = false;
+                                    true
+                                } else {
+                                    false
+                                }
+                            };
+                            if settled {
+                                self.applied_transport_generation = generation;
+                            }
+                            self.shared.set_paused(true);
+                            self.ended_reported = true;
+                            self.set_state(PlaybackState::Ended);
+                        } else {
+                            let playing = self.apply_transport(generation);
+                            if self.stream.is_some() {
+                                match playing {
+                                    Some(true) => self.set_state(PlaybackState::Playing),
+                                    Some(false) => self.set_state(PlaybackState::Paused),
+                                    None => {}
+                                }
+                            }
+                        }
+                        match outcome {
+                            DeviceSwitch::Recorded => {}
+                            DeviceSwitch::Resolved { spec, output } => {
+                                self.emit_device(EngineEvent::OutputChanged {
+                                    spec,
+                                    output,
+                                    device_revision: update.revision,
+                                });
+                            }
+                            DeviceSwitch::Rejected(error) => {
+                                self.emit_device(EngineEvent::DeviceRejected {
+                                    error,
+                                    device_revision: update.revision,
+                                    preferred_device_id: self.preferred_device.clone(),
+                                    preferred_device_label: self.preferred_device_label.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             PlayerCmd::Play => {
                 let generation = transport_generation.expect("Play 必须带传输意图代际");
-                if self.head.is_some() {
+                // `head` 只是解码头，不是「有没有东西正在发声」的判据：撤销已经预解码的
+                // next 后它会暂时为 None，但 ring 里仍有当前曲目的尾巴。用它挡 Play 会让
+                // 这段处境下的暂停再恢复永久静音。
+                if self.stream.is_some() && self.sounding.is_some() {
                     if let Some(playing) = self.apply_transport(generation) {
                         self.set_state(if playing {
                             PlaybackState::Playing
@@ -804,7 +1050,10 @@ impl Worker {
             }
             PlayerCmd::Pause => {
                 let generation = transport_generation.expect("Pause 必须带传输意图代际");
-                if self.head.is_some() && self.apply_transport(generation).is_some() {
+                if self.stream.is_some()
+                    && self.sounding.is_some()
+                    && self.apply_transport(generation).is_some()
+                {
                     self.set_state(PlaybackState::Paused);
                 }
             }
@@ -855,12 +1104,13 @@ impl Worker {
     }
 
     /// 若命令仍是最新传输意图，就把它原子提交到输出共享状态，并返回目标是否为播放。
-    fn apply_transport(&self, generation: u64) -> Option<bool> {
+    fn apply_transport(&mut self, generation: u64) -> Option<bool> {
         let intent = lock_transport(&self.transport);
         if intent.generation != generation {
             return None;
         }
         self.shared.set_paused(!intent.playing);
+        self.applied_transport_generation = generation;
         Some(intent.playing)
     }
 
@@ -874,8 +1124,16 @@ impl Worker {
         // 显式装载先拆旧流：设备配置可能不同（采样率、声道数），沿用旧流会放出错误的音高。
         // 无缝交接走的是另一条路（`advance_head`），那里恰恰不拆流。
         self.teardown();
-        // teardown 之后再装：它刚把上一个处境的「下一首」清掉了。
+        // teardown 之后建立新链：它刚把上一个处境的「下一首」清掉了。
+        self.chain_id = Some(request.chain_id.clone());
+        self.next_revision = request.next_revision;
         self.next_request = request.next.clone();
+        // 对应链的 SetNext 可能先于 Load 穿过 IPC。只取同链且更新的那份；其它条目
+        // 也可能属于还没到达的未来 Load，不能在这里武断清空（容量由插入端限制）。
+        let deferred = self.deferred_next.remove(&request.chain_id);
+        if let Some(update) = deferred {
+            self.apply_next_update(update);
+        }
 
         // 先协商，再按**协商结果**建缓冲与重采样器：设备给不出源采样率时，
         // 输出域的采样率才是链路后半段的基准。协商只是预演，不碰设备。
@@ -973,33 +1231,67 @@ impl Worker {
     /// 3. 已经写进缓冲、但还没发声 —— 必须从缓冲里撤掉，否则改队列对听感无效，
     ///    用户仍会听到旧队列的下一首。撤不掉（已经越过边界）就是既成事实，
     ///    此时新请求自然成为**它**之后的下一首。
-    fn set_next(&mut self, request: Option<NextRequest>) {
+    fn set_next(&mut self, update: NextUpdate) {
+        if self.chain_id.as_deref() != Some(update.chain_id.as_str()) {
+            // 新链的更新可能比它的 Load 先到；旧链的迟到更新也走到这里。两者此刻无法
+            // 区分，所以按 chain 暂存，等对应 Load 到来时只取该链最新 revision。
+            let should_replace = self
+                .deferred_next
+                .get(&update.chain_id)
+                .is_none_or(|old| old.queue_revision < update.queue_revision);
+            if should_replace {
+                if !self.deferred_next.contains_key(&update.chain_id)
+                    && self.deferred_next.len() >= DEFERRED_CHAIN_CAPACITY
+                {
+                    let oldest = self
+                        .deferred_next
+                        .iter()
+                        .min_by_key(|(_, queued)| queued.queue_revision)
+                        .map(|(chain, _)| chain.clone());
+                    if let Some(oldest) = oldest {
+                        self.deferred_next.remove(&oldest);
+                    }
+                }
+                self.deferred_next.insert(update.chain_id.clone(), update);
+            }
+            return;
+        }
+        self.apply_next_update(update);
+    }
+
+    /// 把一条已经确认属于当前链的更新落到解码状态。
+    fn apply_next_update(&mut self, update: NextUpdate) {
+        if update.queue_revision <= self.next_revision {
+            return;
+        }
+        self.next_revision = update.queue_revision;
         self.staged = None;
         self.invalidate_unheard_next();
-        self.next_request = request;
+        self.next_request = update.request;
     }
 
     /// 把已经写进缓冲、但还没发声的下一首撤掉。
-    fn invalidate_unheard_next(&mut self) {
+    fn invalidate_unheard_next(&mut self) -> bool {
         let Some(mark) = self.marks.back() else {
-            return;
+            return false;
         };
         // 已经撤过一次：缓冲里那段就只剩当前这首的尾巴，没有可撤的了。
         if mark.stale {
-            return;
+            return false;
         }
         let boundary = mark.boundary;
         let Some(stream) = self.stream.as_mut() else {
-            return;
+            return false;
         };
         if !stream.producer.truncate_after(boundary, FLUSH_TIMEOUT) {
-            return;
+            return false;
         }
         if let Some(mark) = self.marks.back_mut() {
             mark.stale = true;
         }
         // 解码头正是被撤掉的那首，连同它在管线里的残余一起丢弃。
         self.head = None;
+        true
     }
 
     /// 打开待接续的下一首。
@@ -1019,7 +1311,7 @@ impl Worker {
             &request.path,
             request.context.clone(),
             request.loudness_gain,
-            request.queue_revision,
+            self.next_revision,
             stream.out_rate,
         ) {
             Ok(source) => self.staged = Some(source),
@@ -1062,6 +1354,9 @@ impl Worker {
             queue_revision: source.queue_revision,
             stale: false,
         });
+        // 先前可能已经发布过「源已排空」（例如坏 next 被撤掉后又收到一次更新）。既然
+        // 新音源已经接进 ring，输出端必须重新按活跃源处理不足帧与欠载。
+        self.shared.set_source_drained(false);
         // 接上的是同一条输出流，重采样标记要按新曲更新（它未必与前一首同采样率）。
         self.shared.set_resampled(source.resampler.is_active());
         self.head = Some(source);
@@ -1107,6 +1402,54 @@ impl Worker {
         }
     }
 
+    /// 若失败发生在**尚未发声**的预解码 next 上，撤掉它并让当前曲目照常播完。
+    ///
+    /// `stage_next` 能处理打开阶段的失败，但文件也可能打开成功、读到后面才发现包损坏。
+    /// 这时直接 `fail` 会提前掐掉健康的当前曲目，还把 B 的错误盖成 A。撤销成功后走
+    /// `TrackEnded` 兜底，前端会显式装载 B 并得到属于 B 的真实错误；若撤不掉，说明边界
+    /// 已经越过（或回调失联），调用方仍按普通失败处理。
+    fn recover_unheard_head_error(&mut self) -> bool {
+        let is_future = match (self.head.as_ref(), self.sounding.as_ref()) {
+            (Some(head), Some(sounding)) => head.context.load_id != sounding.context.load_id,
+            _ => false,
+        };
+        if !is_future {
+            return false;
+        }
+        if self.invalidate_unheard_next() {
+            self.staged = None;
+            self.next_request = None;
+            // 能推进到未来 head，说明它之前的所有音源都已完整写入 ring；撤掉未来段后
+            // 不会再生产样本。立即发布，避免很短的当前曲目在下一轮控制循环前就被回调
+            // 读空，误记成一次欠载。
+            self.shared.set_source_drained(true);
+            return true;
+        }
+        // truncate 可能因为等待期间刚越过边界而失败；把这件既成事实结算后，`fail`
+        // 就会自动使用新曲目的上下文。
+        self.settle_crossings();
+        false
+    }
+
+    /// 喂料失败时先判断错误属于正在发声的曲目，还是尚未发声的预取曲目。
+    ///
+    /// 这层必须同时包住常规循环与 `prebuffer`：很短的当前曲目会在首次预缓冲阶段就
+    /// 推进到 next；若只在主循环恢复，坏 next 仍会让健康的短曲连开头都播不出来。
+    fn pump_preserving_sounding(&mut self) -> Result<bool> {
+        match self.pump() {
+            Ok(fed) => Ok(fed),
+            Err(err) => {
+                // pump 期间回调可能刚越过边界，错误归属前先结算一次。
+                self.settle_crossings();
+                if self.recover_unheard_head_error() {
+                    Ok(false)
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
     /// 填到预缓冲阈值。填不满（短文件）也返回，由 `check_ended` 处理结束。
     /// 传入装载代际时，每批解码前检查是否已被更新的 Load 取代。
     fn prebuffer(&mut self, load_generation: Option<u64>) -> Result<bool> {
@@ -1124,7 +1467,7 @@ impl Worker {
             if stream.producer.queued_frames() >= target || head.eof {
                 return Ok(true);
             }
-            if !self.pump()? {
+            if !self.pump_preserving_sounding()? {
                 return Ok(true);
             }
         }
@@ -1308,12 +1651,161 @@ impl Worker {
             stream.out_rate,
         )?;
         if let Some(head) = self.head.take() {
-            self.next_request = Some(head.as_next_request());
+            // 没有更新过 next 时，把预取头退回待接续槽；若已有更高 revision（包括
+            // 显式清空），则以新意图为准。seek 已经 flush 了旧 PCM，此刻正好无需再
+            // 保守保留那份从未发声的旧 next。
+            if self.next_revision <= head.queue_revision {
+                self.next_revision = head.queue_revision;
+                self.next_request = Some(head.as_next_request());
+            }
         }
         self.staged = None;
         self.shared.set_resampled(source.resampler.is_active());
         self.head = Some(source);
         Ok(())
+    }
+
+    /// 换输出端点。
+    ///
+    /// 架构约束不变量第 8 条要求这是一条**显式**路径，不能静默改用另一条质量不同的
+    /// 输出：所以新端点的采样率、声道能力、重采样与否全部重新协商并如实上报，
+    /// 挑不到指定的那台就报错而不是回落到默认。
+    ///
+    /// 三段顺序不能换：
+    ///
+    /// 1. **先预检再拆流**。`negotiate` 只是预演、不碰设备，所以它失败时旧流仍在正常
+    ///    发声——此时把流拆了等于「用户点了一台用不了的设备，正在听的歌就停了」。
+    /// 2. **位置取已发声的帧数**（`played_frames`），不是已消费的。两者差一个设备延迟，
+    ///    共享模式下普遍数十毫秒；按已消费接会把那一截还没进耳朵的音频跳过去。
+    /// 3. **队列侧状态活过这次换流**。`teardown` 会把 `next_request`、链 ID 与版本一并
+    ///    清掉，那是显式装载的语义；换设备并不改变「下一首是谁」，用它就等于让用户
+    ///    每换一次设备就丢一次无缝接续。
+    fn switch_device(&mut self, device: Option<String>) -> Result<DeviceSwitch> {
+        if self.preferred_device == device {
+            // “同一偏好”仍可能是更新 revision 的请求（StrictMode 重挂载、快速 B→C→B）。
+            // 前端会丢掉旧 revision 的 OutputChanged，所以已有流时必须用当前真实配置
+            // 再确认一次；否则实际已经在 B，界面的 effectiveDeviceId 却永远停在 A。
+            if let (Some(sounding), Some(stream)) = (self.sounding.as_ref(), self.stream.as_ref()) {
+                return Ok(DeviceSwitch::Resolved {
+                    spec: sounding.spec.clone(),
+                    output: stream.config.clone(),
+                });
+            }
+            return Ok(DeviceSwitch::Recorded);
+        }
+
+        let sounding = self.sounding.clone();
+        let old_rate = self.stream.as_ref().map(|s| s.out_rate);
+        let out_layout = ChannelLayout::STEREO;
+        // 没在放东西时用一个标称采样率去问。`negotiate` 会先按声道数筛、再挑采样率，
+        // 所以只支持 96 kHz 的设备也不会被这个标称值误判；真正问出来的是「这台还在不在」
+        // 与「给不给得出立体声」，而那两件事此刻就该告诉用户——等到他下次按播放才报，
+        // 他已经忘了自己改过设备。
+        const PROBE_RATE: u32 = 44_100;
+        let output_request = OutputRequest {
+            sample_rate: sounding
+                .as_ref()
+                .map(|s| s.spec.sample_rate)
+                .unwrap_or(PROBE_RATE),
+            layout: out_layout,
+        };
+
+        // ① 预检。
+        self.backend.set_preferred_device(device.clone());
+        let probe = match self.backend.negotiate(&output_request) {
+            Ok(probe) => probe,
+            Err(err) => {
+                self.backend
+                    .set_preferred_device(self.preferred_device.clone());
+                return Ok(DeviceSwitch::Rejected(err));
+            }
+        };
+        self.preferred_device_label = device.as_ref().map(|_| probe.device_name.clone());
+        self.preferred_device = device;
+
+        // 什么都没在放：偏好已记下，下次装载时生效。不为一次设置动作打开声卡——
+        // 与「引擎懒起」同一条理由。
+        let (Some(sounding), Some(old_rate)) = (sounding, old_rate) else {
+            return Ok(DeviceSwitch::Recorded);
+        };
+
+        // ② 记住接回来的位置。
+        let position_sec = self.shared.played_frames() as f64 / old_rate as f64;
+
+        // ③ 只拆音频链路，不动队列侧。
+        self.shared.set_paused(true);
+        self.shared.set_rebuffering(true);
+        self.backend.close();
+        self.stream = None;
+        // 解码头可能已经跑到下一首去了（缓冲里同时躺着两首歌）。那一步
+        // （`advance_head`）已经把请求清掉了，所以要在丢弃前把它退回待接续槽——
+        // 否则用户每换一次设备，正好卡在交接前后的那一次无缝接续就凭空消失，
+        // 而且只在换过设备的那一个曲目边界上才看得出来。
+        if let Some(head) = self.head.take() {
+            let is_future = head.context.load_id != sounding.context.load_id;
+            if is_future && self.next_revision <= head.queue_revision {
+                self.next_revision = head.queue_revision;
+                self.next_request = Some(head.as_next_request());
+            }
+        }
+        // 已打开但还没写进缓冲的下一首直接丢：它的重采样器按旧采样率配好了，
+        // 而 `stage_next` 只是读请求、没有清掉它，稍后会按新采样率重开。
+        self.staged = None;
+        self.marks.clear();
+        self.ended_reported = false;
+        self.drain_deadline = None;
+
+        let out_rate = probe.sample_rate;
+        let out_channels = out_layout.count() as usize;
+        let mut source = Source::open(
+            &sounding.path,
+            sounding.context.clone(),
+            Some(sounding.loudness_gain),
+            0,
+            out_rate,
+        )?;
+        let frames = source.decoder.seek(position_sec)?;
+        let capacity_frames = (out_rate as f64 * RING_SECONDS) as usize;
+        let (producer, consumer) = crate::ring::ring(capacity_frames, out_channels);
+
+        // 与 `load` 同一条纪律：`open` 会立即启动设备回调，共享状态必须在它之前备好。
+        self.shared
+            .reset_position(source.resampler.src_frames_to_out(frames));
+        self.shared.set_gain(self.volume);
+        self.shared.set_resampled(source.resampler.is_active());
+        self.shared.set_source_drained(false);
+        self.shared.set_rebuffering(true);
+        self.shared.set_paused(true);
+        self.shared.reset_callback_timing();
+
+        let output = self
+            .backend
+            .open(&output_request, consumer, self.shared.clone())?;
+        if output.sample_rate != out_rate {
+            self.backend.close();
+            return Err(EngineError::new(
+                Stage::Output,
+                ErrorKind::DeviceConfig,
+                format!(
+                    "设备协商结果不一致：预演 {out_rate} Hz，实际 {} Hz",
+                    output.sample_rate
+                ),
+            ));
+        }
+
+        let spec = source.spec.clone();
+        self.stream = Some(Stream {
+            producer,
+            out_channels,
+            out_rate,
+            config: output.clone(),
+        });
+        self.sounding = Some(source.sounding());
+        self.head = Some(source);
+
+        let _ = self.prebuffer(None)?;
+        self.shared.set_rebuffering(false);
+        Ok(DeviceSwitch::Resolved { spec, output })
     }
 
     /// 解码到末尾、缓冲排空且设备域尾部已发声才算播完。
@@ -1352,6 +1844,22 @@ impl Worker {
             return;
         }
         self.ended_reported = true;
+        // 自然结束也会改变传输意图，不能只暂停输出原子量。否则下一次 Seek / SetDevice
+        // 会“保持”上一次播放留下的 true，把已经结束的曲目意外复活。若发送端已经写入
+        // 更新的意图，则不覆盖它；那条命令稍后会按自己的版本提交。
+        let ended_generation = {
+            let mut intent = lock_transport(&self.transport);
+            if intent.generation == self.applied_transport_generation {
+                intent.generation = intent.generation.wrapping_add(1);
+                intent.playing = false;
+                Some(intent.generation)
+            } else {
+                None
+            }
+        };
+        if let Some(generation) = ended_generation {
+            self.applied_transport_generation = generation;
+        }
         self.shared.set_paused(true);
         self.set_state(PlaybackState::Ended);
         self.emit(EngineEvent::TrackEnded);

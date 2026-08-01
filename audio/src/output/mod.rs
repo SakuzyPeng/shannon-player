@@ -35,6 +35,38 @@ pub struct OutputConfig {
     pub sample_format: String,
     /// 设备名，用于诊断与设备切换提示。
     pub device_name: String,
+    /// 实际打开的端点标识；跟随系统默认时是**当下解析到的那一台**的标识，不是 `None`。
+    /// 界面要显示「现在到底在哪台设备上出声」，靠的就是它。
+    pub device_id: Option<String>,
+}
+
+/// 一个可选的输出端点。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceInfo {
+    /// 持久化用的标识。
+    ///
+    /// **不用设备名当键**：同型号的两只 USB DAC 名字一模一样，用名字选会随机打中一只。
+    /// cpal 的 `DeviceId` 就是为持久化设计的（macOS 上取的是 CoreAudio 的设备 UID，
+    /// 跨重启与重新插拔都不变），所以这里存它的字符串形式。
+    pub id: String,
+    /// 给人看的名字。
+    pub label: String,
+    /// 是否为系统当前的默认输出。
+    pub is_default: bool,
+}
+
+/// 列举输出端点。
+///
+/// 与 [`OutputBackend`] 分开建模，因为它是**查询**而不是命令：菜单弹开时要立刻有答案，
+/// 而 `OutputBackend` 归引擎线程独占，从外面问它就得为一次只读查询搭一套请求/回执。
+/// 枚举既不打开设备也不碰播放状态，没有理由排进那条串行命令队列。
+///
+/// 分开还有第二层好处：将来平台原生后端接进来时，「有哪些端点」与「用哪个后端放」
+/// 可以分别演进——多声道端点在列表里存在，但要等对应后端就位才可选。
+pub trait DeviceEnumerator: Send + Sync {
+    /// 列出当前可用的输出端点。**每次调用都重新问系统**：设备会插拔，缓存一份
+    /// 只会让菜单显示已经拔掉的耳机。
+    fn devices(&self) -> Result<Vec<DeviceInfo>>;
 }
 
 /// 回调与控制线程之间的共享状态。
@@ -215,6 +247,16 @@ pub trait OutputBackend: Send {
     /// 分成两步是因为链路后半段（环形缓冲容量、重采样比率、位置计数的时基）都要
     /// 按**协商结果**而不是请求来搭；先 open 再回头调整意味着缓冲刚建好就得推倒重建。
     fn negotiate(&self, request: &OutputRequest) -> Result<OutputConfig>;
+
+    /// 指定下次打开时使用的端点；`None` = 跟随系统默认。
+    ///
+    /// **只记偏好，不碰设备**。换端点要重新协商采样率、按新时基重建环形缓冲与重采样器、
+    /// 再把播放位置接回去，这一整套是引擎的状态机（架构约束不变量第 8 条要求它是显式的）；
+    /// 后端在这里擅自重开流就绕过了它，表现为位置错乱或静默换成另一条质量不同的路径。
+    ///
+    /// 没有默认实现是故意的：一个忽略该方法的后端会让用户在菜单里选好了设备、
+    /// 声音却仍从原来那台出来，而且不报任何错。
+    fn set_preferred_device(&mut self, id: Option<String>);
 
     /// 按请求协商并打开输出流。返回实际生效的配置，须与 [`negotiate`](Self::negotiate) 一致。
     ///

@@ -27,18 +27,25 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use shannon_audio::engine::{Engine, EngineEvent, LoadContext, NextRequest, PlaybackState};
+use shannon_audio::engine::{
+    Engine, EngineEvent, LoadContext, LoadRequest, NextRequest, PlaybackState,
+};
 use shannon_audio::output::{cpal_out::CpalOutput, null::NullOutput, OutputBackend};
 
 /// 指定无缝接续的下一首；越过列表末尾就明确告诉引擎「没有下一首了」。
 ///
 /// 清空这一步不能省：不清的话引擎会一直接着上一次指定的那首，
 /// 放到列表末尾反而绕回去——这正是「下一首」必须由外面**每次重算**的原因。
-fn queue_next(engine: &Engine, tracks: &[PathBuf], index: usize) {
-    let request = tracks.get(index).map(|path| {
-        NextRequest::new(path, LoadContext::new(None, format!("play-next-{index}")), 0)
-    });
-    engine.set_next(request).unwrap();
+fn next_request(tracks: &[PathBuf], index: usize) -> Option<NextRequest> {
+    tracks
+        .get(index)
+        .map(|path| NextRequest::new(path, LoadContext::new(None, format!("play-next-{index}"))))
+}
+
+fn queue_next(engine: &Engine, chain_id: &str, tracks: &[PathBuf], index: usize, revision: u32) {
+    engine
+        .set_next(chain_id, next_request(tracks, index), revision)
+        .unwrap();
 }
 
 /// 可播放的扩展名。识别与播放能力解耦——这里只是**遍历目录时的筛选**，
@@ -139,8 +146,31 @@ fn main() {
             }
             EngineEvent::TrackChanged { spec, .. } => {
                 // 无缝交接：这一行出现时新曲已经在响了（判定发生在消费端越过边界时）。
-                println!("\n     ── 无缝接上 {} / {} Hz", spec.codec, spec.sample_rate);
+                println!(
+                    "\n     ── 无缝接上 {} / {} Hz",
+                    spec.codec, spec.sample_rate
+                );
                 changed.fetch_add(1, Ordering::Relaxed);
+            }
+            EngineEvent::OutputChanged { spec, output, .. } => {
+                println!(
+                    "\n     ── 换到 {} · {} Hz · {}{}",
+                    output.device_name,
+                    output.sample_rate,
+                    output.sample_format,
+                    if output.sample_rate != spec.sample_rate {
+                        format!(
+                            "  ← 重采样 {} → {} Hz",
+                            spec.sample_rate, output.sample_rate
+                        )
+                    } else {
+                        String::new()
+                    }
+                );
+            }
+            EngineEvent::DeviceRejected { error, .. } => {
+                // 换不成不是播放失败：这一行出现时上一台设备仍在正常出声。
+                eprintln!("\n     换设备被拒：{error}");
             }
             EngineEvent::TrackEnded => ended.store(true, Ordering::Relaxed),
             EngineEvent::Error(err) => {
@@ -191,15 +221,19 @@ fn main() {
     if each_limit.is_none() {
         // ── 无缝链 ──
         used_gapless = true;
+        let chain_id = "play-gapless-chain";
         header(0);
-        engine.load(&tracks[0], true).unwrap();
+        engine
+            .load_request(
+                LoadRequest::new(&tracks[0], true, LoadContext::new(None, chain_id))
+                    .with_next(next_request(&tracks, 1), 1),
+            )
+            .unwrap();
         if let Some(sec) = seek {
             // 等装载完成再定位；这是诊断工具，不值得为它引入一套同步协议。
             std::thread::sleep(Duration::from_millis(400));
             engine.seek(sec).unwrap();
         }
-        queue_next(&engine, &tracks, 1);
-
         let mut index = 0usize;
         loop {
             let crossed = changed.load(Ordering::Relaxed) as usize;
@@ -209,7 +243,7 @@ fn main() {
                 header(index);
                 // 交接完成才指定再下一首：早指定也无妨，但这样与前端的做法一致
                 // ——「下一首是谁」在每次切歌后按当时的队列重算。
-                queue_next(&engine, &tracks, index + 1);
+                queue_next(&engine, chain_id, &tracks, index + 1, index as u32 + 1);
             }
             if ended.load(Ordering::Relaxed) || over_total() {
                 break;

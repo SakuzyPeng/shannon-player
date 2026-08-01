@@ -23,7 +23,33 @@ use ts_rs::TS;
 use crate::decode::SourceSpec;
 use crate::engine::{EngineEvent, PlaybackState, StampedEngineEvent};
 use crate::error::{EngineError, ErrorKind, Stage};
-use crate::output::OutputConfig;
+use crate::output::{DeviceInfo, OutputConfig};
+
+/// 一个可选的输出端点，给界面用。
+///
+/// 与 [`DeviceInfo`] 逐字段相同却仍分开：那一个是**后端探测的结论**，将来接进平台原生
+/// 后端时会多出布局能力、是否支持独占这类字段，而它们未必都该、也未必同时该出现在界面上。
+/// 直接把领域结构挂上 ts-rs，等于让后端每加一个探测字段就震动一次前端契约。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "../../src/types/generated/player.ts")]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDeviceInfo {
+    /// 持久化用的标识（macOS 上是 CoreAudio 的设备 UID，跨重启与重新插拔都不变）。
+    pub id: String,
+    pub label: String,
+    /// 是否为系统当前的默认输出。
+    pub is_default: bool,
+}
+
+impl From<&DeviceInfo> for AudioDeviceInfo {
+    fn from(device: &DeviceInfo) -> Self {
+        Self {
+            id: device.id.clone(),
+            label: device.label.clone(),
+            is_default: device.is_default,
+        }
+    }
+}
 
 /// 播放状态。与 [`PlaybackState`] 一一对应。
 ///
@@ -73,6 +99,9 @@ pub struct PlaybackFormat {
     pub duration_sec: Option<f64>,
     /// 输出端点名。
     pub device_name: String,
+    /// 输出端点的标识。跟随系统默认时给的是**当下解析到的那一台**，不是 `null`——
+    /// 界面要在设备菜单里勾出「现在究竟在哪台上出声」，靠的就是它。
+    pub device_id: Option<String>,
     /// 输出采样率。与 `sampleRate` 不同即说明插了重采样。
     pub output_sample_rate: u32,
     pub sample_format: String,
@@ -92,6 +121,7 @@ impl PlaybackFormat {
             layout: (!layout.is_empty()).then_some(layout),
             duration_sec: spec.duration_sec(),
             device_name: output.device_name.clone(),
+            device_id: output.device_id.clone(),
             output_sample_rate: output.sample_rate,
             sample_format: output.sample_format.clone(),
             resampled: output.sample_rate != spec.sample_rate,
@@ -201,6 +231,35 @@ pub enum PlayerEvent {
         track_id: Option<String>,
         load_id: String,
     },
+    /// 输出端点选择已落实，曲目没换。
+    ///
+    /// 前端据此更新「现在从哪台设备出声、输出采样率多少、有没有重采样」，
+    /// **不要**当成一次新装载：曲目、队列位置与待定位都不因换设备而变。同一偏好的
+    /// 更新 revision 也会回一条，用来确认前端最新请求。
+    OutputChanged {
+        track_id: Option<String>,
+        load_id: String,
+        /// 产生这次回执的设备选择版本。前端只接纳自己最新发出的那一版。
+        #[ts(type = "number")]
+        device_revision: u64,
+        format: PlaybackFormat,
+    },
+    /// 选定的端点用不了，**播放未受影响**——仍在原来那台设备上出声。
+    ///
+    /// 与 `Failed` 分开：那一条的含义是播放链已经拆了。用它报换设备失败会让界面
+    /// 显示成已停止，而用户耳朵里音乐还在响。
+    DeviceRejected {
+        track_id: Option<String>,
+        load_id: String,
+        /// 被拒的设备选择版本。迟到的旧拒绝不能回滚更新的选择。
+        #[ts(type = "number")]
+        device_revision: u64,
+        /// 引擎拒绝后仍保留的偏好；`null` = 跟随系统默认。
+        preferred_device_id: Option<String>,
+        /// 显式偏好的显示名，用于把持久化选择准确退回去。
+        preferred_device_label: Option<String>,
+        error: PlaybackError,
+    },
     /// 播放失败。
     Failed {
         track_id: Option<String>,
@@ -219,6 +278,29 @@ impl PlayerEvent {
                 track_id,
                 load_id,
                 format: PlaybackFormat::new(spec, output),
+            },
+            EngineEvent::OutputChanged {
+                spec,
+                output,
+                device_revision,
+            } => Self::OutputChanged {
+                track_id,
+                load_id,
+                device_revision: *device_revision,
+                format: PlaybackFormat::new(spec, output),
+            },
+            EngineEvent::DeviceRejected {
+                error,
+                device_revision,
+                preferred_device_id,
+                preferred_device_label,
+            } => Self::DeviceRejected {
+                track_id,
+                load_id,
+                device_revision: *device_revision,
+                preferred_device_id: preferred_device_id.clone(),
+                preferred_device_label: preferred_device_label.clone(),
+                error: error.into(),
             },
             EngineEvent::StateChanged(state) => Self::Status {
                 track_id,
@@ -288,5 +370,26 @@ mod tests {
             json.contains("\"loadId\":\"load-7\""),
             "装载代际必须随事件回带"
         );
+    }
+
+    #[test]
+    fn device_rejection_carries_its_revision_and_real_fallback() {
+        // 快速连续选择靠这三个字段对账；漏掉任一个都会让迟到错误把新选择回滚错。
+        let event = PlayerEvent::DeviceRejected {
+            track_id: None,
+            load_id: "idle".into(),
+            device_revision: 42,
+            preferred_device_id: Some("dev-a".into()),
+            preferred_device_label: Some("端点 A".into()),
+            error: PlaybackError::from(&EngineError::new(
+                Stage::Output,
+                ErrorKind::NoDevice,
+                "端点 B 已不可用",
+            )),
+        };
+        let json = serde_json::to_value(&event).expect("设备拒绝事件必须可序列化");
+        assert_eq!(json["deviceRevision"], 42);
+        assert_eq!(json["preferredDeviceId"], "dev-a");
+        assert_eq!(json["preferredDeviceLabel"], "端点 A");
     }
 }

@@ -18,7 +18,7 @@ pub mod output;
 pub mod resample;
 pub mod ring;
 
-pub use contract::{PlaybackError, PlaybackFormat, PlayerEvent, PlayerStatus};
+pub use contract::{AudioDeviceInfo, PlaybackError, PlaybackFormat, PlayerEvent, PlayerStatus};
 pub use engine::{
     Engine, EngineEvent, EngineStats, LoadContext, PlaybackState, PlayerCmd, StampedEngineEvent,
 };
