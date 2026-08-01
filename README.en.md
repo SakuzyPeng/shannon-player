@@ -25,15 +25,20 @@ quiet, lasting everyday feel.
 
 ## Features
 
+- **Your actual library** — scans your music folders and groups albums and compilations on its own; wrong tags can be fixed, and your files are never rewritten
+- **Gapless playback** — no silence between tracks, so an album meant to be heard whole stays whole
+- **Loudness normalization** — evens out volume across tracks at playback time, leaving the files untouched
+- **Output device** — pick the sound card or headphones the music goes to, right in the app, without touching system settings
 - **Library browsing** — switch freely between an album grid and a detail list
 - **Floating play bar** — playback controls, progress, volume, shuffle, and repeat at a glance
 - **Light / Dark / Follow system** — one-tap cycling, with a dark palette tuned as its own set
 - **Multilingual** — Simplified Chinese and English, switchable anytime
 - **Thoughtful interactions** — keyboard-navigable context menus, gentle motion that never shouts
 
-> The project is in early development: every interface page is now built to the
-> design spec. Next up is local library scanning and real audio playback (the app
-> currently runs on seed data). See the roadmap below.
+> Still in development, with no official release yet. Every interface page is
+> built to the design spec, and local library scanning and stereo playback both
+> work today; multichannel and spatial audio, along with more decoders, are still
+> on the way. See the roadmap below.
 
 ## Installation
 
@@ -48,7 +53,12 @@ No official release yet. To try it early, build from source — see the
 - [x] Global search and Favorites page
 - [x] Settings page
 - [x] First-run onboarding (welcome / scanning / done)
-- [ ] Local library scanning and real audio playback (Rust backend)
+- [x] Local library scanning (stable track IDs, album and compilation grouping, cover art, metadata editing)
+- [x] Real audio playback (ALAC / FLAC / AAC / MP3 / WAV / AIFF / Vorbis and more, stereo path)
+- [x] Gapless playback, loudness normalization, output device selection
+- [ ] More decoders and link-based importing
+- [ ] Exclusive output mode
+- [ ] Multichannel and spatial audio (downmix and spatialization left to the OS)
 
 ## Contributing
 
