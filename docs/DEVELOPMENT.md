@@ -10,6 +10,7 @@
 | 前端 | React 19 + TypeScript + Vite |
 | 样式 | Tailwind v4 + 设计 Token（CSS 变量，浅/深/系统三态） |
 | 状态 | Zustand（强类型播放器领域模型：队列 / 进度 / 音频设备 / 循环模式） |
+| 曲库存储 | SQLite（rusqlite，`bundled` 自带引擎不依赖系统库）；播放会话与界面设置仍是 JSON 文本槽位 |
 | 动画 | Framer Motion |
 | 菜单 | Radix UI（右键菜单 / 下拉菜单，键盘导航与无障碍开箱即用） |
 | 国际化 | 自建类型安全 i18n（当前简体中文与 English，架构可扩展更多语言） |
@@ -19,7 +20,7 @@
 ## 环境要求
 
 - Node ≥ 20、pnpm ≥ 10
-- Rust stable ≥ 1.85（`shannon-audio` 的 Symphonia 0.6 要求；其余 crate 只需 1.77）、`cargo tauri`（`cargo install tauri-cli` 或使用 `pnpm tauri`）
+- Rust stable ≥ 1.88（桌面壳当前锁定的 Tauri 依赖链要求；`shannon-core` / `shannon-audio` 独立构建仍以 1.85 为基线）、`cargo tauri`（`cargo install tauri-cli` 或使用 `pnpm tauri`）
 - macOS：Xcode Command Line Tools
 
 ## 常用命令
@@ -36,7 +37,7 @@ pnpm tauri build      # 打包桌面应用
 cargo test -p shannon-core                                # 曲库扫描与稳定 ID；同时重新导出 ts-rs 契约类型
 cargo test -p shannon-audio                               # 播放引擎；无头运行，语料现生成不入库
 cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的规格与字段来源
-cargo run -p shannon-core --example warm_cache -- <目录> <缓存路径>  # 预热扫描缓存，用于验证「重启免重扫」
+cargo run -p shannon-core --example warm_cache -- <目录> <数据库路径>  # 预热扫描缓存，用于验证「重启免重扫」
 cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
 cargo run -p shannon-audio --example devices              # 列出输出设备支持的声道数、采样率与采样格式
 cargo run --release -p shannon-audio --example bench_decode -- <目录> [--jobs N] [--loudness]  # 解码/响度分析吞吐基准
@@ -62,7 +63,7 @@ src/                    前端 React 应用
   data/                  曲库种子数据（浏览器预览与尚未扫描时的回落，真实曲库由扫描接管）
   hooks/                 useApplyTheme（主题）、useElasticScroll（原生滚动 + 自绘滚动条）
   index.css              Tailwind 入口 + 设计 Token
-core/                    曲库（crate shannon-core）：扫描、音频规格探测、稳定 ID、元数据覆盖层
+core/                    曲库（crate shannon-core）：扫描、音频规格探测、稳定 ID、元数据覆盖层、SQLite 落盘（db.rs）
 audio/                   播放引擎（crate shannon-audio）：解码、PCM 管线、输出后端
 src-tauri/               Tauri Rust 外壳（窗口、权限、命令与事件桥）
 docs/                    开发文档
@@ -100,8 +101,10 @@ docs/                    开发文档
   节目响度命令、endpoint writer 长度冲突、失败链和能力探测边界。
 - [固定多声道空间回放研究](WINDOWS_SPATIAL_PLAYBACK_NOTES.md)：整理 7.1.4、9.1.6、22.2
   的容器识别、布局解析、流式解码、seek、`ISpatialAudioClient` 路由与无听感验证方法。
-- [macOS 空间音频回放观测](MACOS_SPATIAL_PLAYBACK_NOTES.md)：AVPlayer 直通与 PCM 经应用
-  中转两条路径的对比。两者的**听感尚未比对**，结论未定之前不得据此描述能力。
+- [macOS 空间音频回放观测](MACOS_SPATIAL_PLAYBACK_NOTES.md)：AVPlayer 直通（A）与 PCM
+  经应用中转（B）两条路径的对比。2026-08-01 补做的听感比对结论是**两条路径听不出差别**
+  （AirPods，空间音频与头部追踪均生效），因此「系统解码 + 应用管线 + 系统空间化」不是
+  拿音质换可控性。注意这只解除了「不得据此描述能力」这一条限制，空间输出后端仍在阶段 5。
 
 前三份（Windows 侧）涉及的三类问题必须分开建模：E-AC-3/JOC 笔记关注系统解码输出，AC-4 笔记关注解码器到 endpoint 的
 私有 metadata 兼容边界，固定多声道笔记关注把既有 PCM 布局放入静态类型或固定坐标槽位。借用

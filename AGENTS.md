@@ -18,7 +18,7 @@ pnpm tauri build      # 打包桌面应用
 cargo test -p shannon-core                                # 后端单测；同时把 ts-rs 契约类型重新导出到 src/types/generated/
 cargo test -p shannon-core id_survives_rename             # 跑单个测试（标准 cargo 名字过滤）
 cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的完整规格与字段来源
-cargo run -p shannon-core --example warm_cache -- <目录> <缓存路径>  # 预热扫描缓存，用于验证「重启免重扫」
+cargo run -p shannon-core --example warm_cache -- <目录> <数据库路径>  # 预热扫描缓存，用于验证「重启免重扫」
 
 cargo test -p shannon-audio                               # 播放引擎测试（无头，语料现生成不入库）
 cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
@@ -38,7 +38,7 @@ cargo run --release -p shannon-audio --example bench_decode -- <目录> [--jobs 
 
 验证 UI 效果用 Playwright MCP 指向 `http://localhost:1420` 截图——Tauri 原生窗口截图受 macOS 屏幕录制权限限制，而 Vite dev server 渲染的是同一份前端。注意 Radix 菜单需要真实 pointer 事件，合成 `.click()` 不会触发，需用 browser_click。
 
-**在浏览器预览里用真实曲库**（种子数据没有真实封面、长标题、合辑这些真实形态）：先 `cargo run -p shannon-core --example warm_cache -- <音乐目录> "$HOME/Library/Application Support/com.shannon.player/library-cache.json"` 产出缓存、封面与预览快照，再在页面里注入——dev 构建把 store 挂在了 `window.__shannon`（见 `src/main.tsx`），Vite 的 `server.fs.allow` 也已放行该目录：
+**在浏览器预览里用真实曲库**（种子数据没有真实封面、长标题、合辑这些真实形态）：先 `cargo run -p shannon-core --example warm_cache -- <音乐目录> "$HOME/Library/Application Support/com.shannon.player/library.db"` 产出缓存、封面与预览快照，再在页面里注入——dev 构建把 store 挂在了 `window.__shannon`（见 `src/main.tsx`），Vite 的 `server.fs.allow` 也已放行该目录：
 
 ```js
 const base = "/@fs/Users/<你>/Library/Application Support/com.shannon.player";
@@ -54,13 +54,13 @@ window.__shannon.library.getState().setLibrary(snap);
 三层结构：前端 + Tauri 薄壳 + 纯逻辑 Rust core，cargo workspace（`Cargo.toml` 成员 `core`、`src-tauri`）与 pnpm scripts 串联。
 
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
-- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原 / 播放控制）、把 core 与 audio 的回调转成 Tauri event（`library://scan-progress`、`player://event`）、用 `LibraryState` 持有扫描缓存与覆盖层、把状态落到应用数据目录（`library-cache.json` / `metadata-overrides.json` / `playback-session.json` / `loudness-analysis.json` / `ui-settings.json`，均为原子写；封面缩略图在同目录的 `covers/`；SQLite 尚未引入）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 三份落盘数据的重要性不同，处理方式也不同：缓存可重建（损坏就重扫）；**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖）；播放会话可重建但用户会在意（丢了重新点一次歌，可每次重启都丢很烦），读取失败一律**静默当作没有会话**——为一份能随手重建的数据弹错误框，打扰的成本高于它本身的价值；响度分析结果性质介于两者之间（可重建，但重建代价是全库解码一遍），读不懂时当空但不留 `.corrupt` 残骸——那种残骸只对用户手改过的数据有意义。
+- **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原 / 播放控制）、把 core 与 audio 的回调转成 Tauri event（`library://scan-progress`、`player://event`）、用 `LibraryState` 持有扫描缓存与覆盖层、把状态落到应用数据目录（曲库与元数据覆盖在 SQLite 的 `library.db`，见下文「曲库数据库」；`playback-session.json` / `loudness-analysis.json` / `ui-settings.json` 仍是原子写的 JSON；封面缩略图在同目录的 `covers/`）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 几份落盘数据的重要性不同，处理方式也不同：缓存可重建（损坏就重扫）；**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖——数据库时代由 `LibraryDb::open` 接着守这条）；播放会话可重建但用户会在意（丢了重新点一次歌，可每次重启都丢很烦），读取失败一律**静默当作没有会话**——为一份能随手重建的数据弹错误框，打扰的成本高于它本身的价值；响度分析结果性质介于两者之间（可重建，但重建代价是全库解码一遍），读不懂时当空但不留 `.corrupt` 残骸——那种残骸只对用户手改过的数据有意义。
 - **`core/`（crate `shannon-core`）** —— 曲库扫描、音频规格探测、稳定 ID、元数据覆盖层。**刻意不依赖 Tauri 与任何 GUI 库**，因此能在无图形环境 `cargo test`；副作用（进度上报）通过回调注入，由外壳决定落地方式。新增后端能力优先放这里，让外壳保持薄。
 - **`audio/`（crate `shannon-audio`）** —— 播放引擎：解码、PCM 管线、输出后端。同样零 Tauri 依赖（gapless、seek、欠载压测因此能无头 `cargo test`）。当前状态是**立体声路径**：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis 经 Symphonia 解码 → 响度增益 → 重采样 → 声道适配 → 无锁 SPSC 环形缓冲 → CPAL 共享输出，含播放 / 暂停 / seek / 音量斜坡 / 响度归一化 / **无缝换曲** / **输出端点切换**。**多声道不走这条路**——下混与空间化都交给系统（见下），平台原生后端尚未接入，当前遇到多声道报明确的路由错误。已接进 Tauri 与前端（命令 + `player://event` 事件桥），播放条走的是引擎上报的真实位置。
 
 管线里有三处顺序是想清楚才这么定的，改动前先看 `docs/AUDIO_BACKEND_IMPLEMENTATION_PLAN.md` 的「管线顺序」：① **音量在输出回调里做，不在管线里**——管线领先播放一秒半，在那儿改增益意味着按下静音要等一秒半才生效；② **重采样在声道适配之前**（按源声道数做），通则是在声道数少的那一侧重采样，所以将来加多声道下混时顺序要反过来；③ **协商与打开流分成两步**（`OutputBackend::negotiate` 只预演不碰设备），因为环形缓冲容量、重采样比率、位置计数的时基都要按协商结果搭。另外**位置计数一律记输出域的帧**——`Decoder::seek` 返回的是源域帧位置，混用会让进度按比率走偏（44.1 → 48 kHz 快 8.8%）。
 
-**扫描分三步，别把它们揉在一起**：`scan::scan_folders` 只产出 `ScanCache`（原始探测结果，不含封面字节只留指纹）→ `ScanCache::library(&Overrides)` 套用用户覆盖并聚合成 `LibrarySnapshot`（纯内存，毫秒级）→ 外壳把两者分别落盘。分开的理由是「改一次元数据不该重扫整库，重启也不该」：归组依据（原始标签、封面指纹、路径）在聚合后的快照里已经丢失，只留快照就只能回头重读文件。
+**扫描分三步，别把它们揉在一起**：`scan::scan_folders` 只产出 `ScanCache`（原始探测结果，不含封面字节只留指纹）→ `ScanCache::library(&Overrides)` 套用用户覆盖并聚合成 `LibrarySnapshot`（纯内存，毫秒级）→ 外壳把缓存整体写进 `library.db`（`LibraryDb::replace_cache`，聚合出的快照不落盘，它是纯派生物）。分开的理由是「改一次元数据不该重扫整库，重启也不该」：归组依据（原始标签、封面指纹、路径）在聚合后的快照里已经丢失，只留快照就只能回头重读文件。
 
 ### 关键机制（跨文件才能看清的部分）
 
@@ -93,6 +93,8 @@ window.__shannon.library.getState().setLibrary(snap);
 **标签读不到 ≠ 不是音频**：`lofty` 读不了的合法容器确实存在（实测 CAF），早先那里是硬失败，一个合法文件只体现为 `failed` 计数 +1，用户看到的是「文件明明在，曲库里找不到」。现在降级处理——标签留空、规格与时长改由 symphonia 顶上、`probe_notes` 记 `tags:unreadable`，只有**标签与规格双双读不出**才判定不是音频（垃圾文件仍会被拒）。这与「识别与播放能力解耦」是同一条：信息少不等于不存在。
 
 **缺失值的表达**：判不出的字段一律留空而不是填哨兵值——`Album.year` 是 `Option`，因为填 0 会一路漏到界面上显示成「0 年」。界面拼接元信息用 `src/lib/meta.ts` 的 `metaJoin`，它会跳过缺失项，避免出现「白鲸电台 · 」这种孤零零的分隔符。多碟专辑的曲目列表按碟分节、组内用真实音轨号（`AlbumDetailScreen` 的 `discs`）：序号若用列表索引，两张碟拼起来第二碟第一首就会显示成 16。**音轨号缺失时显示 `·` 而不是退回序位**——序位是个会撞号的哨兵值，同一张专辑里只要有几首缺标签，编出来的号就会与其它曲目的真实音轨号重号（实测一张 11 首的专辑同时出现两个「10」和两个「11」）。
+
+**曲库数据库（`core/src/db.rs`）**：扫描缓存与元数据覆盖层落在应用数据目录的 `library.db`（rusqlite + `bundled`，schema 版本记在 SQLite 自己的 `user_version` 上，逐版本升级不写「任意版本直达最新」的分支）。六条：① **边界是「曲库」，不是「通用存储」**——播放会话与界面设置仍走 `frontend_state.rs` 的文本槽位（前端拥有的状态，后端无领域判断可做），响度分析结果留在 `shannon-audio` 的 JSON 里（搬过来要么让解码引擎依赖 SQLite，要么让 core 反向依赖 audio）。② **标量拆列，带 tag 的枚举与数组存 JSON 列**：拆列是为了能查、能按 `probe_version` 增量重扫；具名布局 / 空间格式 / `probe_notes` 摊平成列会让每支持一种新布局就迁移一次表，而「判不出留空、不归一化」这条戒律恰好靠原样存 JSON 满足。③ **`track_override` 与 `track` 之间刻意没有外键**——覆盖记录必须比曲目行活得更久：文件挪走后重扫、曲目行消失，用户的修改要等在原地，等文件回来靠内容哈希接上；级联删除会把这件事悄悄办成「整理一次文件就丢一次修改」。所以重扫只 `replace_cache`，绝不碰覆盖表。④ **改元数据只写点到名的那几行**，不再整份重写：那份数据不可重建，没必要为一次小改动把全部用户劳动置于风险之下；空覆盖写成删除，于是「改」与「还原」走同一条路径。⑤ **「读不懂」不等于「坏了」**——版本高于本程序时走 `SchemaTooNew` 并原样上报、**不碰文件**；只有真损坏才改名保留 `.corrupt`（带序号，第二次损坏不覆盖第一份残骸）再新建空库。把两者合成一条错误路径的后果是：用户装了一次旧版本，整个曲库连同手改的元数据就被改名搬走。⑥ **`LibraryState.db` 是 `Option`**：磁盘满、卷只读都会让它打不开，那时应用照常启动、照常扫描播放，但用户一去改元数据就当场收到写入失败——比「静默接受修改、重启后消失」诚实。0.1 的两份 JSON 首次启动自动导入，幂等靠 `meta` 表里的标记而不是「表是不是空的」（用户可能自己清空过曲库），导完源文件改名为 `.migrated` 保留而非删除。
 
 **元数据覆盖层（`core/src/overrides.rs`）**：只要存在兜底推断就会猜错，就必须让用户能改。三条规矩：① 键用曲目 ID，专辑级编辑写入时展开成逐曲记录；② 只存被改过的字段，`None` = 不覆盖，这样重扫读到更好的标签时用户没碰过的字段仍会更新；③ 字段三态——没动 / 显式清空（文本空串、数字 `null`）撤销该字段 / 改值，只有两态用户就只能整条还原。三态靠**补丁与落盘分开建模**实现：落盘的 `TrackOverride` 只需两态，请求用的 `TrackMetadataPatch` 才要三态，其中数字用 `Option<Option<u16>>` 经 serde 区分「字段缺席」与「显式 null」——数字没有空字符串可借，只用一层 Option 会让碟号、音轨号只能改不能撤销。**不写回音频文件**：写标签是破坏性操作，不该是「编辑信息」的副作用。前端对应 `src/components/common/EditMetadataDialog.tsx`（含 `useMetadataEditor` hook，各页菜单接入用它），界面同样**只提交用户真正动过的输入框**，否则等于把「猜的」固化成「用户指定的」。
 
@@ -145,7 +147,7 @@ window.__shannon.library.getState().setLibrary(snap);
 
 **多声道整体交给系统，应用不自己下混**：`mix.rs` 的职责止于立体声路径内的直通与单声道上混，引擎里没有、将来也不会有下混器。理由与「不自己双耳化」是同一条——自行下混等于把一条本可被系统空间化的多声道流提前拍扁，系统只看到两条声道，AirPods 上的空间音频开关会显示「不可用」。附带两项好处：系统掌握端点特性（耳机 / 扬声器 / HDMI 各不相同）而应用只能猜一套通用系数；以及用户在系统播放器里听到的下混结果，在这里应当是同一个。**因此 CPAL 只承担立体声，一切多声道走平台原生后端**（macOS ASBR 附 `AudioChannelLayoutTag`、Windows `ISpatialAudioClient`）——不只是空间内容，普通 5.1 也一样，因为下混与空间化都依赖布局标签而 CPAL 表达不了布局。
 
-**空间音频是平台强相关的，别指望一套抽象盖住**：解码与输出各自按运行时能力探测选后端，同一条规则在不同平台会得出相反结论（macOS 系统解码器覆盖 APAC 与 E-AC-3/JOC，而实测 Windows 的 Opus MFT 只吃单/双声道，多声道一律拒绝，必须自己解）。两条硬约束：① **空间输出不走 CPAL**——CPAL 的配置只有声道数、表达不了布局，而布局标签正是系统判断能否空间化的依据；macOS 走 `AVSampleBufferAudioRenderer` + `AudioChannelLayoutTag`，Windows 走 `ISpatialAudioClient`。② **应用自己双耳化 = 关掉系统空间音频**——那样系统只看到一条立体声，AirPods 上的空间音频开关会显示「不可用」，头部追踪更无从谈起（渲染发生在头动之前），这是用户直接看得见的降级。另有一条 macOS 平台例外：**对象音频路径上解码器被锁定为 AVPlayer**，系统的全景声标识由上游解码链路决定而非交给渲染器的 PCM，换解码器标识就没了——这是能力有无的问题，不是质量取舍。**系统标识只能交叉印证，不能当判据**：是否为对象音频要由码流层面的 JOC 标记判定，不得因为系统显示了「杜比全景声」就在界面上跟着这么说（验收条件第 7 条）。`docs/` 下的 `ATMOS_DECODING_NOTES.md`、`AC4_INTERNAL_METADATA_NOTES.md`、`WINDOWS_SPATIAL_PLAYBACK_NOTES.md`（Windows 侧）与 `MACOS_SPATIAL_PLAYBACK_NOTES.md`（macOS 侧）是概念验证记录，是后续能力探测与验收指标的依据，**不代表当前版本已有对应播放能力**，写文档时不要把它们说成已交付功能。macOS 那份还有一条未结：两条输出路径的**听感未比对**，结论未定之前不得据此描述能力。
+**空间音频是平台强相关的，别指望一套抽象盖住**：解码与输出各自按运行时能力探测选后端，同一条规则在不同平台会得出相反结论（macOS 系统解码器覆盖 APAC 与 E-AC-3/JOC，而实测 Windows 的 Opus MFT 只吃单/双声道，多声道一律拒绝，必须自己解）。两条硬约束：① **空间输出不走 CPAL**——CPAL 的配置只有声道数、表达不了布局，而布局标签正是系统判断能否空间化的依据；macOS 走 `AVSampleBufferAudioRenderer` + `AudioChannelLayoutTag`，Windows 走 `ISpatialAudioClient`。② **应用自己双耳化 = 关掉系统空间音频**——那样系统只看到一条立体声，AirPods 上的空间音频开关会显示「不可用」，头部追踪更无从谈起（渲染发生在头动之前），这是用户直接看得见的降级。另有一条 macOS 平台例外：**对象音频路径上解码器被锁定为 AVPlayer**，系统的全景声标识由上游解码链路决定而非交给渲染器的 PCM，换解码器标识就没了——这是能力有无的问题，不是质量取舍。**系统标识只能交叉印证，不能当判据**：是否为对象音频要由码流层面的 JOC 标记判定，不得因为系统显示了「杜比全景声」就在界面上跟着这么说（验收条件第 7 条）。`docs/` 下的 `ATMOS_DECODING_NOTES.md`、`AC4_INTERNAL_METADATA_NOTES.md`、`WINDOWS_SPATIAL_PLAYBACK_NOTES.md`（Windows 侧）与 `MACOS_SPATIAL_PLAYBACK_NOTES.md`（macOS 侧）是概念验证记录，是后续能力探测与验收指标的依据，**不代表当前版本已有对应播放能力**，写文档时不要把它们说成已交付功能。macOS 那份原先未结的一条已于 2026-08-01 结掉：A（AVPlayer 直通）与 B（PCM 经应用中转）**听感等价**（AirPods 上听不出差别），所以「系统解码 + 应用管线 + 系统空间化」不是拿音质换可控性，ReplayGain 与音量斜坡留在自有管线里没有代价。**解除的只是这一条限制**——空间输出后端仍在阶段 5 未动工，别把它写成已支持全景声。
 
 阶段 0 落地时踩出来的三条，改播放链路前要记得：① **单声道的判据是声道数不是掩码位置**——Symphonia 的 WAV 读取器把单声道标成 `FRONT_LEFT` 而非 `FRONT_CENTER`，按掩码比对会拒播最简单的文件；② **位置换算一律走整数**，先转秒再乘采样率会因浮点截断差一帧，进度条上看不出来，却会让「seek 后的输出等于从头解码的对应后缀」失守；③ **验证位置的测试语料必须无周期**——定频正弦每 100 帧重复一次相位，差整数个周期的偏移会被伪装成「误差为零」，上面那个 off-by-one 就是这么逃过第一轮诊断的，位置类断言一律用扫频信号。另有一条产品性质的实测：**默认输出设备不一定支持源采样率**（本机默认设备只有 24 / 48 kHz，而曲库主力是 44.1 kHz），所以重采样不是锦上添花而是可用性前提，已随阶段 0 一起做掉；采样率允许协商而声道数不允许，挑选偏好是「与源一致 > 源的整数倍 > 高于源的最小者 > 最大者」。重采样这类会静默出错的路径（比率算反、块边界丢样本、声道错位）必须能无头验证，`NullOutput::with_fixed_rate` 就是为此模拟「只支持单一采样率的设备」。
 
