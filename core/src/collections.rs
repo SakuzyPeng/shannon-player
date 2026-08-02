@@ -13,9 +13,11 @@
 //! 所以：
 //!
 //! - **曲目收藏**：曲目 ID。内容哈希，扛得住移动、重命名、改标签。
-//! - **专辑收藏**：收藏时该专辑**全部曲目的 ID**，之后「当前专辑里有任意一首在集合里」
-//!   即视为已收藏。这样改专辑名、换目录、重扫都不影响；代价是专辑被拆成两张时两半都
-//!   算收藏，而这比「整理一次文件就掉收藏」轻得多。
+//! - **专辑收藏**：收藏时把该专辑**全部曲目的 ID 存成一组**，之后「当前专辑里有任意
+//!   一首命中任一组」即视为已收藏。分组边界不能丢：若收藏时是 A/B/C、重扫时 C 暂时
+//!   缺失，用户用当前可见的 A/B 取消收藏时要删掉整组，不能留下 C 等它回来后复活红心。
+//!   这样改专辑名、换目录、重扫都不影响；代价是专辑被拆成两张时两半都算收藏，而这比
+//!   「整理一次文件就掉收藏」轻得多。
 //! - **歌手收藏**：只能用名字——歌手是纯粹从字符串聚合出来的，系统里根本没有比名字
 //!   更稳的标识。因此改写歌手名会让收藏落空，这一条在实现上无解，只能如实记下。
 //! - **歌单收藏**：歌单 ID 由我们自己生成，天然稳定。
@@ -36,8 +38,8 @@ use ts_rs::TS;
 pub struct Favorites {
     /// 被收藏的曲目 ID。
     pub tracks: Vec<String>,
-    /// 被收藏专辑的曲目 ID 集合（见模块头，不是专辑 ID）。
-    pub album_tracks: Vec<String>,
+    /// 被收藏专辑的成员快照。外层每项是一笔专辑收藏，内层是收藏当时的全部曲目 ID。
+    pub album_groups: Vec<Vec<String>>,
     /// 被收藏的歌手名。
     pub artists: Vec<String>,
     /// 被收藏的歌单 ID。
@@ -84,7 +86,7 @@ impl Playlist {
 impl Favorites {
     pub fn is_empty(&self) -> bool {
         self.tracks.is_empty()
-            && self.album_tracks.is_empty()
+            && self.album_groups.is_empty()
             && self.artists.is_empty()
             && self.playlists.is_empty()
     }
@@ -95,6 +97,8 @@ impl Favorites {
     /// 重复的，都不该让收藏消失。反过来的代价（专辑被拆成两张时两半都显示已收藏）
     /// 只是偶尔多一颗红心，量级完全不同。
     pub fn has_album(&self, track_ids: &[String]) -> bool {
-        track_ids.iter().any(|id| self.album_tracks.contains(id))
+        self.album_groups
+            .iter()
+            .any(|group| track_ids.iter().any(|id| group.contains(id)))
     }
 }

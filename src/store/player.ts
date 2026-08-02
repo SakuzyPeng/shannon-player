@@ -9,9 +9,11 @@ import type {
 } from "@/types/player";
 import {
   DEMO_TRACK,
+  SEED_ALBUMS,
   SEED_FAVORITE_ALBUMS,
   SEED_FAVORITE_ARTISTS,
   SEED_FAVORITE_TRACKS,
+  seedTracksOf,
 } from "@/data/library";
 import { PLAYLISTS } from "@/data/playlists";
 import * as backend from "@/lib/backend";
@@ -47,6 +49,95 @@ function uniqueTracksById(tracks: Track[], seen = new Set<Id>()): Track[] {
     if (seen.has(track.id)) return false;
     seen.add(track.id);
     return true;
+  });
+}
+
+export const EMPTY_FAVORITES: Favorites = {
+  tracks: [],
+  albumGroups: [],
+  artists: [],
+  playlists: [],
+};
+
+function normalizedAlbumGroups(groups: string[][]): Id[][] {
+  const seen = new Set<string>();
+  const normalized: Id[][] = [];
+  for (const group of groups) {
+    const ids = [...new Set(group.filter(Boolean))].sort();
+    if (ids.length === 0) continue;
+    const key = JSON.stringify(ids);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(ids);
+  }
+  return normalized;
+}
+
+function albumTrackMap(groups: Id[][]): Record<Id, true> {
+  const tracks: Record<Id, true> = {};
+  for (const group of groups) {
+    for (const id of group) tracks[id] = true;
+  }
+  return tracks;
+}
+
+function derivedFavoriteAlbums(albumTracks: Record<Id, true>): Record<Id, boolean> {
+  const derived: Record<Id, boolean> = {};
+  if (Object.keys(albumTracks).length === 0) return derived;
+  for (const album of albums()) {
+    // 「任意一首命中」而不是「全部」：专辑的曲目集合会变（补一首漏扫的、
+    // 删一首重复的），按全部匹配会让收藏毫无征兆地消失。
+    if (tracksOf(album).some((track) => albumTracks[track.id])) derived[album.id] = true;
+  }
+  return derived;
+}
+
+function toggledMap<T extends string>(
+  current: Record<T, boolean>,
+  key: T,
+  on: boolean,
+): Record<T, boolean> {
+  const next = { ...current };
+  if (on) next[key] = true;
+  else delete next[key];
+  return next;
+}
+
+const SEED_FAVORITE_ALBUM_GROUPS = normalizedAlbumGroups(
+  SEED_ALBUMS.filter((album) => SEED_FAVORITE_ALBUMS[album.id]).map((album) =>
+    seedTracksOf(album).map((track) => track.id),
+  ),
+);
+
+/**
+ * 收藏写入只有一条全局 FIFO：SQLite 最终也只有一个连接和一把锁，让前端先并发出去不会
+ * 增加吞吐，只会让「最后一次点击」与「最后一次落库」失去顺序。界面仍立即乐观更新；
+ * 一轮写入（成功或失败）排空后重新读取权威状态，把失败与后端规范化一并对齐回来。
+ */
+let favoriteMutationTail: Promise<void> = Promise.resolve();
+let favoriteMutationGeneration = 0;
+
+function persistFavoriteMutation(write: () => Promise<void>, expectedRevision: number) {
+  const generation = ++favoriteMutationGeneration;
+  favoriteMutationTail = favoriteMutationTail.then(write).catch((error) => {
+    console.error("保存收藏失败", error);
+  });
+  const settled = favoriteMutationTail;
+  void settled.then(async () => {
+    // 后面还有点击时由最后一笔统一对账，避免每个回执都把界面来回覆盖。
+    if (generation !== favoriteMutationGeneration) return;
+    let favorites: Favorites;
+    try {
+      const loaded = await backend.loadCollections();
+      // 浏览器预览没有后端，乐观状态本身就是权威，不拿空数据覆盖种子演示。
+      if (!loaded) return;
+      favorites = loaded[0];
+    } catch (error) {
+      console.error("收藏写入后重新读取失败，本次按没有收藏处理", error);
+      favorites = EMPTY_FAVORITES;
+    }
+    if (generation !== favoriteMutationGeneration) return;
+    usePlayerStore.getState().restoreFavorites(favorites, expectedRevision);
   });
 }
 
@@ -197,16 +288,20 @@ interface PlayerState {
   needsLibrary: boolean;
 
   /** ---- 收藏（用户数据，落在 library.db，见 core/src/collections.rs） ---- */
+  /** 用户收藏意图的版本；异步恢复只可覆盖启动时仍未被用户改过的版本。 */
+  favoritesRevision: number;
   favorites: Record<Id, boolean>;
   /**
    * 专辑收藏的**派生视图**，键是专辑 ID，只供组件读。
    *
-   * 权威在下面的 `favoriteAlbumTracks`：专辑 ID 由含目录的归组键哈希而来，改标签、
+   * 权威在下面的 `favoriteAlbumGroups`：专辑 ID 由含目录的归组键哈希而来，改标签、
    * 挪文件、重扫都会变（见 `core/src/id.rs`），拿它当持久化的键，用户整理一次音乐
-   * 文件夹收藏就没了。所以落盘的是曲目 ID，这份映射按当前曲库现算。
+   * 文件夹收藏就没了。所以落盘的是曲目 ID 分组，这份映射按当前曲库现算。
    */
   favoriteAlbums: Record<Id, boolean>;
-  /** 被收藏专辑的曲目 ID 集合（权威）。「当前专辑里任意一首在集合内」即算已收藏。 */
+  /** 每笔专辑收藏的成员快照（权威）；保留分组才能在成员暂时缺失时完整取消收藏。 */
+  favoriteAlbumGroups: Id[][];
+  /** 上述分组的扁平索引，供按当前曲库派生专辑 ID 视图。 */
   favoriteAlbumTracks: Record<Id, true>;
   /** 收藏歌手（当前以歌手名为键，后期换稳定 ID）。 */
   favoriteArtists: Record<string, boolean>;
@@ -250,8 +345,11 @@ interface PlayerState {
   toggleFavoriteAlbum: (id: Id) => void;
   toggleFavoriteArtist: (name: string) => void;
   toggleFavoritePlaylist: (id: Id) => void;
-  /** 启动时把落盘的收藏灌进来（由 `useRestoreCollections` 调用）。 */
-  restoreFavorites: (favorites: Favorites) => void;
+  /**
+   * 把落盘收藏灌进来。传 expectedRevision 时，只有用户尚未在读取期间操作过才提交。
+   * 返回是否真正采用了这份快照。
+   */
+  restoreFavorites: (favorites: Favorites, expectedRevision?: number) => boolean;
   /** 按当前曲库重算专辑收藏的派生视图。曲库一换就要重算。 */
   recomputeFavoriteAlbums: () => void;
   /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）；更新时间标记清空 = 「今天更新」。 */
@@ -502,9 +600,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   error: null,
   needsLibrary: false,
 
+  favoritesRevision: 0,
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
-  favoriteAlbumTracks: {},
+  favoriteAlbumGroups: SEED_FAVORITE_ALBUM_GROUPS.map((group) => [...group]),
+  favoriteAlbumTracks: albumTrackMap(SEED_FAVORITE_ALBUM_GROUPS),
   favoriteArtists: { ...SEED_FAVORITE_ARTISTS },
   favoritePlaylists: { "pl-nightdrive": true },
   playlists: PLAYLISTS.map((p) => ({ ...p, tracks: [...p.tracks] })),
@@ -631,16 +731,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   cycleRepeat: () =>
     set((s) => ({ repeat: REPEAT_CYCLE[(REPEAT_CYCLE.indexOf(s.repeat) + 1) % 3] })),
 
-  // 四个收藏动作都是**先改界面、写失败再退回**。等 IPC 回来才亮红心会让点击有可见延迟，
-  // 而收藏是个高频小动作；反过来，写失败却把红心留着，用户会以为存住了——所以退回是
-  // 必须的。退回本身就是「没存上」的信号（已知不足：目前没有文字说明，见文档）。
+  // 四个收藏动作先乐观改界面，再进入同一条 FIFO 落库；队列排空后统一读回权威状态。
+  // 这样既没有点击延迟，也不会让旧失败回执覆盖新动作，或让 IPC 到达顺序决定磁盘结果。
   toggleFavorite: (id) => {
     const on = !get().favorites[id];
-    set((s) => ({ favorites: { ...s.favorites, [id]: on } }));
-    void backend.favoriteTrack(id, on).catch((error) => {
-      console.error("保存收藏失败", error);
-      set((s) => ({ favorites: { ...s.favorites, [id]: !on } }));
-    });
+    set((s) => ({
+      favorites: toggledMap(s.favorites, id, on),
+      favoritesRevision: s.favoritesRevision + 1,
+    }));
+    persistFavoriteMutation(() => backend.favoriteTrack(id, on), get().favoritesRevision);
   },
 
   toggleFavoriteAlbum: (id) => {
@@ -652,77 +751,67 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (trackIds.length === 0) return;
     const on = !get().favoriteAlbums[id];
     set((s) => {
-      const albumTracks = { ...s.favoriteAlbumTracks };
-      for (const tid of trackIds) {
-        if (on) albumTracks[tid] = true;
-        else delete albumTracks[tid];
-      }
+      const currentIds = new Set(trackIds);
+      const groups = normalizedAlbumGroups(
+        on
+          ? [...s.favoriteAlbumGroups, trackIds]
+          : s.favoriteAlbumGroups.filter(
+              (group) => !group.some((trackId) => currentIds.has(trackId)),
+            ),
+      );
+      const albumTracks = albumTrackMap(groups);
       return {
+        favoriteAlbumGroups: groups,
         favoriteAlbumTracks: albumTracks,
-        favoriteAlbums: { ...s.favoriteAlbums, [id]: on },
+        favoriteAlbums: derivedFavoriteAlbums(albumTracks),
+        favoritesRevision: s.favoritesRevision + 1,
       };
     });
-    void backend.favoriteAlbum(trackIds, on).catch((error) => {
-      console.error("保存收藏失败", error);
-      set((s) => {
-        const albumTracks = { ...s.favoriteAlbumTracks };
-        for (const tid of trackIds) {
-          if (on) delete albumTracks[tid];
-          else albumTracks[tid] = true;
-        }
-        return {
-          favoriteAlbumTracks: albumTracks,
-          favoriteAlbums: { ...s.favoriteAlbums, [id]: !on },
-        };
-      });
-    });
+    persistFavoriteMutation(() => backend.favoriteAlbum(trackIds, on), get().favoritesRevision);
   },
 
   toggleFavoriteArtist: (name) => {
     const on = !get().favoriteArtists[name];
-    set((s) => ({ favoriteArtists: { ...s.favoriteArtists, [name]: on } }));
-    void backend.favoriteArtist(name, on).catch((error) => {
-      console.error("保存收藏失败", error);
-      set((s) => ({ favoriteArtists: { ...s.favoriteArtists, [name]: !on } }));
-    });
+    set((s) => ({
+      favoriteArtists: toggledMap(s.favoriteArtists, name, on),
+      favoritesRevision: s.favoritesRevision + 1,
+    }));
+    persistFavoriteMutation(() => backend.favoriteArtist(name, on), get().favoritesRevision);
   },
 
   toggleFavoritePlaylist: (id) => {
     const on = !get().favoritePlaylists[id];
-    set((s) => ({ favoritePlaylists: { ...s.favoritePlaylists, [id]: on } }));
-    void backend.favoritePlaylist(id, on).catch((error) => {
-      console.error("保存收藏失败", error);
-      set((s) => ({ favoritePlaylists: { ...s.favoritePlaylists, [id]: !on } }));
-    });
+    set((s) => ({
+      favoritePlaylists: toggledMap(s.favoritePlaylists, id, on),
+      favoritesRevision: s.favoritesRevision + 1,
+    }));
+    persistFavoriteMutation(() => backend.favoritePlaylist(id, on), get().favoritesRevision);
   },
 
-  restoreFavorites: (favorites) => {
+  restoreFavorites: (favorites, expectedRevision) => {
+    if (expectedRevision !== undefined && get().favoritesRevision !== expectedRevision) {
+      return false;
+    }
     const toMap = <T extends string>(list: T[]): Record<T, boolean> =>
       Object.fromEntries(list.map((k) => [k, true])) as Record<T, boolean>;
+    const groups = normalizedAlbumGroups(favorites.albumGroups);
+    const albumTracks = albumTrackMap(groups);
     set({
       favorites: toMap(favorites.tracks),
-      favoriteAlbumTracks: Object.fromEntries(
-        favorites.albumTracks.map((k) => [k, true as const]),
-      ),
+      favoriteAlbumGroups: groups,
+      favoriteAlbumTracks: albumTracks,
+      favoriteAlbums: derivedFavoriteAlbums(albumTracks),
       favoriteArtists: toMap(favorites.artists),
       favoritePlaylists: toMap(favorites.playlists),
     });
-    get().recomputeFavoriteAlbums();
+    return true;
   },
 
   // 专辑收藏存的是曲目 ID，界面按专辑 ID 读，所以两者之间要现算一层。曲库一换就得重来：
   // 专辑 ID 变了、专辑本身也可能被重新归组。
   recomputeFavoriteAlbums: () => {
-    const albumTracks = get().favoriteAlbumTracks;
-    const derived: Record<Id, boolean> = {};
-    if (Object.keys(albumTracks).length > 0) {
-      for (const album of albums()) {
-        // 「任意一首命中」而不是「全部」：专辑的曲目集合会变（补一首漏扫的、
-        // 删一首重复的），按全部匹配会让收藏毫无征兆地消失。
-        if (tracksOf(album).some((tk) => albumTracks[tk.id])) derived[album.id] = true;
-      }
-    }
-    set({ favoriteAlbums: derived });
+    const albumTracks = albumTrackMap(get().favoriteAlbumGroups);
+    set({ favoriteAlbumTracks: albumTracks, favoriteAlbums: derivedFavoriteAlbums(albumTracks) });
   },
 
   addToPlaylist: (playlistId, tracks) =>
@@ -754,6 +843,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         playlists: [...s.playlists, playlist],
         // 当前没有独立歌单总览页；新建后先加入收藏页，确保用户能立即找到。
         favoritePlaylists: { ...s.favoritePlaylists, [id]: true },
+        favoritesRevision: s.favoritesRevision + 1,
       };
     });
     return id;
@@ -788,7 +878,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set((s) => {
       // 收藏标记一并清除，避免留下指向已删歌单的孤立键。
       const { [playlistId]: _removed, ...favoritePlaylists } = s.favoritePlaylists;
-      return { playlists: s.playlists.filter((p) => p.id !== playlistId), favoritePlaylists };
+      return {
+        playlists: s.playlists.filter((p) => p.id !== playlistId),
+        favoritePlaylists,
+        favoritesRevision: s.favoritesRevision + 1,
+      };
     }),
 
   setVolume: (v) => {

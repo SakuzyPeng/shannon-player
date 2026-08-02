@@ -9,9 +9,9 @@ export type Favorites = {
  */
 tracks: Array<string>, 
 /**
- * 被收藏专辑的曲目 ID 集合（见模块头，不是专辑 ID）。
+ * 被收藏专辑的成员快照。外层每项是一笔专辑收藏，内层是收藏当时的全部曲目 ID。
  */
-albumTracks: Array<string>, 
+albumGroups: Array<Array<string>>, 
 /**
  * 被收藏的歌手名。
  */

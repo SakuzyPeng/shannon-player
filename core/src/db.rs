@@ -32,7 +32,7 @@
 //! **如实上报**，不像扫描缓存那样静默重建——里面有用户手改的东西。只读、锁竞争、
 //! 磁盘满等运行时错误只报错，不移动完好的文件。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -47,7 +47,7 @@ use crate::overrides::{Overrides, TrackOverride};
 /// 改表结构时 +1 并在 [`migrate`] 里补一段升级。用 `user_version` 而不是自建元数据表，
 /// 是因为它由 SQLite 自己维护、读取不需要先假设任何表存在——首次打开一个空文件时，
 /// 「还没有表」与「表读不出来」不该走两条不同的代码路径。
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// 统计量在 `meta` 表里的键。这些是**一次扫描的结论**而不是曲目属性，
 /// 单独建表只会得到一张永远两行的表。
@@ -221,6 +221,10 @@ impl LibraryDb {
         // 不开的话删掉歌单会在 `playlist_track` 里留下一堆永远不会被读到的孤儿行。
         self.conn.pragma_update(None, "foreign_keys", true)?;
         migrate(&mut self.conn)?;
+        // v3 的专辑收藏只有一张扁平曲目集合，无法表达「取消时连暂时缺失的成员一起删」。
+        // v4 先把旧行留在 staging 表，这里再借当前扫描缓存尽量重建收藏时的专辑分组。
+        // 单独做成可重入收尾，是为了进程若在 schema 事务提交后崩溃，下次仍能接着完成。
+        self.finish_album_favorite_migration()?;
         Ok(())
     }
 
@@ -380,7 +384,7 @@ impl LibraryDb {
     pub fn load_favorites(&self) -> Result<Favorites> {
         Ok(Favorites {
             tracks: self.column("SELECT track_id FROM favorite_track")?,
-            album_tracks: self.column("SELECT track_id FROM favorite_album_track")?,
+            album_groups: self.load_favorite_album_groups()?,
             artists: self.column("SELECT name FROM favorite_artist")?,
             playlists: self.column("SELECT playlist_id FROM favorite_playlist")?,
         })
@@ -406,12 +410,33 @@ impl LibraryDb {
 
     /// 收藏 / 取消收藏一张专辑：传入它**当前**的全部曲目 ID。
     ///
-    /// 一个事务：收藏到一半断电会让这张专辑处于「一半曲目在集合里」的状态，而判据是
-    /// 「任意命中」，表现就是取消收藏点了没反应。
+    /// 收藏时把成员存成一个完整分组；取消时删除与当前任一曲目相交的**整组**。后者是
+    /// 必需的：若收藏时是 A/B/C、重扫时 C 暂时缺失，只删当前传来的 A/B 会让 C 回来后
+    /// 把红心复活。一个事务保证分组不会只写或只删一半。
     pub fn set_favorite_album(&mut self, track_ids: &[String], on: bool) -> Result<()> {
+        let track_ids = normalized_track_ids(track_ids);
+        if track_ids.is_empty() {
+            return Ok(());
+        }
         let tx = self.conn.transaction()?;
-        for id in track_ids {
-            toggle_row(&tx, "favorite_album_track", "track_id", id, on)?;
+        if on {
+            insert_album_favorite_on(&tx, &track_ids)?;
+        } else {
+            let mut favorite_ids = HashSet::new();
+            {
+                let mut stmt =
+                    tx.prepare("SELECT favorite_id FROM favorite_album_track WHERE track_id = ?1")?;
+                for track_id in &track_ids {
+                    let rows = stmt.query_map([track_id], |r| r.get::<_, String>(0))?;
+                    for row in rows {
+                        favorite_ids.insert(row?);
+                    }
+                }
+            }
+            let mut stmt = tx.prepare("DELETE FROM favorite_album WHERE id = ?1")?;
+            for favorite_id in favorite_ids {
+                stmt.execute([favorite_id])?;
+            }
         }
         tx.commit()?;
         Ok(())
@@ -576,6 +601,97 @@ impl LibraryDb {
 
     // ---- 内部 ----
 
+    fn load_favorite_album_groups(&self) -> Result<Vec<Vec<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT favorite_id, track_id
+             FROM favorite_album_track
+             ORDER BY favorite_id, track_id",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut groups: Vec<Vec<String>> = Vec::new();
+        let mut current_id: Option<String> = None;
+        for row in rows {
+            let (favorite_id, track_id) = row?;
+            if current_id.as_deref() != Some(favorite_id.as_str()) {
+                groups.push(Vec::new());
+                current_id = Some(favorite_id);
+            }
+            groups
+                .last_mut()
+                .expect("新收藏分组已在上面创建")
+                .push(track_id);
+        }
+        Ok(groups)
+    }
+
+    /// 收尾 v3 → v4 的专辑收藏迁移。
+    ///
+    /// v3 只留下「哪些曲目曾属于某张收藏专辑」，分组边界已经丢了。若当前缓存仍在，
+    /// 就按此刻的聚合结果把同一张专辑重建成一组；暂时不在曲库里的旧 ID 保守地各留
+    /// 一组，至少不丢收藏。staging 表与新分组在同一事务里交接，可安全重试。
+    fn finish_album_favorite_migration(&mut self) -> Result<()> {
+        if !self.table_exists("favorite_album_track_v3")? {
+            return Ok(());
+        }
+
+        let legacy_ids = self.column("SELECT track_id FROM favorite_album_track_v3")?;
+        let legacy_set: HashSet<&str> = legacy_ids.iter().map(String::as_str).collect();
+        let mut consumed: HashSet<String> = HashSet::new();
+        let mut groups: Vec<Vec<String>> = Vec::new();
+
+        // 缓存只是重建分组的辅助证据；它若读不懂，不能因此挡住整个数据库升级。
+        // 那时退化成单曲分组，收藏本身仍一条不少地保留下来。
+        if !legacy_ids.is_empty() {
+            if let (Ok(cache), Ok(overrides)) = (self.load_cache(), self.load_overrides()) {
+                let snapshot = cache.library(&overrides);
+                let mut tracks_by_album: HashMap<String, Vec<String>> = HashMap::new();
+                for track in &snapshot.tracks {
+                    if let Some(album_id) = &track.album_id {
+                        tracks_by_album
+                            .entry(album_id.clone())
+                            .or_default()
+                            .push(track.id.clone());
+                    }
+                }
+                for album in &snapshot.albums {
+                    let Some(track_ids) = tracks_by_album.remove(&album.id) else {
+                        continue;
+                    };
+                    if !track_ids.iter().any(|id| legacy_set.contains(id.as_str())) {
+                        continue;
+                    }
+                    for id in &track_ids {
+                        if legacy_set.contains(id.as_str()) {
+                            consumed.insert(id.clone());
+                        }
+                    }
+                    groups.push(normalized_track_ids(&track_ids));
+                }
+            }
+        }
+        for id in legacy_ids {
+            if !consumed.contains(&id) {
+                groups.push(vec![id]);
+            }
+        }
+
+        let tx = self.conn.transaction()?;
+        for group in groups {
+            insert_album_favorite_on(&tx, &group)?;
+        }
+        tx.execute("DROP TABLE favorite_album_track_v3", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn table_exists(&self, name: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [name],
+            |r| r.get(0),
+        )?)
+    }
+
     /// 取一列文本。收藏那四张表都是「单列的集合」，各写一遍 query_map 只是抄四份。
     fn column(&self, sql: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(sql)?;
@@ -620,8 +736,49 @@ fn put_override_on(conn: &Connection, track_id: &str, ov: &TrackOverride) -> Res
     Ok(())
 }
 
-/// 收藏这四张表都是「在 / 不在」的集合，插入用 `OR IGNORE`：重复收藏同一项不该报错，
-/// 那只是用户点快了或两处界面同时点了。
+fn normalized_track_ids(track_ids: &[String]) -> Vec<String> {
+    let mut ids: Vec<String> = track_ids
+        .iter()
+        .filter(|id| !id.is_empty())
+        .cloned()
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// 同一份成员快照得到同一个内部 ID，使重试与重复点击天然幂等。
+fn album_favorite_id(track_ids: &[String]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"shannon:favorite-album:v1\0");
+    for track_id in track_ids {
+        hasher.update(&(track_id.len() as u64).to_le_bytes());
+        hasher.update(track_id.as_bytes());
+    }
+    format!("fa-{}", hasher.finalize().to_hex())
+}
+
+fn insert_album_favorite_on(conn: &Connection, track_ids: &[String]) -> Result<()> {
+    let track_ids = normalized_track_ids(track_ids);
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let favorite_id = album_favorite_id(&track_ids);
+    conn.execute(
+        "INSERT OR IGNORE INTO favorite_album (id) VALUES (?1)",
+        [&favorite_id],
+    )?;
+    let mut stmt = conn.prepare(
+        "INSERT OR IGNORE INTO favorite_album_track (favorite_id, track_id) VALUES (?1, ?2)",
+    )?;
+    for track_id in &track_ids {
+        stmt.execute(params![&favorite_id, track_id])?;
+    }
+    Ok(())
+}
+
+/// 曲目 / 歌手 / 歌单收藏都是「在 / 不在」的单列集合，插入用 `OR IGNORE`：重复收藏
+/// 同一项不该报错，那只是用户点快了或两处界面同时点了。专辑有成员分组，单独处理。
 fn toggle_row(conn: &Connection, table: &str, column: &str, value: &str, on: bool) -> Result<()> {
     let sql = if on {
         format!("INSERT OR IGNORE INTO {table} ({column}) VALUES (?1)")
@@ -683,6 +840,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             0 => tx.execute_batch(SCHEMA_V1)?,
             1 => tx.execute_batch(SCHEMA_V2)?,
             2 => tx.execute_batch(SCHEMA_V3)?,
+            3 => tx.execute_batch(SCHEMA_V4)?,
             _ => unreachable!("缺少 v{version} 到 v{} 的升级", version + 1),
         }
         version += 1;
@@ -857,6 +1015,31 @@ CREATE TABLE playlist_track (
   track_id    TEXT NOT NULL,
   PRIMARY KEY (playlist_id, ord)
 );
+"#;
+
+/// v4：专辑收藏保留成员分组边界。
+///
+/// v3 的 `favorite_album_track` 是一张全局扁平集合。它能回答「当前专辑有没有命中」，
+/// 却回答不了「命中的旧曲目原本属于哪一次专辑收藏」：收藏 A/B/C 后 C 暂时缺失，用户
+/// 用当前 A/B 取消时只能删掉 A/B，C 回来便会把红心复活。v4 因此增加内部收藏实体，
+/// 每笔收藏对应一份成员快照；取消任一可见成员时删掉整笔收藏。
+///
+/// 旧表先改名留作 staging。SQL 不掌握两遍聚合与覆盖层规则，不能在这里硬猜分组；
+/// [`LibraryDb::finish_album_favorite_migration`] 会借当前缓存重建后再原子删除 staging。
+const SCHEMA_V4: &str = r#"
+ALTER TABLE favorite_album_track RENAME TO favorite_album_track_v3;
+
+CREATE TABLE favorite_album (
+  id TEXT PRIMARY KEY
+);
+
+CREATE TABLE favorite_album_track (
+  favorite_id TEXT NOT NULL REFERENCES favorite_album(id) ON DELETE CASCADE,
+  track_id    TEXT NOT NULL,
+  PRIMARY KEY (favorite_id, track_id)
+);
+
+CREATE INDEX favorite_album_track_track_idx ON favorite_album_track(track_id);
 "#;
 
 /// 行 → `RawTrack`。JSON 列的解析可能失败，所以返回值再套一层 `Result`：
@@ -1066,7 +1249,10 @@ mod tests {
         let mut db = LibraryDb::open_in_memory().unwrap();
         let ids: Vec<String> = vec!["t-1".into(), "t-2".into()];
         db.set_favorite_album(&ids, true).unwrap();
+        db.set_favorite_album(&["t-2".into(), "t-1".into()], true)
+            .unwrap();
         let fav = db.load_favorites().unwrap();
+        assert_eq!(fav.album_groups.len(), 1, "同一成员的重试应当幂等");
 
         // 改了名、换了目录，专辑 ID 全新——但曲目 ID 是内容哈希，一个没变。
         assert!(fav.has_album(&ids), "改名换目录后仍应认得出这张专辑");
@@ -1077,6 +1263,25 @@ mod tests {
 
         db.set_favorite_album(&ids, false).unwrap();
         assert!(!db.load_favorites().unwrap().has_album(&ids));
+    }
+
+    /// 取消收藏时要删掉整份成员快照，而不只是这一刻仍在曲库里的子集。
+    #[test]
+    fn unfavoriting_a_visible_subset_removes_temporarily_missing_members() {
+        let mut db = LibraryDb::open_in_memory().unwrap();
+        db.set_favorite_album(&["a".into(), "b".into(), "c".into()], true)
+            .unwrap();
+
+        // c 此刻没扫到，界面只能把当前可见的 a / b 传回来。
+        db.set_favorite_album(&["a".into(), "b".into()], false)
+            .unwrap();
+
+        let favorites = db.load_favorites().unwrap();
+        assert!(favorites.album_groups.is_empty());
+        assert!(
+            !favorites.has_album(&["c".into()]),
+            "暂时缺失的 c 回来后不能把用户已取消的收藏复活"
+        );
     }
 
     #[test]
@@ -1203,6 +1408,42 @@ mod tests {
         ]);
         db.replace_cache(&duplicate).unwrap();
         assert_eq!(db.load_cache().unwrap().tracks.len(), 2);
+    }
+
+    /// v3 的扁平集合要借当前曲库重建成成员分组；否则升级后仍修不好「缺一首时取消」。
+    #[test]
+    fn v3_album_favorites_migrate_to_grouped_snapshots() {
+        let dir = scratch("v3_album_favorites");
+        let path = dir.join("library.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            conn.execute_batch(SCHEMA_V3).unwrap();
+            conn.pragma_update(None, "user_version", 3).unwrap();
+            let mut db = LibraryDb { conn };
+            db.replace_cache(&cache_of(vec![
+                track("t-1", "/音乐/专辑/一.m4a"),
+                track("t-2", "/音乐/专辑/二.m4a"),
+            ]))
+            .unwrap();
+            db.conn
+                .execute(
+                    "INSERT INTO favorite_album_track (track_id) VALUES (?1), (?2)",
+                    ["t-1", "t-2"],
+                )
+                .unwrap();
+        }
+
+        let (mut db, report) = LibraryDb::open(&path).unwrap();
+        assert_eq!(report, OpenReport::default());
+        let favorites = db.load_favorites().unwrap();
+        assert_eq!(favorites.album_groups.len(), 1);
+        assert_eq!(favorites.album_groups[0], vec!["t-1", "t-2"]);
+
+        // 只拿仍可见的一首取消，也要带走迁移后同组的另一首。
+        db.set_favorite_album(&["t-1".into()], false).unwrap();
+        assert!(db.load_favorites().unwrap().album_groups.is_empty());
     }
 
     /// 规格里带 tag 的那几项存的是 JSON 列，最容易在往返中悄悄丢形状。
