@@ -64,6 +64,7 @@ impl RawTrack {
         self.file_size == size
             && self.mtime_ms == mtime_ms
             && self.file_size != 0
+            && self.mtime_ms != 0
             && self.format.probe_version == crate::model::PROBE_VERSION
     }
 }

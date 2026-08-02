@@ -126,7 +126,7 @@ fn scan_library(
         return Err("未指定音乐文件夹".into());
     }
     let covers = data_path(&app, COVER_DIR)?;
-    // 把上一次的结果交给扫描器：文件没变过的条目直接复用，不再打开。
+    // 把上一次的结果交给扫描器：文件没变且封面缓存完整的条目直接复用，不再打开。
     // 这里克隆一份而不是持锁扫描——扫一次真实曲库要几十秒，全程占着锁会让取曲库、
     // 改元数据这些命令统统卡住。
     let previous = state.cache.lock().map_err(|e| e.to_string())?.clone();

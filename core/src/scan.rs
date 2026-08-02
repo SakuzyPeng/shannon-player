@@ -78,8 +78,9 @@ where
 /// 重扫的全部意义正是「不碰没变过的文件」。大小与时间**一起**比——单看大小会漏掉等长
 /// 改写（改标签常常字节数不变），单看时间会被「复制时保留 mtime」骗过。
 ///
-/// 复用的条目连封面也不必重新解码：缩略图按内容指纹命名、早已躺在 covers/ 里，而
-/// `cover_key` 就在缓存记录上。
+/// 已有缩略图完整时，复用的条目连封面也不必重新解码：缩略图按内容指纹
+/// 命名，`cover_key` 就在缓存记录上。若缩略图不完整则强制重新探测，因为封面
+/// 原始字节没有入库。
 pub fn scan_folders_incremental<F>(
     roots: &[PathBuf],
     cover_dir: Option<&Path>,
@@ -118,10 +119,9 @@ where
         .par_iter()
         .filter_map(|path| {
             let stat = stat_of(path);
-            if let Some(hit) = cached
-                .get(path.as_path())
-                .filter(|t| t.is_fresh(stat.size, stat.mtime_ms))
-            {
+            if let Some(hit) = cached.get(path.as_path()).filter(|t| {
+                t.is_fresh(stat.size, stat.mtime_ms) && cached_cover_is_ready(t, cover_dir)
+            }) {
                 reused.fetch_add(1, Ordering::Relaxed);
                 ok.fetch_add(1, Ordering::Relaxed);
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -209,6 +209,16 @@ where
 /// 关心的数字会让契约多一个字段、前端多一处判断，而它对用户没有可做的动作。
 fn log_reuse(reused: u32, total: u32) {
     eprintln!("增量重扫：{reused}/{total} 个文件未变，直接复用缓存");
+}
+
+/// 封面是可重建的派生缓存，但它的字节没有放进 `RawTrack`；缩略图不完整时
+/// 必须回到媒体文件重新提取。这同时覆盖上次写入失败、缓存目录被清理，以及
+/// 日后增加缩略图档位的场景。
+fn cached_cover_is_ready(track: &RawTrack, cover_dir: Option<&Path>) -> bool {
+    match (cover_dir, track.cover_key.as_deref()) {
+        (Some(dir), Some(key)) => cover::thumbs_exist(dir, key),
+        _ => true,
+    }
 }
 
 /// 探测结果 → 可落盘的原始记录。封面字节在此丢弃，只留指纹（见 `cache` 模块）。
@@ -1111,6 +1121,52 @@ mod tests {
             scan_folders_incremental(std::slice::from_ref(&d), None, Some(&previous), |_| {});
         assert!(fresh.tracks.is_empty(), "文件变了就要重扫，哨兵不该留下");
         assert_eq!(fresh.failed, 1);
+
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// 0 是「拿不到修改时间」的哨兵值，不是一个可以命中的时间戳。
+    #[test]
+    fn missing_mtime_never_counts_as_fresh() {
+        let mut cached = probed_at("/m/a.flac", "哨兵标题", "甲", "专辑", None);
+        cached.file_size = 1_024;
+        cached.mtime_ms = 0;
+
+        assert!(
+            !cached.is_fresh(1_024, 0),
+            "拿不到 mtime 时必须每次重扫，不能让两个哨兵值互相命中"
+        );
+    }
+
+    /// 缩略图比扫描记录更易丢（上次写失败、用户清缓存、新增档位），重扫必须能修复。
+    #[test]
+    fn missing_cover_thumbnails_force_a_reprobe() {
+        let d = tmpdir("shannon_scan_incremental_missing_cover");
+        let f = d.join("a.flac");
+        let covers = d.join("covers");
+        fs::write(&f, b"not really flac").unwrap();
+
+        let stat = stat_of(&f);
+        let mut seeded = probed_cover("x", "哨兵标题", "甲", "专辑", "missing-cover");
+        seeded.path = std::fs::canonicalize(&f).unwrap();
+        seeded.file_size = stat.size;
+        seeded.mtime_ms = stat.mtime_ms;
+        let previous = ScanCache {
+            tracks: vec![seeded],
+            ..Default::default()
+        };
+
+        let fresh = scan_folders_incremental(
+            std::slice::from_ref(&d),
+            Some(&covers),
+            Some(&previous),
+            |_| {},
+        );
+        assert!(
+            fresh.tracks.is_empty(),
+            "缩略图不完整时不能复用记录，应回到媒体文件重新提取"
+        );
+        assert_eq!(fresh.failed, 1, "非法语料被重新探测后应如实计入失败");
 
         let _ = fs::remove_dir_all(d);
     }
