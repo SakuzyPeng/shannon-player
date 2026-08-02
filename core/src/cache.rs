@@ -42,6 +42,30 @@ pub struct RawTrack {
     pub has_cover: bool,
     pub format: AudioFormat,
     pub duration_sec: f64,
+    /// 文件大小与修改时间，**只用于增量重扫的判据**，不参与任何展示或归组。
+    ///
+    /// 用 stat 拿得到的这两项，而不是曲目 ID：ID 是内容哈希，算它就得把文件打开读三段，
+    /// 而增量重扫的全部意义正是「不碰没变过的文件」。两项一起比是因为单看大小会漏掉
+    /// 等长改写（改个标签常常字节数不变），单看时间会被「复制文件保留 mtime」骗过。
+    ///
+    /// 旧记录读回来是 0，与任何真实 stat 都不相等，于是自动触发一次重扫后自愈。
+    #[serde(default)]
+    pub file_size: u64,
+    #[serde(default)]
+    pub mtime_ms: i64,
+}
+
+impl RawTrack {
+    /// 这条缓存还能不能直接用：文件没变过，且探测器版本没升。
+    ///
+    /// 探测器版本要一起比——升级探测逻辑正是为了从同一个文件里读出更多东西，
+    /// 文件没变恰恰不是跳过它的理由（见 `model::PROBE_VERSION`）。
+    pub fn is_fresh(&self, size: u64, mtime_ms: i64) -> bool {
+        self.file_size == size
+            && self.mtime_ms == mtime_ms
+            && self.file_size != 0
+            && self.format.probe_version == crate::model::PROBE_VERSION
+    }
 }
 
 /// 一次扫描的完整原始产出。

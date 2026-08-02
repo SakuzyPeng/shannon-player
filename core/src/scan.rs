@@ -39,7 +39,53 @@ const GRADIENTS: &[(&str, &str)] = &[
 /// 遍历本身很快（只看扩展名，不读文件内容）。
 /// 产出的是**原始缓存**而非曲库快照：套用用户覆盖、聚合成专辑都是纯内存计算
 /// （见 `ScanCache::library`），分开之后改一次元数据不必重扫整库，重启也不必。
-pub fn scan_folders<F>(roots: &[PathBuf], cover_dir: Option<&Path>, mut on_progress: F) -> ScanCache
+/// 文件的 stat 结果，增量重扫的判据。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FileStat {
+    pub size: u64,
+    pub mtime_ms: i64,
+}
+
+fn stat_of(path: &Path) -> FileStat {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return FileStat::default();
+    };
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        // 拿不到修改时间（某些网络盘）就报 0：它与任何缓存值都不相等，于是这个文件
+        // 每次都重扫。慢一点是对的——宁可白干一次，也不能凭一个拿不到的判据宣称新鲜。
+        .unwrap_or(0);
+    FileStat {
+        size: meta.len(),
+        mtime_ms,
+    }
+}
+
+pub fn scan_folders<F>(roots: &[PathBuf], cover_dir: Option<&Path>, on_progress: F) -> ScanCache
+where
+    F: FnMut(ScanProgress) + Send,
+{
+    scan_folders_incremental(roots, cover_dir, None, on_progress)
+}
+
+/// 带上一次结果的扫描：文件大小与修改时间都没变、且探测器版本没升的条目直接复用，
+/// 不再打开文件。
+///
+/// 判据为什么是 stat 而不是曲目 ID：ID 是内容哈希，算它就得把文件打开读三段，而增量
+/// 重扫的全部意义正是「不碰没变过的文件」。大小与时间**一起**比——单看大小会漏掉等长
+/// 改写（改标签常常字节数不变），单看时间会被「复制时保留 mtime」骗过。
+///
+/// 复用的条目连封面也不必重新解码：缩略图按内容指纹命名、早已躺在 covers/ 里，而
+/// `cover_key` 就在缓存记录上。
+pub fn scan_folders_incremental<F>(
+    roots: &[PathBuf],
+    cover_dir: Option<&Path>,
+    previous: Option<&ScanCache>,
+    mut on_progress: F,
+) -> ScanCache
 where
     F: FnMut(ScanProgress) + Send,
 {
@@ -50,6 +96,11 @@ where
         .collect();
     let files = collect_files(&roots);
     let total = files.len() as u32;
+    // 按路径索引上一次的结果。路径是这里唯一能在**打开文件之前**拿到的键。
+    let cached: HashMap<&Path, &RawTrack> = previous
+        .map(|c| c.tracks.iter().map(|t| (t.path.as_path(), t)).collect())
+        .unwrap_or_default();
+    let reused = AtomicU32::new(0);
 
     let done = AtomicU32::new(0);
     let failed = AtomicU32::new(0);
@@ -66,6 +117,27 @@ where
     let mut tracks: Vec<RawTrack> = files
         .par_iter()
         .filter_map(|path| {
+            let stat = stat_of(path);
+            if let Some(hit) = cached
+                .get(path.as_path())
+                .filter(|t| t.is_fresh(stat.size, stat.mtime_ms))
+            {
+                reused.fetch_add(1, Ordering::Relaxed);
+                ok.fetch_add(1, Ordering::Relaxed);
+                let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                if n % 16 == 0 || n == total {
+                    if let Ok(mut cb) = progress.lock() {
+                        cb(ScanProgress {
+                            done: n,
+                            total,
+                            tracks: ok.load(Ordering::Relaxed),
+                            albums: 0,
+                            current: path.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+                return Some((*hit).clone());
+            }
             let result = probe::probe(path);
             if result.is_ok() {
                 ok.fetch_add(1, Ordering::Relaxed);
@@ -101,7 +173,7 @@ where
                             cover_failed.fetch_add(1, Ordering::Relaxed);
                         }
                     }
-                    Some(raw_track(path.clone(), p))
+                    Some(raw_track(path.clone(), p, stat))
                 }
                 Err(_) => {
                     failed.fetch_add(1, Ordering::Relaxed);
@@ -112,6 +184,10 @@ where
         .collect();
     tracks.sort_by(|a, b| a.path.cmp(&b.path));
 
+    let n_reused = reused.load(Ordering::Relaxed);
+    if n_reused > 0 {
+        log_reuse(n_reused, total);
+    }
     let cache = ScanCache {
         roots,
         tracks,
@@ -129,8 +205,14 @@ where
     cache
 }
 
+/// 复用了多少条。走 log 而不是进 `ScanProgress`：那是给界面看的进度，加一个只有开发
+/// 关心的数字会让契约多一个字段、前端多一处判断，而它对用户没有可做的动作。
+fn log_reuse(reused: u32, total: u32) {
+    eprintln!("增量重扫：{reused}/{total} 个文件未变，直接复用缓存");
+}
+
 /// 探测结果 → 可落盘的原始记录。封面字节在此丢弃，只留指纹（见 `cache` 模块）。
-fn raw_track(path: PathBuf, p: Probed) -> RawTrack {
+fn raw_track(path: PathBuf, p: Probed, stat: FileStat) -> RawTrack {
     let fp = FormatFingerprint {
         codec: &p.format.codec,
         channels: p.format.channels,
@@ -154,6 +236,8 @@ fn raw_track(path: PathBuf, p: Probed) -> RawTrack {
         cover_key: p.cover_key,
         format: p.format,
         duration_sec: p.duration_sec,
+        file_size: stat.size,
+        mtime_ms: stat.mtime_ms,
     }
 }
 
@@ -990,6 +1074,47 @@ mod tests {
         d
     }
 
+    /// 增量重扫的两面：没变过的文件必须**原样复用**，变过的必须重扫。
+    ///
+    /// 观测手段是往上一次的结果里塞一个真实探测绝不会产出的标题：它活下来就证明这条
+    /// 没被重新探测过，消失就证明重扫了。比数「探测了几次」更直接，也不必为测试
+    /// 在生产接口上开一个计数器。
+    #[test]
+    fn unchanged_files_are_reused_and_touched_ones_are_rescanned() {
+        let d = tmpdir("shannon_scan_incremental");
+        let f = d.join("a.flac");
+        // 不是合法音频，探测会失败——但这正好让「复用」无可抵赖：能出现在结果里，
+        // 只可能是照抄了上一次的记录。
+        fs::write(&f, b"not really flac").unwrap();
+
+        let mut previous = ScanCache::default();
+        let stat = stat_of(&f);
+        let mut seeded = probed_at("x", "哨兵标题", "甲", "专辑", None);
+        // 缓存里的键必须与 `collect_files` 产出的路径同源：扫描会先规范化根目录
+        // （macOS 上 /var/… → /private/var/…），拿未规范化的路径当键对不上。
+        seeded.path = std::fs::canonicalize(&f).unwrap();
+        seeded.file_size = stat.size;
+        seeded.mtime_ms = stat.mtime_ms;
+        seeded.format.probe_version = crate::model::PROBE_VERSION;
+        previous.tracks.push(seeded);
+
+        let again =
+            scan_folders_incremental(std::slice::from_ref(&d), None, Some(&previous), |_| {});
+        assert_eq!(again.tracks.len(), 1, "文件没变，应当直接复用");
+        assert_eq!(again.tracks[0].tags.title.as_deref(), Some("哨兵标题"));
+        assert_eq!(again.failed, 0, "复用的条目不该再被探测，也就不会计入失败");
+
+        // 改动文件：大小与修改时间都变了，判据失效，必须回去重扫（于是探测失败）。
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&f, b"not really flac either, but longer").unwrap();
+        let fresh =
+            scan_folders_incremental(std::slice::from_ref(&d), None, Some(&previous), |_| {});
+        assert!(fresh.tracks.is_empty(), "文件变了就要重扫，哨兵不该留下");
+        assert_eq!(fresh.failed, 1);
+
+        let _ = fs::remove_dir_all(d);
+    }
+
     #[test]
     fn collects_only_audio_extensions() {
         let d = tmpdir("shannon_scan_exts");
@@ -1265,6 +1390,8 @@ mod tests {
                 disc_no: None,
             },
             has_cover: cover_key.is_some(),
+            file_size: 1_024,
+            mtime_ms: 1_700_000_000_000,
             cover_key,
             format: fake_format(),
             duration_sec: 100.0,

@@ -47,7 +47,7 @@ use crate::overrides::{Overrides, TrackOverride};
 /// 改表结构时 +1 并在 [`migrate`] 里补一段升级。用 `user_version` 而不是自建元数据表，
 /// 是因为它由 SQLite 自己维护、读取不需要先假设任何表存在——首次打开一个空文件时，
 /// 「还没有表」与「表读不出来」不该走两条不同的代码路径。
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// 统计量在 `meta` 表里的键。这些是**一次扫描的结论**而不是曲目属性，
 /// 单独建表只会得到一张永远两行的表。
@@ -246,7 +246,8 @@ impl LibraryDb {
             "SELECT id, path, title, artist, album_artist, album, year, genre, track_no, disc_no,
                     cover_key, has_cover, duration_sec,
                     container, codec, encoding, sample_rate_hz, bit_depth, bitrate_kbps, lossless,
-                    channels, channel_mask, channel_layout, spatial, probe_notes, probe_version
+                    channels, channel_mask, channel_layout, spatial, probe_notes, probe_version,
+                    file_size, mtime_ms
              FROM track
              ORDER BY path",
         )?;
@@ -283,9 +284,10 @@ impl LibraryDb {
                                     track_no, disc_no, cover_key, has_cover, duration_sec,
                                     container, codec, encoding, sample_rate_hz, bit_depth,
                                     bitrate_kbps, lossless, channels, channel_mask,
-                                    channel_layout, spatial, probe_notes, probe_version)
+                                    channel_layout, spatial, probe_notes, probe_version,
+                                    file_size, mtime_ms)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                         ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+                         ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
             )?;
             for t in &cache.tracks {
                 let f = &t.format;
@@ -316,6 +318,8 @@ impl LibraryDb {
                     to_json_opt(&f.spatial)?,
                     serde_json::to_string(&f.probe_notes)?,
                     f.probe_version,
+                    t.file_size as i64,
+                    t.mtime_ms,
                 ])?;
             }
         }
@@ -841,6 +845,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             1 => tx.execute_batch(SCHEMA_V2)?,
             2 => tx.execute_batch(SCHEMA_V3)?,
             3 => tx.execute_batch(SCHEMA_V4)?,
+            4 => tx.execute_batch(SCHEMA_V5)?,
             _ => unreachable!("缺少 v{version} 到 v{} 的升级", version + 1),
         }
         version += 1;
@@ -1042,6 +1047,17 @@ CREATE TABLE favorite_album_track (
 CREATE INDEX favorite_album_track_track_idx ON favorite_album_track(track_id);
 "#;
 
+/// v5：增量重扫的判据（文件大小与修改时间）。
+///
+/// 加列而不是重建表：这两项是纯附加信息，既不改主键也不改既有列的含义。已有记录默认
+/// 补 0，而 0 与任何真实 stat 都不相等，于是它们会在下一次扫描时各被重扫一遍——
+/// 一次性代价，之后自愈。给个假的初值去骗过判据才是危险的：那等于宣称一批从没核对过
+/// 的记录是新鲜的。
+const SCHEMA_V5: &str = r#"
+ALTER TABLE track ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE track ADD COLUMN mtime_ms INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// 行 → `RawTrack`。JSON 列的解析可能失败，所以返回值再套一层 `Result`：
 /// rusqlite 的闭包只能报它自己的错误类型，把 serde 错误硬塞进去会丢掉原因。
 fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
@@ -1075,6 +1091,8 @@ fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
         r.get::<_, u8>(20)?,
         r.get::<_, Option<u32>>(21)?,
         r.get::<_, u32>(25)?,
+        r.get::<_, i64>(26)? as u64,
+        r.get::<_, i64>(27)?,
     );
 
     Ok((|| {
@@ -1085,6 +1103,8 @@ fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
             cover_key: scalar.1,
             has_cover: scalar.2,
             duration_sec: scalar.3,
+            file_size: scalar.13,
+            mtime_ms: scalar.14,
             format: AudioFormat {
                 container: scalar.4,
                 codec: scalar.5,
@@ -1178,6 +1198,8 @@ mod tests {
             cover_key: Some("cover-1".into()),
             has_cover: true,
             duration_sec: 123.456,
+            file_size: 1_024,
+            mtime_ms: 1_700_000_000_000,
             format: AudioFormat {
                 container: "m4a".into(),
                 codec: "alac".into(),
@@ -1383,6 +1405,50 @@ mod tests {
         assert_eq!(db.load_cache().unwrap(), expected);
     }
 
+    /// 按**当年**的列写一行 track。迁移用例不能借用 `replace_cache`：那是当前实现，
+    /// 它写的是最新的列，于是每加一列就会把「旧库能不能升上来」的用例弄成编译期同谋，
+    /// 测的东西也从「迁移对不对」滑成「当前实现自洽」。
+    fn insert_v1_track(conn: &Connection, t: &RawTrack) {
+        conn.execute(
+            "INSERT INTO track (id, path, title, artist, album_artist, album, year, genre,
+                                track_no, disc_no, cover_key, has_cover, duration_sec,
+                                container, codec, encoding, sample_rate_hz, bit_depth,
+                                bitrate_kbps, lossless, channels, channel_mask,
+                                channel_layout, spatial, probe_notes, probe_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                     ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+            params![
+                t.id,
+                t.path.to_str().unwrap(),
+                t.tags.title,
+                t.tags.artist,
+                t.tags.album_artist,
+                t.tags.album,
+                t.tags.year,
+                t.tags.genre,
+                t.tags.track_no,
+                t.tags.disc_no,
+                t.cover_key,
+                t.has_cover,
+                t.duration_sec,
+                t.format.container,
+                t.format.codec,
+                serde_json::to_string(&t.format.encoding).unwrap(),
+                t.format.sample_rate_hz,
+                t.format.bit_depth,
+                t.format.bitrate_kbps,
+                t.format.lossless,
+                t.format.channels,
+                t.format.channel_mask,
+                to_json_opt(&t.format.channel_layout).unwrap(),
+                to_json_opt(&t.format.spatial).unwrap(),
+                serde_json::to_string(&t.format.probe_notes).unwrap(),
+                t.format.probe_version,
+            ],
+        )
+        .unwrap();
+    }
+
     /// 已经试跑过旧实现的开发库是 v1；修正主键后也要原地升级，不能要求手删数据库。
     #[test]
     fn v1_database_migrates_to_path_key() {
@@ -1393,13 +1459,31 @@ mod tests {
             let conn = Connection::open(&path).unwrap();
             conn.execute_batch(SCHEMA_V1).unwrap();
             conn.pragma_update(None, "user_version", 1).unwrap();
-            let mut db = LibraryDb { conn };
-            db.replace_cache(&cache).unwrap();
+            for tk in &cache.tracks {
+                insert_v1_track(&conn, tk);
+            }
+            for (i, root) in cache.roots.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO scan_root (ord, path) VALUES (?1, ?2)",
+                    params![i as i64, root.to_str().unwrap()],
+                )
+                .unwrap();
+            }
+            set_meta(&conn, META_FAILED, &cache.failed.to_string()).unwrap();
+            set_meta(&conn, META_COVER_FAILED, &cache.cover_failed.to_string()).unwrap();
         }
 
         let (mut db, report) = LibraryDb::open(&path).unwrap();
         assert_eq!(report, OpenReport::default());
-        assert_eq!(db.load_cache().unwrap(), cache);
+        // v1 的行没有 stat 判据，升上来必然是 0 —— 这正是「这条从没核对过」的正确表达，
+        // 它与任何真实 stat 都不相等，于是下次扫描会各重扫一遍后自愈。给个假初值反而
+        // 等于宣称一批没核对过的记录是新鲜的。
+        let mut expected = cache.clone();
+        for tk in &mut expected.tracks {
+            tk.file_size = 0;
+            tk.mtime_ms = 0;
+        }
+        assert_eq!(db.load_cache().unwrap(), expected);
 
         // 升级后同 ID 的另一条路径能写进去，证明约束已经换掉。
         let duplicate = cache_of(vec![
@@ -1421,18 +1505,17 @@ mod tests {
             conn.execute_batch(SCHEMA_V2).unwrap();
             conn.execute_batch(SCHEMA_V3).unwrap();
             conn.pragma_update(None, "user_version", 3).unwrap();
-            let mut db = LibraryDb { conn };
-            db.replace_cache(&cache_of(vec![
+            for tk in [
                 track("t-1", "/音乐/专辑/一.m4a"),
                 track("t-2", "/音乐/专辑/二.m4a"),
-            ]))
+            ] {
+                insert_v1_track(&conn, &tk);
+            }
+            conn.execute(
+                "INSERT INTO favorite_album_track (track_id) VALUES (?1), (?2)",
+                ["t-1", "t-2"],
+            )
             .unwrap();
-            db.conn
-                .execute(
-                    "INSERT INTO favorite_album_track (track_id) VALUES (?1), (?2)",
-                    ["t-1", "t-2"],
-                )
-                .unwrap();
         }
 
         let (mut db, report) = LibraryDb::open(&path).unwrap();
