@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::cache::{RawTags, RawTrack, ScanCache};
+use crate::collections::{Favorites, Playlist};
 use crate::model::{AudioFormat, ChannelLayout, Encoding, SpatialFormat};
 use crate::overrides::{Overrides, TrackOverride};
 
@@ -46,7 +47,7 @@ use crate::overrides::{Overrides, TrackOverride};
 /// 改表结构时 +1 并在 [`migrate`] 里补一段升级。用 `user_version` 而不是自建元数据表，
 /// 是因为它由 SQLite 自己维护、读取不需要先假设任何表存在——首次打开一个空文件时，
 /// 「还没有表」与「表读不出来」不该走两条不同的代码路径。
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 /// 统计量在 `meta` 表里的键。这些是**一次扫描的结论**而不是曲目属性，
 /// 单独建表只会得到一张永远两行的表。
@@ -216,6 +217,9 @@ impl LibraryDb {
         // 覆盖层不可重建，为它多付一次 fsync 划算——用户改元数据的频率以「次/分钟」计，
         // 而扫描那种大批量写入本来就合在一个事务里，只在提交时同步一次。
         self.conn.pragma_update(None, "synchronous", "FULL")?;
+        // SQLite 默认**不检查**外键，声明了也等于注释。歌单曲目靠它级联删除，
+        // 不开的话删掉歌单会在 `playlist_track` 里留下一堆永远不会被读到的孤儿行。
+        self.conn.pragma_update(None, "foreign_keys", true)?;
         migrate(&mut self.conn)?;
         Ok(())
     }
@@ -371,6 +375,163 @@ impl LibraryDb {
         Ok(())
     }
 
+    // ---- 收藏 ----
+
+    pub fn load_favorites(&self) -> Result<Favorites> {
+        Ok(Favorites {
+            tracks: self.column("SELECT track_id FROM favorite_track")?,
+            album_tracks: self.column("SELECT track_id FROM favorite_album_track")?,
+            artists: self.column("SELECT name FROM favorite_artist")?,
+            playlists: self.column("SELECT playlist_id FROM favorite_playlist")?,
+        })
+    }
+
+    pub fn set_favorite_track(&self, track_id: &str, on: bool) -> Result<()> {
+        toggle_row(&self.conn, "favorite_track", "track_id", track_id, on)
+    }
+
+    pub fn set_favorite_artist(&self, name: &str, on: bool) -> Result<()> {
+        toggle_row(&self.conn, "favorite_artist", "name", name, on)
+    }
+
+    pub fn set_favorite_playlist(&self, playlist_id: &str, on: bool) -> Result<()> {
+        toggle_row(
+            &self.conn,
+            "favorite_playlist",
+            "playlist_id",
+            playlist_id,
+            on,
+        )
+    }
+
+    /// 收藏 / 取消收藏一张专辑：传入它**当前**的全部曲目 ID。
+    ///
+    /// 一个事务：收藏到一半断电会让这张专辑处于「一半曲目在集合里」的状态，而判据是
+    /// 「任意命中」，表现就是取消收藏点了没反应。
+    pub fn set_favorite_album(&mut self, track_ids: &[String], on: bool) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for id in track_ids {
+            toggle_row(&tx, "favorite_album_track", "track_id", id, on)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    // ---- 歌单 ----
+
+    /// 读回全部歌单，按用户拖出来的顺序。
+    pub fn load_playlists(&self) -> Result<Vec<Playlist>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title, description, updated_at FROM playlist ORDER BY ord")?;
+        let mut playlists: Vec<Playlist> = stmt
+            .query_map([], |r| {
+                Ok(Playlist {
+                    id: r.get(0)?,
+                    title: r.get(1)?,
+                    description: r.get(2)?,
+                    track_ids: Vec::new(),
+                    updated_at_ms: r.get(3)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+
+        // 一次取全部曲目再分发，不为每个歌单各查一次：歌单数量不大，但「每个实体一次
+        // 查询」这种写法一旦成型，后面加个字段就会顺手再来一轮。
+        let mut stmt = self.conn.prepare(
+            "SELECT playlist_id, track_id FROM playlist_track ORDER BY playlist_id, ord",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (pid, tid) = row?;
+            by_id.entry(pid).or_default().push(tid);
+        }
+        for p in &mut playlists {
+            if let Some(ids) = by_id.remove(&p.id) {
+                p.track_ids = ids;
+            }
+        }
+        Ok(playlists)
+    }
+
+    /// 新建或整体更新一个歌单（标题、简介、曲目顺序）。
+    ///
+    /// 这里**整份重写该歌单的曲目**，与覆盖层「只写点到名的那几行」不冲突：歌单的
+    /// 编辑单位本来就是整条曲目列表（拖拽重排一次就全变了），而覆盖层的编辑单位是
+    /// 单首歌的单个字段。范围对齐编辑单位，不是越小越好。
+    pub fn save_playlist(&mut self, playlist: &Playlist) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        // 新建时排到末尾；已存在则保持原有顺序不动——保存一次内容不该让它在列表里跳位。
+        let next_ord: i64 =
+            tx.query_row("SELECT COALESCE(MAX(ord) + 1, 0) FROM playlist", [], |r| {
+                r.get(0)
+            })?;
+        tx.execute(
+            "INSERT INTO playlist (id, title, description, updated_at, ord)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                 title = excluded.title,
+                 description = excluded.description,
+                 updated_at = excluded.updated_at",
+            params![
+                playlist.id,
+                playlist.title,
+                playlist.description,
+                playlist.updated_at_ms,
+                next_ord
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM playlist_track WHERE playlist_id = ?1",
+            [&playlist.id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO playlist_track (playlist_id, ord, track_id) VALUES (?1, ?2, ?3)",
+            )?;
+            for (i, track_id) in playlist.track_ids.iter().enumerate() {
+                stmt.execute(params![playlist.id, i as i64, track_id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 删除歌单。曲目行由外键级联带走，收藏标记要自己清——它在另一张表上，
+    /// 留着的话下次新建歌单万一撞上同一个 ID（用户手改数据库、导入备份），
+    /// 会莫名其妙地一出生就是已收藏。
+    pub fn delete_playlist(&mut self, playlist_id: &str) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM playlist WHERE id = ?1", [playlist_id])?;
+        tx.execute(
+            "DELETE FROM favorite_playlist WHERE playlist_id = ?1",
+            [playlist_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 按给定顺序重排歌单列表。没点到名的歌单排在后面，保持原相对顺序。
+    pub fn reorder_playlists(&mut self, ids: &[String]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("UPDATE playlist SET ord = ?1 WHERE id = ?2")?;
+            for (i, id) in ids.iter().enumerate() {
+                stmt.execute(params![i as i64, id])?;
+            }
+        }
+        // 漏掉的那些统一挪到后面，且**保持它们之间的原有次序**：直接给同一个大数字
+        // 会让它们的排列变成不确定的，用户每次打开看到的顺序都可能不同。
+        let base = ids.len() as i64;
+        tx.execute(
+            "UPDATE playlist SET ord = ?1 + ord WHERE id NOT IN (SELECT value FROM json_each(?2))",
+            params![base, serde_json::to_string(ids)?],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     // ---- 从旧 JSON 迁移 ----
 
     /// 把旧的两份 JSON 导入数据库，只做一次。
@@ -415,6 +576,13 @@ impl LibraryDb {
 
     // ---- 内部 ----
 
+    /// 取一列文本。收藏那四张表都是「单列的集合」，各写一遍 query_map 只是抄四份。
+    fn column(&self, sql: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     fn meta(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .conn
@@ -449,6 +617,18 @@ fn put_override_on(conn: &Connection, track_id: &str, ov: &TrackOverride) -> Res
             ov.track_no
         ],
     )?;
+    Ok(())
+}
+
+/// 收藏这四张表都是「在 / 不在」的集合，插入用 `OR IGNORE`：重复收藏同一项不该报错，
+/// 那只是用户点快了或两处界面同时点了。
+fn toggle_row(conn: &Connection, table: &str, column: &str, value: &str, on: bool) -> Result<()> {
+    let sql = if on {
+        format!("INSERT OR IGNORE INTO {table} ({column}) VALUES (?1)")
+    } else {
+        format!("DELETE FROM {table} WHERE {column} = ?1")
+    };
+    conn.execute(&sql, [value])?;
     Ok(())
 }
 
@@ -502,6 +682,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         match version {
             0 => tx.execute_batch(SCHEMA_V1)?,
             1 => tx.execute_batch(SCHEMA_V2)?,
+            2 => tx.execute_batch(SCHEMA_V3)?,
             _ => unreachable!("缺少 v{version} 到 v{} 的升级", version + 1),
         }
         version += 1;
@@ -630,6 +811,52 @@ FROM track_v1;
 DROP TABLE track_v1;
 CREATE INDEX track_id_idx ON track(id);
 CREATE INDEX track_probe_version_idx ON track(probe_version);
+"#;
+
+/// v3：收藏与歌单。
+///
+/// **键全部落到曲目 ID 上**（理由见 `crate::collections` 模块头）：专辑收藏存的是
+/// 「收藏时该专辑的曲目 ID」而不是专辑 ID——后者由含目录的归组键哈希而来，改标签、
+/// 挪文件、重扫都会变，拿它当键等于「整理一次音乐文件夹就掉收藏」。歌手是唯一的例外，
+/// 因为系统里根本没有比名字更稳的歌手标识。
+///
+/// **`playlist_track` 到 `playlist` 的外键是对的**，与 `track_override` 那条刻意不加
+/// 外键**不矛盾**：覆盖记录要比曲目行活得更久（文件挪走再回来还能接上），而歌单曲目
+/// 脱离歌单没有任何意义，删歌单就该连它们一起删。区别在于「这份数据能不能独立存在」。
+///
+/// 主键是 `(playlist_id, ord)` 而不是 `(playlist_id, track_id)`：**同一首歌可以在一个
+/// 歌单里出现两次**，那是用户的自由，不是需要去重的脏数据。
+const SCHEMA_V3: &str = r#"
+CREATE TABLE favorite_track (
+  track_id TEXT PRIMARY KEY
+);
+
+CREATE TABLE favorite_album_track (
+  track_id TEXT PRIMARY KEY
+);
+
+CREATE TABLE favorite_artist (
+  name TEXT PRIMARY KEY
+);
+
+CREATE TABLE favorite_playlist (
+  playlist_id TEXT PRIMARY KEY
+);
+
+CREATE TABLE playlist (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  updated_at  INTEGER NOT NULL,
+  ord         INTEGER NOT NULL
+);
+
+CREATE TABLE playlist_track (
+  playlist_id TEXT NOT NULL REFERENCES playlist(id) ON DELETE CASCADE,
+  ord         INTEGER NOT NULL,
+  track_id    TEXT NOT NULL,
+  PRIMARY KEY (playlist_id, ord)
+);
 "#;
 
 /// 行 → `RawTrack`。JSON 列的解析可能失败，所以返回值再套一层 `Result`：
@@ -800,6 +1027,124 @@ mod tests {
             title: Some(title.into()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn favorites_survive_a_reopen() {
+        let dir = scratch("fav-reopen");
+        let path = dir.join("library.db");
+        {
+            let (mut db, _) = LibraryDb::open(&path).unwrap();
+            db.set_favorite_track("t-1", true).unwrap();
+            db.set_favorite_track("t-2", true).unwrap();
+            db.set_favorite_track("t-2", false).unwrap();
+            db.set_favorite_artist("白鲸电台", true).unwrap();
+            db.set_favorite_playlist("pl-1", true).unwrap();
+            db.set_favorite_album(&["t-9".into(), "t-8".into()], true)
+                .unwrap();
+        }
+        let (db, _) = LibraryDb::open(&path).unwrap();
+        let fav = db.load_favorites().unwrap();
+        assert_eq!(fav.tracks, vec!["t-1"]);
+        assert_eq!(fav.artists, vec!["白鲸电台"]);
+        assert_eq!(fav.playlists, vec!["pl-1"]);
+        assert!(fav.has_album(&["t-8".into()]));
+    }
+
+    /// 重复收藏同一项不该报错——用户点快了、或两处界面同时点了。
+    #[test]
+    fn favoriting_twice_is_not_an_error() {
+        let db = LibraryDb::open_in_memory().unwrap();
+        db.set_favorite_track("t-1", true).unwrap();
+        db.set_favorite_track("t-1", true).unwrap();
+        assert_eq!(db.load_favorites().unwrap().tracks, vec!["t-1"]);
+    }
+
+    /// 专辑收藏的立身之本：改专辑名 / 挪目录后专辑 ID 会变，而收藏必须还在。
+    #[test]
+    fn an_album_favorite_survives_a_rename_and_a_move() {
+        let mut db = LibraryDb::open_in_memory().unwrap();
+        let ids: Vec<String> = vec!["t-1".into(), "t-2".into()];
+        db.set_favorite_album(&ids, true).unwrap();
+        let fav = db.load_favorites().unwrap();
+
+        // 改了名、换了目录，专辑 ID 全新——但曲目 ID 是内容哈希，一个没变。
+        assert!(fav.has_album(&ids), "改名换目录后仍应认得出这张专辑");
+        // 补进一首漏扫的曲目也不该让收藏消失（判据是「任意命中」而不是「全部」）。
+        assert!(fav.has_album(&["t-1".into(), "t-新".into()]));
+        // 完全无关的专辑不受影响。
+        assert!(!fav.has_album(&["t-别的".into()]));
+
+        db.set_favorite_album(&ids, false).unwrap();
+        assert!(!db.load_favorites().unwrap().has_album(&ids));
+    }
+
+    #[test]
+    fn a_playlist_round_trips_with_its_order_and_repeats() {
+        let dir = scratch("playlist");
+        let path = dir.join("library.db");
+        let mut playlist = Playlist::new("pl-1", "深夜驾驶", 1_700_000_000_000);
+        playlist.description = "跨专辑合集".into();
+        // 同一首歌出现两次是用户的自由，不是要去重的脏数据。
+        playlist.track_ids = vec!["t-3".into(), "t-1".into(), "t-3".into()];
+        {
+            let (mut db, _) = LibraryDb::open(&path).unwrap();
+            db.save_playlist(&playlist).unwrap();
+        }
+        let (db, _) = LibraryDb::open(&path).unwrap();
+        assert_eq!(db.load_playlists().unwrap(), vec![playlist]);
+    }
+
+    #[test]
+    fn deleting_a_playlist_takes_its_tracks_and_its_favorite_mark() {
+        let mut db = LibraryDb::open_in_memory().unwrap();
+        let mut p = Playlist::new("pl-1", "临时", 1);
+        p.track_ids = vec!["t-1".into()];
+        db.save_playlist(&p).unwrap();
+        db.set_favorite_playlist("pl-1", true).unwrap();
+
+        db.delete_playlist("pl-1").unwrap();
+        assert!(db.load_playlists().unwrap().is_empty());
+        assert!(
+            db.load_favorites().unwrap().playlists.is_empty(),
+            "收藏标记在另一张表上，不会被外键带走，要自己清"
+        );
+        let orphans: i64 = db
+            .conn
+            .query_row("SELECT count(*) FROM playlist_track", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(orphans, 0, "曲目行应由外键级联删除");
+    }
+
+    /// 保存内容不该让歌单在列表里跳位，重排也不该把没点到名的那些打乱。
+    #[test]
+    fn reordering_keeps_unlisted_playlists_in_their_relative_order() {
+        let mut db = LibraryDb::open_in_memory().unwrap();
+        for (i, id) in ["a", "b", "c", "d"].iter().enumerate() {
+            db.save_playlist(&Playlist::new(*id, *id, i as i64))
+                .unwrap();
+        }
+        let titles = |db: &LibraryDb| -> Vec<String> {
+            db.load_playlists()
+                .unwrap()
+                .into_iter()
+                .map(|p| p.id)
+                .collect()
+        };
+        assert_eq!(titles(&db), vec!["a", "b", "c", "d"]);
+
+        // 再存一次 b 的内容：它应当还在原位，不该被挪到末尾。
+        let mut b = Playlist::new("b", "b 改名", 99);
+        b.track_ids = vec!["t-1".into()];
+        db.save_playlist(&b).unwrap();
+        assert_eq!(titles(&db), vec!["a", "b", "c", "d"]);
+
+        db.reorder_playlists(&["d".into(), "a".into()]).unwrap();
+        assert_eq!(
+            titles(&db),
+            vec!["d", "a", "b", "c"],
+            "没点到名的 b、c 排在后面且保持原有先后"
+        );
     }
 
     #[test]

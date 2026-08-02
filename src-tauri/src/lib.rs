@@ -17,6 +17,7 @@ use shannon_core::overrides::{Overrides, TrackMetadataPatch, TrackOverride};
 use shannon_core::scan;
 use tauri::{Emitter, Manager, State};
 
+mod collections;
 mod frontend_state;
 mod loudness;
 mod player;
@@ -54,7 +55,7 @@ pub struct LibraryState {
     overrides: Mutex<Overrides>,
     /// 连接长期持有：WAL 与同步级别都是连接级状态，每条命令现开一次会反复配置，
     /// 还会在并发命令之间重复抢文件锁。
-    db: Mutex<Option<LibraryDb>>,
+    pub(crate) db: Mutex<Option<LibraryDb>>,
 }
 
 /// 应用数据目录下的文件路径。
@@ -384,6 +385,15 @@ pub fn run() {
             set_album_metadata,
             reset_track_metadata,
             reset_album_metadata,
+            collections::collections_load,
+            collections::favorite_track,
+            collections::favorite_album,
+            collections::favorite_artist,
+            collections::favorite_playlist,
+            collections::playlist_create,
+            collections::playlist_save,
+            collections::playlist_delete,
+            collections::playlist_reorder,
             player::player_load,
             player::player_set_next,
             player::player_list_devices,

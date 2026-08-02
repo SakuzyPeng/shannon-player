@@ -5,6 +5,7 @@
 //! 进度上报之类的副作用通过回调传入，由外壳决定怎么落地（Tauri event / 日志）。
 
 pub mod cache;
+pub mod collections;
 pub mod cover;
 pub mod db;
 pub mod id;
