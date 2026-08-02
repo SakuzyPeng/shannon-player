@@ -4,15 +4,21 @@ version = "0.1.0"
 description = "香农播放器核心逻辑：曲库扫描、音频规格探测、稳定 ID。不依赖 Tauri / GUI。"
 license = "AGPL-3.0-only"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.85"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ts-rs = { version = "10.1.0", features = ["no-serde-warnings"] }
 lofty = "0.22.2"
+# lofty 的 0.7.x 范围会选到 ogg_pager 0.7.2（MSRV 1.89）；0.7.1 仍是 Rust 1.85。
+# 直接锁住是为了让本 crate 声明的 rust-version 真能通过，而不是只写在清单里。
+ogg_pager = "=0.7.1"
 walkdir = "2.5.0"
 rayon = "1.10.0"
 blake3 = "1.8.5"
 symphonia = { version = "0.5.5", features = ["all-codecs", "all-formats"] }
-image = { version = "0.25.6", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif", "tiff"] }
+image = { version = "=0.25.6", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif", "tiff"] }
+# 0.40 的 bundled 构建脚本使用 Rust 1.85 尚未提供的 cfg_select!；锁在最后一个
+# 经 1.85 实编译通过的版本，避免清单宣称的 MSRV 与实际不符。
+rusqlite = { version = "=0.39.0", features = ["bundled"] }

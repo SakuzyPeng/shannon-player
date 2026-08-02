@@ -69,25 +69,25 @@ impl ScanCache {
         snap
     }
 
-    /// 读缓存。文件不存在返回空（首次运行），内容损坏也返回空——
-    /// 缓存是可重建的派生数据，丢了大不了重扫一次，不必像覆盖层那样留残骸。
+    /// 读旧的 JSON 缓存。**只剩迁移一个用途**——落盘现在走
+    /// [`crate::db::LibraryDb`]，这里保留是为了把 0.1 时期的 `library-cache.json`
+    /// 搬进数据库（见 [`crate::db::LibraryDb::import_legacy_json`]）。
+    ///
+    /// 文件不存在返回空（首次运行），内容损坏也返回空——缓存是可重建的派生数据，
+    /// 丢了大不了重扫一次，不必像覆盖层那样留残骸。
     pub fn load(path: &Path) -> std::io::Result<Self> {
-        let raw = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(e),
-        };
-        Ok(serde_json::from_str(&raw).unwrap_or_default())
+        Ok(Self::load_legacy(path)?.unwrap_or_default())
     }
 
-    /// 原子写入，避免写到一半断电留下半个 JSON。
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_string(self)?)?;
-        std::fs::rename(&tmp, path)
+    /// 迁移时还要区分「没有旧文件 / 内容损坏」与「旧缓存合法但恰好没有曲目」：
+    /// 后者仍可能带着扫描根与失败统计，不能因为 `tracks` 为空就整份丢掉。
+    pub(crate) fn load_legacy(path: &Path) -> std::io::Result<Option<Self>> {
+        let raw = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        Ok(serde_json::from_str(&raw).ok())
     }
 
     pub fn is_empty(&self) -> bool {

@@ -167,10 +167,15 @@ impl Overrides {
         self.tracks.is_empty()
     }
 
-    /// 读取覆盖文件。文件不存在返回空表（首次运行的正常情况，不是错误）。
+    /// 读取旧的 JSON 覆盖文件。**只剩迁移一个用途**——落盘现在走
+    /// [`crate::db::LibraryDb`]，这里保留是为了把 0.1 时期的
+    /// `metadata-overrides.json` 搬进数据库。
+    ///
+    /// 文件不存在返回空表（首次运行的正常情况，不是错误）。
     ///
     /// 内容损坏时把原文件改名保留为 `*.corrupt` 再返回空表：直接照常写回会
-    /// 抹掉用户的全部修改，留个残骸至少还有人工挽救的余地。
+    /// 抹掉用户的全部修改，留个残骸至少还有人工挽救的余地。这条规矩在数据库时代
+    /// 由 [`crate::db::LibraryDb::open`] 接着守。
     pub fn load(path: &Path) -> std::io::Result<Self> {
         let raw = match std::fs::read_to_string(path) {
             Ok(s) => s,
@@ -184,16 +189,6 @@ impl Overrides {
                 Ok(Self::default())
             }
         }
-    }
-
-    /// 原子写入：先写同目录临时文件再 rename，避免写到一半断电留下半个 JSON。
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
-        std::fs::rename(&tmp, path)
     }
 }
 
@@ -346,8 +341,9 @@ mod tests {
         assert_eq!(got.track_no, Some(7));
     }
 
+    /// 迁移路径要读得回 0.1 时期写下的文件，所以这里按当年的写法造一份再读。
     #[test]
-    fn round_trips_through_disk() {
+    fn legacy_json_is_still_readable() {
         let p = tmpfile("shannon_overrides_roundtrip.json");
         let mut o = Overrides::default();
         o.set(
@@ -357,7 +353,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        o.save(&p).unwrap();
+        std::fs::write(&p, serde_json::to_string_pretty(&o).unwrap()).unwrap();
         let back = Overrides::load(&p).unwrap();
         assert_eq!(back, o);
         let _ = std::fs::remove_file(p);

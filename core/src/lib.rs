@@ -6,6 +6,7 @@
 
 pub mod cache;
 pub mod cover;
+pub mod db;
 pub mod id;
 pub mod model;
 pub mod overrides;

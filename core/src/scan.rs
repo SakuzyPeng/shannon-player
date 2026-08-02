@@ -1755,16 +1755,15 @@ mod tests {
             failed: 3,
             cover_failed: 0,
         };
-        let p = std::env::temp_dir().join("shannon_cache_roundtrip.json");
-        cache.save(&p).unwrap();
-        let back = ScanCache::load(&p).unwrap();
+        let mut db = crate::db::LibraryDb::open_in_memory().unwrap();
+        db.replace_cache(&cache).unwrap();
+        let back = db.load_cache().unwrap();
         assert_eq!(back, cache);
 
         let lib = back.library(&Overrides::default());
         assert_eq!(lib.albums.len(), 1);
         assert_eq!(lib.tracks.len(), 2);
         assert_eq!(lib.failed, 3, "解析失败数要跟着缓存一起还原");
-        let _ = std::fs::remove_file(p);
     }
 
     /// 改元数据后重新聚合走的是缓存，不必重扫文件。
