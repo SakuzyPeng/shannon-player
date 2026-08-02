@@ -25,9 +25,16 @@ use symphonia::core::probe::Hint;
 use crate::model::{AudioFormat, ChannelLayout, Encoding, SpatialFormat, PROBE_VERSION};
 
 /// 支持扫描的扩展名。**只用于决定「要不要尝试解析」，不代表能播放**。
+///
+/// 这条区分正是「识别与播放能力解耦」那条戒律：不在列表里的文件连试都不会试，
+/// 用户看到的是「文件明明在，曲库里找不到」；而在列表里但放不了，用户至少能看见它、
+/// 也能得到一句明确的能力错误。所以宁可收得宽。
+///
+/// `ec3` / `eac3` 是 E-AC-3（含 Atmos 的 JOC 承载体）的裸流扩展名。当前引擎放不了它，
+/// **这不是把它排除在外的理由**——排除等于让用户以为自己没有这些文件。
 pub const AUDIO_EXTS: &[&str] = &[
     "flac", "mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "wav", "wave", "aiff", "aif", "caf",
-    "alac", "wma", "wv", "ape", "dsf", "dff", "mka",
+    "alac", "wma", "wv", "ape", "dsf", "dff", "mka", "ec3", "eac3",
 ];
 
 pub fn is_audio_file(path: &Path) -> bool {
@@ -161,8 +168,11 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
         codec = codec_name(params.codec);
     }
     if codec.is_empty() {
-        codec = container.clone();
-        notes.push("codec:fallback-to-container".into());
+        // **留空，不拿容器名冒充编码。** 「m4a」是容器，里面可能是 ALAC、AAC、也可能是
+        // APAC；把容器名填进 codec，界面上就会言之凿凿地显示一个我们其实没认出来的编码，
+        // 而这与「判不出一律留空」和「未经证实的状态不得展示」都相悖。线索记进 notes
+        // 留待回溯：日后补上 APAC 之类的识别时，正是靠它捞出需要重扫的条目。
+        notes.push("codec:unrecognized".into());
     }
     if encoding == Encoding::Unknown {
         encoding = Encoding::Pcm;

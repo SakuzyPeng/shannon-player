@@ -997,8 +997,12 @@ mod tests {
         fs::write(d.join("b.mp3"), b"x").unwrap();
         fs::write(d.join("cover.jpg"), b"x").unwrap();
         fs::write(d.join("notes.txt"), b"x").unwrap();
+        // 当前引擎放不了 E-AC-3，但**识别与播放能力解耦**：不收它，用户看到的是
+        // 「文件明明在，曲库里找不到」；收了，他至少能看见并得到明确的能力错误。
+        fs::write(d.join("c.ec3"), b"x").unwrap();
+        fs::write(d.join("d.eac3"), b"x").unwrap();
         let files = collect_files(std::slice::from_ref(&d));
-        assert_eq!(files.len(), 2);
+        assert_eq!(files.len(), 4);
         assert!(files.iter().all(|p| is_scannable(p)));
         let _ = fs::remove_dir_all(d);
     }

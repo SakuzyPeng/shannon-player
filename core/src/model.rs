@@ -102,7 +102,11 @@ pub struct AudioFormat {
 }
 
 /// 当前探测器版本。**增强探测逻辑时必须 +1**，否则无法识别哪些条目需要重扫。
-pub const PROBE_VERSION: u32 = 2;
+///
+/// v3：`codec` 认不出时不再回落成容器名，改为留空并记 `codec:unrecognized`。
+/// 版本必须跟着走——v2 扫出来的条目里，凡是 codec 等于容器名的都分不清「真是这个编码」
+/// 还是「当年没认出来」，只有靠版本号才能把它们捞回来重扫。
+pub const PROBE_VERSION: u32 = 3;
 
 /// 封面：占位渐变（首字母）或真实图片。与前端 `Cover` 对齐。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
