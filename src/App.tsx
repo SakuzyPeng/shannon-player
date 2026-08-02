@@ -10,6 +10,7 @@ import { useLoudnessQueue } from "@/hooks/useLoudnessQueue";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
 import { usePersistSession } from "@/hooks/usePersistSession";
 import { usePersistSettings } from "@/hooks/usePersistSettings";
+import { useRestoreCollections } from "@/hooks/useRestoreCollections";
 import { useSyncDevice } from "@/hooks/useSyncDevice";
 import { useSyncNext } from "@/hooks/useSyncNext";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
@@ -150,6 +151,7 @@ export default function App() {
   useSyncNext();
   useSyncDevice();
   useRestoreLibrary();
+  useRestoreCollections();
   useGlobalHotkeys();
 
   const openAlbumId = useUiStore((s) => s.openAlbumId);

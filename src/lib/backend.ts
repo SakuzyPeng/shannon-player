@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { LibrarySnapshot, ScanProgress } from "@/types/generated/library";
+import type { Favorites, Playlist } from "@/types/generated/collections";
 import type { TrackMetadataPatch } from "@/types/generated/overrides";
 import type { AudioDeviceInfo, PlayerEvent } from "@/types/generated/player";
 
@@ -524,4 +525,43 @@ export interface LoudnessQueueItem {
 export async function setLoudnessQueue(items: LoudnessQueueItem[]): Promise<number> {
   if (!isTauri()) return 0;
   return invoke<number>("loudness_set_queue", { items });
+}
+
+/* ── 收藏与歌单 ────────────────────────────────────────────────────────── */
+
+/**
+ * 读回收藏与歌单。
+ *
+ * 浏览器预览没有后端，返回 `null` 让 store 保留种子演示数据——与曲库同一套路：
+ * 界面不该因为在浏览器里跑就变成空的，那样 UI 开发就没法继续了。
+ */
+export async function loadCollections(): Promise<[Favorites, Playlist[]] | null> {
+  if (!isTauri()) return null;
+  return invoke<[Favorites, Playlist[]]>("collections_load");
+}
+
+export async function favoriteTrack(trackId: string, on: boolean): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("favorite_track", { trackId, on });
+}
+
+/**
+ * 收藏 / 取消收藏一张专辑，传的是它**当前**的全部曲目 ID。
+ *
+ * 不传专辑 ID：那个 ID 由含目录的归组键哈希而来，改标签或挪文件就变（见
+ * `core/src/id.rs`），拿它当持久化的键，用户整理一次音乐文件夹收藏就没了。
+ */
+export async function favoriteAlbum(trackIds: string[], on: boolean): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("favorite_album", { trackIds, on });
+}
+
+export async function favoriteArtist(name: string, on: boolean): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("favorite_artist", { name, on });
+}
+
+export async function favoritePlaylist(playlistId: string, on: boolean): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("favorite_playlist", { playlistId, on });
 }
