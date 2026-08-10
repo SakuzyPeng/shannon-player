@@ -4,9 +4,15 @@ import type { Track } from "@/types/player";
 /** 「添加到歌单」菜单项的 arg 哨兵：新建歌单并加入。 */
 export const NEW_PLAYLIST = "__new__";
 
-/** 统一处理菜单回调的 arg：歌单 ID → 加入；NEW_PLAYLIST → 以默认名新建并加入。 */
+/**
+ * 统一处理菜单回调的 arg：歌单 ID → 加入；NEW_PLAYLIST → 以默认名新建并加入。
+ *
+ * 新建那条要等后端发号（见 `createPlaylistWithTracks`），但调用点是个菜单项、没有可等的
+ * 地方，所以在这里 fire-and-forget。失败已经在 store 里记过日志，也不会在界面上留下
+ * 一个库里不存在的歌单。
+ */
 export function addTracksToPlaylistArg(arg: string, tracks: Track[], newPlaylistName: string): void {
   const player = usePlayerStore.getState();
-  if (arg === NEW_PLAYLIST) player.createPlaylistWithTracks(newPlaylistName, tracks);
+  if (arg === NEW_PLAYLIST) void player.createPlaylistWithTracks(newPlaylistName, tracks);
   else player.addToPlaylist(arg, tracks);
 }

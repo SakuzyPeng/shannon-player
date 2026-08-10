@@ -7,6 +7,7 @@ import { Icon } from "@/components/common/Icon";
 import { MetaLine } from "@/components/common/MetaLine";
 import { useElasticScroll } from "@/hooks/useElasticScroll";
 import { collageOf } from "@/data/playlists";
+import { updatedLabelOf } from "@/lib/playlists";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore, type PlaylistSort } from "@/store/ui";
 import { useT } from "@/i18n";
@@ -63,7 +64,7 @@ function PlaylistCard({
   onDragEnd: () => void;
   cardRef: (el: HTMLDivElement | null) => void;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const openPlaylist = useUiStore((s) => s.openPlaylist);
   const collected = usePlayerStore((s) => !!s.favoritePlaylists[playlist.id]);
   const toggleFavoritePlaylist = usePlayerStore((s) => s.toggleFavoritePlaylist);
@@ -128,7 +129,7 @@ function PlaylistCard({
           text={t("playlist.meta", {
             n: playlist.tracks.length,
             m: totalMin,
-            updated: playlist.updatedLabel || t("playlist.updatedNow"),
+            updated: updatedLabelOf(playlist.updatedAtMs, t, locale),
           })}
           className="mt-0.5 block truncate text-[12.5px] text-tx2"
         />
@@ -212,8 +213,11 @@ export function PlaylistsScreen() {
     }
     // 「自定义顺序」直接用 store 里的数组顺序，不再排序。
     if (sort === "custom") return list;
-    // 「最近更新」：新建 / 刚改动的歌单 updatedLabel 为空，排在最前。
-    return list.sort((a, b) => Number(!!a.updatedLabel) - Number(!!b.updatedLabel));
+    // 「最近更新」：时间戳倒序，同一毫秒（导入的旧数据可能整批相同）再按标题定序，
+    // 免得每次渲染的次序都不一样。
+    return list.sort(
+      (a, b) => b.updatedAtMs - a.updatedAtMs || a.title.localeCompare(b.title, "zh"),
+    );
   }, [playlists, sort]);
   const entries = useMemo(
     () => (query ? sorted.filter((p) => p.title.toLowerCase().includes(query)) : sorted),

@@ -80,8 +80,22 @@ export interface Playlist {
   title: string;
   /** 简介（内容，不进 i18n）。 */
   description: string;
-  /** 更新时间标签（如「上周更新」；后期由后端提供真实时间戳）。 */
-  updatedLabel: string;
+  /**
+   * 最后修改时间（Unix 毫秒），由后端盖章。
+   *
+   * 存时间戳而不是「上周更新」那样的现成标签：那句话属于显示层，且要随界面语言变。
+   * 换算成文案见 `@/lib/playlists` 的 `updatedLabelOf`。
+   */
+  updatedAtMs: number;
+  /**
+   * 落盘的曲目 ID，**含当前曲库里找不到的那些**。
+   *
+   * 文件挪到没挂载的外置盘上、或重扫时暂时消失，都会让它查不回曲目本体，此时
+   * `tracks` 只是它的一个子集。写回一律以这里为准——拿子集覆盖等于用户改一次歌单名
+   * 就悄悄删掉几首歌，而他什么都没删。曲目 ID 是内容哈希，文件回来自然接上。
+   */
+  trackIds: Id[];
+  /** 按当前曲库水合出的曲目本体（`trackIds` 的子集，顺序一致）。 */
   tracks: Track[];
 }
 

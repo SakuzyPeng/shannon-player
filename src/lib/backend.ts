@@ -565,3 +565,35 @@ export async function favoritePlaylist(playlistId: string, on: boolean): Promise
   if (!isTauri()) return;
   return invoke<void>("favorite_playlist", { playlistId, on });
 }
+
+/**
+ * 新建歌单，返回后端发的 ID 与时间戳；浏览器预览返回 `null`（调用方本地发号）。
+ *
+ * ID 由后端生成：它要进数据库当主键、也要被收藏表引用，由拥有存储的那一侧发号
+ * 才不会出现「前端以为叫这个、库里叫那个」。代价是新建这一步没法乐观更新——
+ * 用户得等一次 IPC。这与红心不同：收藏是连点几十次的动作，新建歌单是一次。
+ */
+export async function playlistCreate(
+  title: string,
+  trackIds: string[],
+): Promise<Playlist | null> {
+  if (!isTauri()) return null;
+  return invoke<Playlist>("playlist_create", { title, trackIds });
+}
+
+/** 整体保存一个歌单（改名、改简介、重排或增删曲目都走这条）。 */
+export async function playlistSave(playlist: Playlist): Promise<Playlist | null> {
+  if (!isTauri()) return null;
+  return invoke<Playlist>("playlist_save", { playlist });
+}
+
+export async function playlistDelete(playlistId: string): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("playlist_delete", { playlistId });
+}
+
+/** 歌单列表自身的顺序（用户在歌单页拖出来的「自定义顺序」）。 */
+export async function playlistReorder(ids: string[]): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("playlist_reorder", { ids });
+}

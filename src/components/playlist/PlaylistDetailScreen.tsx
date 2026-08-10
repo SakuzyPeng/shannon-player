@@ -19,6 +19,7 @@ import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { NEW_PLAYLIST, addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { updatedLabelOf } from "@/lib/playlists";
 import { shuffled } from "@/lib/shuffle";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
@@ -237,7 +238,7 @@ function PlaylistRow({
 }
 
 export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const reduceMotion = useReducedMotion();
   const setNav = useUiStore((s) => s.setNav);
   const closePlaylist = useUiStore((s) => s.closePlaylist);
@@ -326,7 +327,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const meta = t("playlist.meta", {
     n: allTracks.length,
     m: Math.round(totalSec / 60),
-    updated: playlist.updatedLabel || t("playlist.updatedNow"),
+    updated: updatedLabelOf(playlist.updatedAtMs, t, locale),
   });
 
   return (

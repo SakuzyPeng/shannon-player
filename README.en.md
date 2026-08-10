@@ -29,6 +29,7 @@ quiet, lasting everyday feel.
 - **Gapless playback** — no silence between tracks, so an album meant to be heard whole stays whole
 - **Loudness normalization** — evens out volume across tracks at playback time, leaving the files untouched
 - **Output device** — pick the sound card or headphones the music goes to, right in the app, without touching system settings
+- **Favorites and playlists** — what you collect stays collected; reorganizing folders, retagging, or rescanning won't lose it
 - **Library browsing** — switch freely between an album grid and a detail list
 - **Floating play bar** — playback controls, progress, volume, shuffle, and repeat at a glance
 - **Light / Dark / Follow system** — one-tap cycling, with a dark palette tuned as its own set
@@ -56,6 +57,7 @@ No official release yet. To try it early, build from source — see the
 - [x] Local library scanning (stable track IDs, album and compilation grouping, cover art, metadata editing)
 - [x] Real audio playback (ALAC / FLAC / AAC / MP3 / WAV / AIFF / Vorbis and more, stereo path)
 - [x] Gapless playback, loudness normalization, output device selection
+- [x] Favorites and playlists that survive a restart
 - [ ] More decoders and link-based importing
 - [ ] Exclusive output mode
 - [ ] Multichannel and spatial audio (downmix and spatialization left to the OS)

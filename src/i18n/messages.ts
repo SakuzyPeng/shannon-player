@@ -198,6 +198,8 @@ export interface Messages {
   "menu.addToPlaylist": string;
   "menu.newPlaylist": string;
   "playlist.updatedNow": string;
+  "playlist.updatedOn": string; // {d}
+  "playlist.updatedUnknown": string;
   "playlist.newDefaultName": string;
   "menu.favorite": string;
   "menu.editTags": string;
@@ -470,6 +472,8 @@ const zhHans: Messages = {
   "menu.addToPlaylist": "添加到歌单…",
   "menu.newPlaylist": "新建歌单并加入",
   "playlist.updatedNow": "今天更新",
+  "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedUnknown": "更新时间未知",
   "playlist.newDefaultName": "新歌单",
   "menu.favorite": "收藏",
   "menu.editTags": "编辑信息…",
@@ -737,6 +741,8 @@ const zhHant: Messages = {
   "menu.addToPlaylist": "加入播放清單…",
   "menu.newPlaylist": "新增歌單並加入",
   "playlist.updatedNow": "今天更新",
+  "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedUnknown": "更新時間未知",
   "playlist.newDefaultName": "新歌單",
   "menu.favorite": "收藏",
   "menu.editTags": "編輯資訊…",
@@ -1004,6 +1010,8 @@ const en: Messages = {
   "menu.addToPlaylist": "Add to Playlist…",
   "menu.newPlaylist": "New playlist with this",
   "playlist.updatedNow": "Updated today",
+  "playlist.updatedOn": "Updated {d}",
+  "playlist.updatedUnknown": "Update time unknown",
   "playlist.newDefaultName": "New Playlist",
   "menu.favorite": "Favorite",
   "menu.editTags": "Edit Info…",
@@ -1271,6 +1279,8 @@ const ja: Messages = {
   "menu.addToPlaylist": "プレイリストに追加…",
   "menu.newPlaylist": "新規プレイリストに追加",
   "playlist.updatedNow": "今日更新",
+  "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedUnknown": "更新日時不明",
   "playlist.newDefaultName": "新しいプレイリスト",
   "menu.favorite": "お気に入り",
   "menu.editTags": "情報を編集…",

@@ -27,6 +27,13 @@ import {
 // 专辑收藏落盘的是曲目 ID，界面按专辑 ID 读，中间这层换算要现查曲库。
 // `lib/library.ts` 只依赖 `store/library.ts`，不回头 import 本文件，没有循环。
 import { albums, tracksOf } from "@/lib/library";
+import {
+  hydratePlaylists,
+  rehydratePlaylists,
+  samePlaylists,
+  toStored,
+  type StoredPlaylist,
+} from "@/lib/playlists";
 import { fromSession, toSession } from "@/lib/session";
 import { useUiStore } from "@/store/ui";
 import type { Favorites } from "@/types/generated/collections";
@@ -41,7 +48,18 @@ let loadSeq = 0;
 const runSalt = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const nextLoadId = (): Id => `load-${runSalt}-${loadSeq++}`;
 let playlistSeq = 0;
-const nextPlaylistId = (): Id => `pl-user-${Date.now()}-${playlistSeq++}`;
+/**
+ * 只给**浏览器预览**发歌单 ID。有后端时一律用后端发的那个：ID 要进数据库当主键、
+ * 还要被收藏表引用，两边各发一个的结果是界面指向一个库里不存在的歌单。
+ */
+const localPlaylistId = (): Id => `pl-local-${Date.now()}-${playlistSeq++}`;
+/**
+ * 已发出、但后端还没回 ID 的新歌单名。
+ *
+ * 新建不放临时卡片，所以连点两次时第二次从 store 里还看不到第一个名字。
+ * 不在这里占位的话，两次都会发成「新歌单」，等回执到了才发现重名已经晚了。
+ */
+const pendingPlaylistTitles = new Set<string>();
 
 /** 保留首次出现的曲目，并把已有 ID 视为占用。 */
 function uniqueTracksById(tracks: Track[], seen = new Set<Id>()): Track[] {
@@ -110,35 +128,88 @@ const SEED_FAVORITE_ALBUM_GROUPS = normalizedAlbumGroups(
 );
 
 /**
- * 收藏写入只有一条全局 FIFO：SQLite 最终也只有一个连接和一把锁，让前端先并发出去不会
- * 增加吞吐，只会让「最后一次点击」与「最后一次落库」失去顺序。界面仍立即乐观更新；
- * 一轮写入（成功或失败）排空后重新读取权威状态，把失败与后端规范化一并对齐回来。
+ * 收藏与歌单的写入共用一条全局 FIFO：SQLite 最终也只有一个连接和一把锁，让前端先并发
+ * 出去不会增加吞吐，只会让「最后一次点击」与「最后一次落库」失去顺序。
+ *
+ * 两者同队而不是各排各的，是因为它们互相引用：新建歌单要接着收藏它，删歌单要连带清掉
+ * 收藏标记，而对账读的又是同一趟 `collections_load`。分成两条队列时，一条的回执会带着
+ * 另一条尚未落库的旧状态盖回界面。
  */
-let favoriteMutationTail: Promise<void> = Promise.resolve();
-let favoriteMutationGeneration = 0;
+let collectionWriteTail: Promise<unknown> = Promise.resolve();
 
-function persistFavoriteMutation(write: () => Promise<void>, expectedRevision: number) {
-  const generation = ++favoriteMutationGeneration;
-  favoriteMutationTail = favoriteMutationTail.then(write).catch((error) => {
-    console.error("保存收藏失败", error);
-  });
-  const settled = favoriteMutationTail;
-  void settled.then(async () => {
-    // 后面还有点击时由最后一笔统一对账，避免每个回执都把界面来回覆盖。
-    if (generation !== favoriteMutationGeneration) return;
-    let favorites: Favorites;
-    try {
-      const loaded = await backend.loadCollections();
-      // 浏览器预览没有后端，乐观状态本身就是权威，不拿空数据覆盖种子演示。
-      if (!loaded) return;
-      favorites = loaded[0];
-    } catch (error) {
-      console.error("收藏写入后重新读取失败，本次按没有收藏处理", error);
-      favorites = EMPTY_FAVORITES;
-    }
-    if (generation !== favoriteMutationGeneration) return;
-    usePlayerStore.getState().restoreFavorites(favorites, expectedRevision);
-  });
+/** 把一次写入排进队尾并返回它的结果。前一笔失败不阻断后续——那是它自己的事。 */
+function enqueueCollectionWrite<T>(write: () => Promise<T>): Promise<T> {
+  const run = collectionWriteTail.then(
+    () => write(),
+    () => write(),
+  );
+  collectionWriteTail = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
+}
+
+let collectionMutationGeneration = 0;
+
+/**
+ * 排进 FIFO，并在这一轮写入排空后重新读取权威状态对账。
+ *
+ * 界面已经乐观更新过了，这一趟负责把写入失败与后端的规范化一并对齐回来。
+ */
+function persistCollectionMutation<T>(
+  write: () => Promise<T>,
+  expectedRevision: number,
+): Promise<T> {
+  const generation = ++collectionMutationGeneration;
+  const run = enqueueCollectionWrite(write);
+  void run
+    .catch((error) => {
+      console.error("保存收藏或歌单失败", error);
+    })
+    .then(async () => {
+      // 后面还有动作时由最后一笔统一对账，避免每个回执都把界面来回覆盖。
+      if (generation !== collectionMutationGeneration) return;
+      let favorites: Favorites;
+      let playlists: StoredPlaylist[];
+      try {
+        const loaded = await backend.loadCollections();
+        // 浏览器预览没有后端，乐观状态本身就是权威，不拿空数据覆盖种子演示。
+        if (!loaded) return;
+        [favorites, playlists] = loaded;
+      } catch (error) {
+        console.error("写入后重新读取收藏与歌单失败，本次按空处理", error);
+        favorites = EMPTY_FAVORITES;
+        playlists = [];
+      }
+      if (generation !== collectionMutationGeneration) return;
+      const state = usePlayerStore.getState();
+      // 两者要么一起采纳、要么一起放弃：只对上一半会让「新建歌单并收藏」在失败重读后
+      // 变成一个收藏标记指向不存在的歌单。
+      if (state.restoreFavorites(favorites, expectedRevision)) {
+        state.restorePlaylists(playlists);
+      }
+    });
+  return run;
+}
+
+/**
+ * 整份写回一个歌单（改名、增删曲目、重排都走这条）。
+ *
+ * 歌单的编辑单位本来就是整条曲目列表——拖一次就全变了——所以不做字段级增量，
+ * 这与元数据覆盖层「只写点到名的那几行」不冲突：那边的编辑单位是单首歌的单个字段。
+ */
+function writePlaylist(playlist: Playlist) {
+  // 时间戳先按本地时钟乐观填上；后端会重新盖章，对账那一趟带回权威值。
+  const updated: Playlist = { ...playlist, updatedAtMs: Date.now() };
+  usePlayerStore.setState((s) => ({
+    playlists: s.playlists.map((p) => (p.id === updated.id ? updated : p)),
+    collectionsRevision: s.collectionsRevision + 1,
+  }));
+  void persistCollectionMutation(
+    () => backend.playlistSave(toStored(updated)),
+    usePlayerStore.getState().collectionsRevision,
+  );
 }
 
 /**
@@ -287,9 +358,9 @@ interface PlayerState {
    */
   needsLibrary: boolean;
 
-  /** ---- 收藏（用户数据，落在 library.db，见 core/src/collections.rs） ---- */
-  /** 用户收藏意图的版本；异步恢复只可覆盖启动时仍未被用户改过的版本。 */
-  favoritesRevision: number;
+  /** ---- 收藏与歌单（用户数据，落在 library.db，见 core/src/collections.rs） ---- */
+  /** 用户收藏 / 歌单意图的版本；异步恢复只可覆盖仍未被用户改过的那一版。 */
+  collectionsRevision: number;
   favorites: Record<Id, boolean>;
   /**
    * 专辑收藏的**派生视图**，键是专辑 ID，只供组件读。
@@ -307,7 +378,10 @@ interface PlayerState {
   favoriteArtists: Record<string, boolean>;
   /** 收藏歌单（以歌单 ID 为键）。 */
   favoritePlaylists: Record<Id, boolean>;
-  /** 歌单（用户数据，可变；种子初始化，后期由后端持久化）。 */
+  /**
+   * 歌单。落盘只有曲目 ID，这里是按当前曲库水合过的视图（见 `@/lib/playlists`）。
+   * 浏览器预览拿不到后端，保留种子演示歌单。
+   */
   playlists: Playlist[];
 
   /** ---- 音频设备 ---- */
@@ -350,12 +424,21 @@ interface PlayerState {
    * 返回是否真正采用了这份快照。
    */
   restoreFavorites: (favorites: Favorites, expectedRevision?: number) => boolean;
+  /** 把落盘歌单按当前曲库水合后灌进来。语义与 `restoreFavorites` 相同。 */
+  restorePlaylists: (playlists: StoredPlaylist[], expectedRevision?: number) => boolean;
   /** 按当前曲库重算专辑收藏的派生视图。曲库一换就要重算。 */
   recomputeFavoriteAlbums: () => void;
-  /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）；更新时间标记清空 = 「今天更新」。 */
+  /** 按当前曲库重新水合歌单曲目。与上一条同理，曲库一换就要重来。 */
+  rehydratePlaylists: () => void;
+  /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）。 */
   addToPlaylist: (playlistId: Id, tracks: Track[]) => void;
-  /** 新建并收藏歌单后加入曲目；名称默认「新歌单」，重名自动加序号。返回新歌单 ID。 */
-  createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Id;
+  /**
+   * 新建并收藏歌单后加入曲目；名称默认「新歌单」，重名自动加序号。
+   *
+   * 返回新歌单 ID，后端建不出来时返回 `null`。**要等一次 IPC**：ID 由后端发号，
+   * 先摆一个临时 ID 的话，用户在回执到达前点进详情页看到的就是一个马上会消失的歌单。
+   */
+  createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Promise<Id | null>;
   /** 从歌单移除曲目。 */
   removeFromPlaylist: (playlistId: Id, trackId: Id) => void;
   /** 用新顺序替换歌单曲目（拖拽重排）。 */
@@ -600,14 +683,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   error: null,
   needsLibrary: false,
 
-  favoritesRevision: 0,
+  collectionsRevision: 0,
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
   favoriteAlbumGroups: SEED_FAVORITE_ALBUM_GROUPS.map((group) => [...group]),
   favoriteAlbumTracks: albumTrackMap(SEED_FAVORITE_ALBUM_GROUPS),
   favoriteArtists: { ...SEED_FAVORITE_ARTISTS },
   favoritePlaylists: { "pl-nightdrive": true },
-  playlists: PLAYLISTS.map((p) => ({ ...p, tracks: [...p.tracks] })),
+  playlists: PLAYLISTS.map((p) => ({ ...p, trackIds: [...p.trackIds], tracks: [...p.tracks] })),
 
   devices: [],
   effectiveDeviceId: null,
@@ -737,9 +820,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const on = !get().favorites[id];
     set((s) => ({
       favorites: toggledMap(s.favorites, id, on),
-      favoritesRevision: s.favoritesRevision + 1,
+      collectionsRevision: s.collectionsRevision + 1,
     }));
-    persistFavoriteMutation(() => backend.favoriteTrack(id, on), get().favoritesRevision);
+    void persistCollectionMutation(
+      () => backend.favoriteTrack(id, on),
+      get().collectionsRevision,
+    );
   },
 
   toggleFavoriteAlbum: (id) => {
@@ -764,32 +850,41 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         favoriteAlbumGroups: groups,
         favoriteAlbumTracks: albumTracks,
         favoriteAlbums: derivedFavoriteAlbums(albumTracks),
-        favoritesRevision: s.favoritesRevision + 1,
+        collectionsRevision: s.collectionsRevision + 1,
       };
     });
-    persistFavoriteMutation(() => backend.favoriteAlbum(trackIds, on), get().favoritesRevision);
+    void persistCollectionMutation(
+      () => backend.favoriteAlbum(trackIds, on),
+      get().collectionsRevision,
+    );
   },
 
   toggleFavoriteArtist: (name) => {
     const on = !get().favoriteArtists[name];
     set((s) => ({
       favoriteArtists: toggledMap(s.favoriteArtists, name, on),
-      favoritesRevision: s.favoritesRevision + 1,
+      collectionsRevision: s.collectionsRevision + 1,
     }));
-    persistFavoriteMutation(() => backend.favoriteArtist(name, on), get().favoritesRevision);
+    void persistCollectionMutation(
+      () => backend.favoriteArtist(name, on),
+      get().collectionsRevision,
+    );
   },
 
   toggleFavoritePlaylist: (id) => {
     const on = !get().favoritePlaylists[id];
     set((s) => ({
       favoritePlaylists: toggledMap(s.favoritePlaylists, id, on),
-      favoritesRevision: s.favoritesRevision + 1,
+      collectionsRevision: s.collectionsRevision + 1,
     }));
-    persistFavoriteMutation(() => backend.favoritePlaylist(id, on), get().favoritesRevision);
+    void persistCollectionMutation(
+      () => backend.favoritePlaylist(id, on),
+      get().collectionsRevision,
+    );
   },
 
   restoreFavorites: (favorites, expectedRevision) => {
-    if (expectedRevision !== undefined && get().favoritesRevision !== expectedRevision) {
+    if (expectedRevision !== undefined && get().collectionsRevision !== expectedRevision) {
       return false;
     }
     const toMap = <T extends string>(list: T[]): Record<T, boolean> =>
@@ -807,6 +902,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     return true;
   },
 
+  restorePlaylists: (playlists, expectedRevision) => {
+    if (expectedRevision !== undefined && get().collectionsRevision !== expectedRevision) {
+      return false;
+    }
+    const hydrated = hydratePlaylists(playlists);
+    // 没变就别换对象：这一趟在每次收藏写入之后都会跑，而换数组会让歌单页整片重测布局。
+    if (!samePlaylists(hydrated, get().playlists)) set({ playlists: hydrated });
+    return true;
+  },
+
   // 专辑收藏存的是曲目 ID，界面按专辑 ID 读，所以两者之间要现算一层。曲库一换就得重来：
   // 专辑 ID 变了、专辑本身也可能被重新归组。
   recomputeFavoriteAlbums: () => {
@@ -814,76 +919,131 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ favoriteAlbumTracks: albumTracks, favoriteAlbums: derivedFavoriteAlbums(albumTracks) });
   },
 
-  addToPlaylist: (playlistId, tracks) =>
-    set((s) => ({
-      playlists: s.playlists.map((p) => {
-        if (p.id !== playlistId) return p;
-        const added = uniqueTracksById(tracks, new Set(p.tracks.map((tk) => tk.id)));
-        if (added.length === 0) return p;
-        // updatedLabel 置空 → 展示端回退为「今天更新」
-        return { ...p, tracks: [...p.tracks, ...added], updatedLabel: "" };
-      }),
-    })),
+  rehydratePlaylists: () => set((s) => ({ playlists: rehydratePlaylists(s.playlists) })),
 
-  createPlaylistWithTracks: (baseName, tracks) => {
-    const id = nextPlaylistId();
-    set((s) => {
-      // 重名自动加序号：新歌单 / 新歌单 2 / 新歌单 3 …
-      const names = new Set(s.playlists.map((p) => p.title));
-      let title = baseName;
-      for (let n = 2; names.has(title); n++) title = `${baseName} ${n}`;
-      const playlist: Playlist = {
-        id,
-        title,
-        description: "",
-        updatedLabel: "",
-        tracks: uniqueTracksById(tracks),
-      };
-      return {
-        playlists: [...s.playlists, playlist],
-        // 当前没有独立歌单总览页；新建后先加入收藏页，确保用户能立即找到。
-        favoritePlaylists: { ...s.favoritePlaylists, [id]: true },
-        favoritesRevision: s.favoritesRevision + 1,
-      };
+  addToPlaylist: (playlistId, tracks) => {
+    const target = get().playlists.find((p) => p.id === playlistId);
+    if (!target) return;
+    // 去重按**落盘的全部 ID**判，不只看水合出来的那些：某首歌暂时查不回本体时，
+    // 只比对 tracks 会让它被再加一遍，文件回来后歌单里就出现两条。
+    const added = uniqueTracksById(tracks, new Set(target.trackIds));
+    if (added.length === 0) return;
+    writePlaylist({
+      ...target,
+      trackIds: [...target.trackIds, ...added.map((track) => track.id)],
+      tracks: [...target.tracks, ...added],
     });
-    return id;
   },
 
-  removeFromPlaylist: (playlistId, trackId) =>
-    set((s) => ({
-      playlists: s.playlists.map((p) =>
-        p.id === playlistId
-          ? { ...p, tracks: p.tracks.filter((tk) => tk.id !== trackId), updatedLabel: "" }
-          : p,
-      ),
-    })),
+  createPlaylistWithTracks: async (baseName, tracks) => {
+    // 重名自动加序号：新歌单 / 新歌单 2 / 新歌单 3 …
+    const names = new Set([
+      ...get().playlists.map((p) => p.title),
+      ...pendingPlaylistTitles,
+    ]);
+    let title = baseName;
+    for (let n = 2; names.has(title); n++) title = `${baseName} ${n}`;
+    pendingPlaylistTitles.add(title);
+    const unique = uniqueTracksById(tracks);
+    const trackIds = unique.map((track) => track.id);
 
-  reorderPlaylist: (playlistId, tracks) =>
-    set((s) => ({
-      playlists: s.playlists.map((p) =>
-        p.id === playlistId ? { ...p, tracks: [...tracks], updatedLabel: "" } : p,
-      ),
-    })),
+    try {
+      // 排进同一条 FIFO：紧接着要收藏它，两笔的先后不能靠 IPC 到达顺序碰运气。
+      const created: StoredPlaylist | null = await enqueueCollectionWrite(() =>
+        backend.playlistCreate(title, trackIds),
+      );
+      // 浏览器预览没有后端，本地发号，界面照常可用。
+      const playlist: Playlist = created
+        ? { ...created, trackIds: [...created.trackIds], tracks: unique }
+        : {
+            id: localPlaylistId(),
+            title,
+            description: "",
+            updatedAtMs: Date.now(),
+            trackIds,
+            tracks: unique,
+          };
+      set((s) => ({
+        // 启动恢复与新建命令可以同时在途；若恢复恰好先读到了后端刚建好的这一条，
+        // 这里不再追加第二张同 ID 卡片。后续权威对账仍会校正它的完整内容。
+        playlists: s.playlists.some((p) => p.id === playlist.id)
+          ? s.playlists
+          : [...s.playlists, playlist],
+        // 新建后顺带收藏，保证它同时出现在收藏页；歌单页本来就列出全部歌单。
+        favoritePlaylists: { ...s.favoritePlaylists, [playlist.id]: true },
+        collectionsRevision: s.collectionsRevision + 1,
+      }));
+      void persistCollectionMutation(
+        () => backend.favoritePlaylist(playlist.id, true),
+        get().collectionsRevision,
+      );
+      return playlist.id;
+    } catch (error) {
+      // 建不出来就什么都不显示。摆一张卡片再让它消失，比一开始就没有更难理解。
+      console.error("新建歌单失败", error);
+      return null;
+    } finally {
+      // 成功时同名卡片已经同步进了 store；失败时则允许下一次重用这个名字。
+      pendingPlaylistTitles.delete(title);
+    }
+  },
 
-  reorderPlaylists: (playlists) => set({ playlists: [...playlists] }),
+  removeFromPlaylist: (playlistId, trackId) => {
+    const target = get().playlists.find((p) => p.id === playlistId);
+    if (!target) return;
+    writePlaylist({
+      ...target,
+      trackIds: target.trackIds.filter((id) => id !== trackId),
+      tracks: target.tracks.filter((track) => track.id !== trackId),
+    });
+  },
 
-  renamePlaylist: (playlistId, title) =>
-    set((s) => ({
-      playlists: s.playlists.map((p) =>
-        p.id === playlistId ? { ...p, title, updatedLabel: "" } : p,
-      ),
-    })),
+  reorderPlaylist: (playlistId, tracks) => {
+    const target = get().playlists.find((p) => p.id === playlistId);
+    if (!target) return;
+    // 用户拖的是**看得见的那些**。当前曲库里查不回本体的 ID 统一沉到末尾：重排之后
+    // 它们原来的相对位置已经没有意义了，但那不是删除它们的理由（见 Playlist.trackIds）。
+    const visible = new Set(target.tracks.map((track) => track.id));
+    const hidden = target.trackIds.filter((id) => !visible.has(id));
+    writePlaylist({
+      ...target,
+      trackIds: [...tracks.map((track) => track.id), ...hidden],
+      tracks: [...tracks],
+    });
+  },
 
-  deletePlaylist: (playlistId) =>
+  // 拖拽期间每越过一张卡就写一次。没做成「松手才落库」：那要把拖拽生命周期搬进 store，
+  // 而一次拖拽也就越过几张卡，几笔小事务的代价远小于多一条只在一个页面用得上的 API。
+  // 中途的对账不会打断拖拽——读回来的与界面上的一致时 `restorePlaylists` 不换数组。
+  reorderPlaylists: (playlists) => {
+    set((s) => ({ playlists: [...playlists], collectionsRevision: s.collectionsRevision + 1 }));
+    void persistCollectionMutation(
+      () => backend.playlistReorder(playlists.map((p) => p.id)),
+      get().collectionsRevision,
+    );
+  },
+
+  renamePlaylist: (playlistId, title) => {
+    const target = get().playlists.find((p) => p.id === playlistId);
+    if (!target) return;
+    writePlaylist({ ...target, title });
+  },
+
+  deletePlaylist: (playlistId) => {
     set((s) => {
-      // 收藏标记一并清除，避免留下指向已删歌单的孤立键。
+      // 收藏标记一并清除，避免留下指向已删歌单的孤立键（后端删除时也会连带清）。
       const { [playlistId]: _removed, ...favoritePlaylists } = s.favoritePlaylists;
       return {
         playlists: s.playlists.filter((p) => p.id !== playlistId),
         favoritePlaylists,
-        favoritesRevision: s.favoritesRevision + 1,
+        collectionsRevision: s.collectionsRevision + 1,
       };
-    }),
+    });
+    void persistCollectionMutation(
+      () => backend.playlistDelete(playlistId),
+      get().collectionsRevision,
+    );
+  },
 
   setVolume: (v) => {
     const volume = Math.max(0, Math.min(1, v));

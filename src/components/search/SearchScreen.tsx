@@ -10,6 +10,7 @@ import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
 import { useT } from "@/i18n";
 import { coverGradientStyle } from "@/lib/coverStyle";
+import { updatedLabelOf } from "@/lib/playlists";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
 
@@ -61,7 +62,7 @@ function ThumbEq({ playing }: { playing: boolean }) {
 }
 
 export function SearchScreen() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const reduceMotion = useReducedMotion();
   const { scrollerRef, innerRef, thumbRef, onScroll } = useElasticScroll();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -456,7 +457,7 @@ export function SearchScreen() {
                         {t("playlist.meta", {
                           n: pl.tracks.length,
                           m: Math.round(pl.tracks.reduce((s, tk) => s + tk.durationSec, 0) / 60),
-                          updated: pl.updatedLabel || t("playlist.updatedNow"),
+                          updated: updatedLabelOf(pl.updatedAtMs, t, locale),
                         })}
                       </div>
                     </div>

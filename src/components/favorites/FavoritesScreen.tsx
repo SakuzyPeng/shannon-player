@@ -22,6 +22,7 @@ import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 import { coverGradientStyle } from "@/lib/coverStyle";
 import { addTracksToPlaylistArg } from "@/lib/playlistActions";
+import { updatedLabelOf } from "@/lib/playlists";
 import { shuffled } from "@/lib/shuffle";
 import { fmtTime } from "@/lib/time";
 import type { MessageKey } from "@/i18n/messages";
@@ -823,7 +824,7 @@ function FavPlaylistCard({
   onOpen: () => void;
   onUnfav: () => void;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   return (
     <motion.div
       layout="position"
@@ -864,7 +865,7 @@ function FavPlaylistCard({
           {t("playlist.meta", {
             n: playlist.tracks.length,
             m: Math.round(playlist.tracks.reduce((s, tk) => s + tk.durationSec, 0) / 60),
-            updated: playlist.updatedLabel || t("playlist.updatedNow"),
+            updated: updatedLabelOf(playlist.updatedAtMs, t, locale),
           })}
         </div>
       </div>

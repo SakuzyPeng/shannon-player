@@ -71,13 +71,19 @@ function nightDriveTrack(
   };
 }
 
+const NIGHT_DRIVE_TRACKS = NIGHT_DRIVE.map(nightDriveTrack);
+
+/** 设计稿标的是「上周更新」，落到时间戳上就现算一个——种子数据没有真实修改时间。 */
+const SEED_UPDATED_AT_MS = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
 export const PLAYLISTS: Playlist[] = [
   {
     id: "pl-nightdrive",
     title: "深夜驾驶",
     description: "环线空了，音量开大一点。适合凌晨一点以后的城市快速路。",
-    updatedLabel: "上周更新",
-    tracks: NIGHT_DRIVE.map(nightDriveTrack),
+    updatedAtMs: SEED_UPDATED_AT_MS,
+    trackIds: NIGHT_DRIVE_TRACKS.map((track) => track.id),
+    tracks: NIGHT_DRIVE_TRACKS,
   },
 ];
 
