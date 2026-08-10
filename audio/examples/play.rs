@@ -51,7 +51,7 @@ fn queue_next(engine: &Engine, chain_id: &str, tracks: &[PathBuf], index: usize,
 /// 可播放的扩展名。识别与播放能力解耦——这里只是**遍历目录时的筛选**，
 /// 真正能不能放由探测器说了算，扫到不认识的容器会给出明确错误而不是被悄悄跳过。
 const AUDIO_EXT: &[&str] = &[
-    "flac", "m4a", "mp4", "mp3", "wav", "aiff", "aif", "caf", "ogg", "oga", "mka", "webm",
+    "flac", "m4a", "mp4", "mp3", "wav", "aiff", "aif", "caf", "ogg", "oga", "opus", "mka", "webm",
 ];
 
 fn main() {

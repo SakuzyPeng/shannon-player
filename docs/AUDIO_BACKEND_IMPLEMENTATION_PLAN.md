@@ -9,7 +9,7 @@
   2026-07-29 补响度归一化设计，并将纯解码与完整 EBU R128 + true peak 基准分开，
   随后以真实曲库 250 首复测替换同源歌单样本；
   2026-08-10 补「实时纪律的机器验证」并落地，订正阶段 1 的完成口径（出口条件未满足时
-  不算关闭），随后关闭阶段 1。
+  不算关闭），随后关闭阶段 1；同日补「Opus 解码接入」并落地，阶段 3 的解码侧完成。
 - 适用范围：实时播放引擎的工程结构、线程模型、队列交接、解码管线、前端接入、
   测试策略与实施阶段。
 - **实现进度**：阶段 0 的立体声路径已从 `shannon-audio` 接入 Tauri 与前端，
@@ -22,6 +22,9 @@
   `audio/tests/realtime_discipline.rs` 的机器证明与配套边界审查满足，见「实时纪律的机器验证」。
   阶段 2 已完成：曲库扫描（lofty）、**SQLite 持久化**（见「曲库数据库」）、
   收藏与歌单、增量重扫，以及探测器原先欠的两处缺口（编码认不出时留空、`.ec3` 纳入扫描）。
+  阶段 3 的**解码侧已落地**（Opus 经 libopus 绑定注册进自建 `CodecRegistry`，
+  含 seek 的 pre-roll 与 Matroska 组合的定位绕行，见「Opus 解码接入」）；
+  ImportService 未动工。
 
 ## 工程结构
 
@@ -682,6 +685,96 @@ scratch 也会让这个指标凭空变大——而它要回答的是「实时性
 对外暴露的指标口径，该由维护者定。要改的话，`fill_from_ring` 得改成回报而不是自己累加，
 由 `render_output_callback` 每次回调至多记一次。
 
+## Opus 解码接入（阶段 3）
+
+**现状：已落地**（`audio/src/decode.rs`）。Symphonia 0.6 覆盖 ogg 与 mkv **容器**，
+却没有 opus **编码**（`all-codecs` 里没有它），正是架构约束设想的那类缺口：
+以自定义 Decoder 注册进 `CodecRegistry`，容器探测、解复用、元数据、seek 仍统一走
+Symphonia。做法是自建一份注册表（`decode::codecs()`）——`symphonia::default::get_codecs()`
+只含 Symphonia 自己的解码器，拿它查 Opus 会得到「没有可用的解码器」。
+
+**构建代价**：`symphonia-adapter-libopus` 的 default feature `bundled` 经 `opusic-sys`
+用 CMake 编译 libopus 的 C 源码，因此构建机需要 C 编译器与 `cmake`。换来的是不依赖
+用户机器上装没装 libopus。该 crate 的 MSRV 是 1.89，`shannon-audio` 的 `rust-version`
+随之从 1.85 提至 1.89，依赖它的桌面壳同步提至 1.89（`shannon-core` 仍是 1.85）。macOS aarch64 实测可构建，
+**Windows / Linux 尚未实测**。
+
+多声道 Opus 会在建解码器时得到能力错误（适配器只接受 1~2 声道）——这与「多声道整体
+划归平台原生后端」是同一条边界，不是缺陷。
+
+### 四条实测结论
+
+**① Opus 一律解到 48 kHz。** 容器头里那个 44100 是「原始输入采样率」，不是解码输出的
+采样率。格式矩阵里 Opus 两条用例的期望采样率因此写 48000，走的是重采样路径。
+
+**② seek 必须做 80 ms pre-roll。** Opus 的解码器状态跨包延续，定位落点处那份状态是空的。
+实测把「seek 后解出的音频」与「从头解码的对应后缀」逐 10 ms 比对，相对误差从信号 RMS 的
+**78%** 起步，衰减到 2% 以下要约 80 ms——正是 RFC 7845 §4.2 要求至少 3840 个 48 kHz
+采样的原因。做法是先定位一次拿到落点，再退回落点前 80 ms 重新起解、把中间的帧解出来
+丢掉。加上 pre-roll 后首块误差降到 2.6%，收敛后 1e-4 量级。**只给 Opus 加**：MP3 实测
+20~30 ms 内即收敛，无损编码逐包独立，给所有编码都加等于每次 seek 多解一段没人要的音频。
+
+**③ Opus 装在 Matroska / WebM 里，上游的 `FormatReader::seek` 不可信。** 实测在 2 秒与
+10 秒语料、四个定位点、`.webm` 与 `.mka` 两种扩展名下结果一致：报告的落点像模像样，
+解出来的音频却与整曲**任何一段都对不上**（全局搜索下最小相对误差 1.6~3.9，而两段不相关
+信号约为 1.41）；回退定位则原地不动（无 cue 时上游只能向前扫）。同一容器里的 FLAC
+定位只差 3 帧，所以坏的是这个**组合**，不是 Matroska、也不是 Opus。
+
+这类文件正是 yt-dlp 抓 YouTube 音频的默认产物，会真的出现在用户曲库里；而**线性播放是
+好的**（与 Ogg 版逐样本一致），所以不能因此拒播。于是只把定位换掉：该组合走「重开文件 +
+向前解码」（`decode::reader_seek_is_trustworthy`）。这条路与参考解码是同一条，因此定位
+之后逐样本精确（误差 0.00000，比 Ogg 版的 pre-roll 残差还小）。代价是与目标位置成正比的
+一次解码，实测约 **1 ms 每秒音频**（891x 实时，release），跳到 4 分钟处约 0.27 秒。
+把「快而错」换成「慢一点而对」，在一个当前只影响单一容器组合的路径上是划算的。
+
+**④ `OpusHead.pre_skip` 不能留给适配器自己管。** `symphonia-adapter-libopus` 把这份前导
+裁剪存成一枚只消费一次的内部值，而它的 `reset()` 只复位 libopus：解过第一包后 seek 回 0，
+这枚值不会恢复，实测会多放 312 帧；反过来，首次解码前直接 seek 到中间，它又会把只属于
+流开头的 312 帧误套在中途。于是 `Decoder::open` 会把 OpusHead 里的值取出并在交给适配器的
+参数中清零，由本层持有 `initial_skip_frames` / `pending_skip_frames`，只有实际落点为 0 才重新
+装填。格式矩阵的 `opus_seek_does_not_depend_on_decoder_history` 同时覆盖「先解一包再回 0」与
+「首次 / 运行中定位到同一中途位置」：前者修复前从 96000 帧变成 96312 帧，后者落点相差
+648 帧。
+
+### 顺带查出来的三处既有偏差
+
+加定位比对用例时一并量了所有格式，`seek_offset` 字段逐条记着测得的值：
+
+| 组合 | 落点与实际音频的偏差 | 说明 |
+| --- | --- | --- |
+| Vorbis / Ogg | **1024 帧（23 ms）** | 报告的落点比实际音频早整整半个长窗。拖到 1:00 时进度条说 1:00，出声的是 1:00.023。修它要么按块长回补一个我们拿不到的编码相关常数，要么等上游 |
+| FLAC / Matroska | 3 帧（0.07 ms） | Matroska 时间戳只有毫秒精度 |
+| Opus / WebM 的尾部 | 多 13.5 ms | Matroska 的 `DiscardPadding` 上游未实现，编码器尾部填充没被裁掉。实测那段 RMS 0.00099（约 -60 dB），是近乎静音而非杂音，但**做 gapless 时它会变成曲目之间的一小段静音** |
+
+三处都写成期望值而不是放宽一个统一容差：容差只能表达「差不多就行」，而这里要表达的是
+「差多少、为什么、什么时候该变」——真出现回归时，容差会默默吃掉它。
+
+### 定位比对用例：位置与内容要分开验
+
+原有的 `every_format_seeks_to_the_right_place` 只检查报告的位置数字落在请求附近，而上面第
+③ 条恰恰是**数字漂亮、音频对不上**。新增 `every_format_seeks_to_audio_that_actually_matches`
+断言「定位后解出的音频就是从头解码的对应后缀」，并**跳过定位后的头 100 ms 再比**——那一段
+是解码器状态的收敛期，算进来会把「热身不够」和「拿错了音频」混成同一个数字，而这两者的
+修法完全不同。夹具验过：把 Matroska-Opus 的重开定位关掉，该用例报相对误差 1.44 当场变红，
+而旧的位置用例照样满分通过。另有 `opus_seek_does_not_depend_on_decoder_history` 钉住
+pre-skip 的 reset 语义，避免只测「刚打开就定位」而漏掉运行中的真实路径。
+
+### 扫描侧
+
+`core` 的扫描扩展名表补进 `webm`：能解码却扫不进来，这个能力在应用里就是够不着的。
+它同时是视频容器，取舍与早就在表里的 `mp4` 一致（目录是用户自己指定的，收多了看得见
+也删得掉，收少了只会以为文件丢了）。`mkv` 仍然不收——音频用的是 `mka`，与 `mp4` / `m4a`
+是同一套约定。新增扩展名本身不会影响旧缓存，但接入时一并修正了 Matroska 时长：Symphonia
+0.5 的 reader 把 `n_frames` 记成容器时基刻度，直接除以采样率会把 2 秒文件误报成约 42 ms，
+前端继而把进度与 seek 全夹在这 42 ms 内。现在有 `time_base` 就优先按它换算，没有才回退到
+帧数 / 采样率；`PROBE_VERSION` 因此升到 4，让已有 MKA 的错误时长缓存也会重扫纠正。
+
+另记一处：`core` 用的是 symphonia 0.5.5（与 `audio` 的 0.6.0 并存），它在 webm/opus 上
+读不出声道数，扫描结果是 `channels: 0` 并记 `layout:unknown-0ch-no-mask`。布局留空符合
+「判不出一律留空」，但 `AudioFormat.channels` 是 `u8` 而非 `Option<u8>`，0 在这里是个哨兵值
+——与 `Album.year` 当年的问题同类。界面目前不显示声道数，所以尚未暴露；等到要显示时
+必须先改成 `Option`，否则会出现「0 声道」。
+
 ## 曲库数据库
 
 **现状：已落地**（`core/src/db.rs`，rusqlite 0.39 + `bundled`；应用数据目录下的
@@ -748,9 +841,9 @@ scratch 也会让这个指标凭空变大——而它要回答的是「实时性
 
 | 待定项 | 结论 |
 | --- | --- |
-| 最低 Rust 版本 | `shannon-core` / `shannon-audio` **1.85**（Symphonia 0.6 与曲库 SQLite 依赖链的共同基线）；桌面应用整体 **1.88**（当前 Tauri 锁定依赖链要求） |
+| 最低 Rust 版本 | `shannon-core` **1.85**（Symphonia 0.6 与曲库 SQLite 依赖链的共同基线）；`shannon-audio` **1.89**（接入 Opus 后由 `symphonia-adapter-libopus` 抬上去的）；桌面应用整体 **1.89** |
 | Symphonia 版本与 feature 集 | **已定 0.6.0**，实际启用 `mp3` / `isomp4` / `alac` / `aac`（`flac` / `wav` / `pcm` 在 default 内）。与 `shannon-core` 的 0.5.5 **并存**，见下节 |
-| Opus 解码器选型 | **已定 `symphonia-adapter-libopus`**，正是本文设想的集成方式的现成实现；default feature `bundled` 需编译 C 源码，三平台构建待实测 |
+| Opus 解码器选型 | **已定并已接入 `symphonia-adapter-libopus` 0.3**，正是本文设想的集成方式的现成实现；`bundled` 经 CMake 编译 libopus，构建机需 C 编译器与 `cmake`，MSRV 1.89。macOS aarch64 实测可构建，**Windows / Linux 待实测** |
 | 是否需要 `ffmpeg-next` | 维持架构约束原判：仅当插件式解码仍覆盖不了且格式收益明确时评估 |
 | CPAL 与平台后端边界 | 以 `OutputBackend` trait 为界：共享模式的**立体声**（含单声道上混）归 CPAL；一切多声道、独占、直通、空间路由与热插拔归平台实现 |
 | 导入用 FFmpeg 裁剪与打包 | 维持待定，属 ImportService（阶段 3）前的决策点 |
@@ -762,7 +855,7 @@ scratch 也会让这个指标凭空变大——而它要回答的是「实时性
 | 0 | workspace 拆分、引擎骨架、CPAL 输出（设备格式协商）、Symphonia **ALAC/AAC/M4A** + FLAC/MP3/WAV、播放/暂停/seek/音量、事件桥、MockEngine、store 后继算法与洗牌顺序；`OutputBackend` trait 与源规格模型自首版即能表达**声道布局与布局来源** | 占位时钟 `tick()` 退役，浏览器验证流程不回退 |
 | 1 | ~~next 槽位、queueRevision、gapless~~、~~**响度归一化**~~、~~设备切换~~、~~语料测试~~（均已完成） | ~~验收条件第 5 条，以及第 6 条中阶段 1 能力（gapless、重采样、ReplayGain、设备切换）的无头测试常态化~~（已满足：零分配机器证明 + 无阻塞边界审查，见「实时纪律的机器验证」） |
 | 2 | ~~曲库扫描（lofty）~~、~~SQLite 持久化~~、~~布局 / 采样率 / 位深 / 对象音频标记探测~~、~~收藏与歌单~~、~~增量重扫~~（均已完成，见「曲库数据库」） | ~~真实扫描接管曲库；种子只作浏览器预览与未扫描时的回落~~（已满足） |
-| 3 | Opus 插件解码、ImportService | 架构约束第一阶段格式表除空间路径外全覆盖 |
+| 3 | ~~Opus 插件解码~~（已落地，见「Opus 解码接入」）、ImportService | 架构约束第一阶段格式表除空间路径外全覆盖：**解码侧已满足**（表内非空间行仅剩 macOS 的 APAC，属系统解码路径），ImportService 未动工 |
 | 4 | 平台独占输出 | 独占/共享切换走显式状态机 |
 | 5 | 平台原生**多声道**后端（Windows `ISpatialAudioClient` / macOS ASBR），空间与非空间多声道同走此路 | 三份研究笔记的验证方法在产品内可复现；5.1 专辑在立体声端点上由系统下混发声 |
 
@@ -775,7 +868,7 @@ scratch 也会让这个指标凭空变大——而它要回答的是「实时性
 | 引擎骨架、状态机、命令与事件 | 完成（`engine.rs`） |
 | SPSC 环形缓冲 | 完成（`ring.rs`） |
 | `OutputBackend` trait、CPAL 共享输出、`NullOutput` | 完成（`output/`） |
-| Symphonia 解码：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis / MKV | 完成（`decode.rs`），全部纳入格式矩阵测试 |
+| Symphonia 解码：ALAC / AAC / FLAC / MP3 / WAV / AIFF / CAF / Vorbis / MKV，外加经适配器接入的 Opus（Ogg / WebM / Matroska） | 完成（`decode.rs`），全部纳入格式矩阵测试 |
 | 播放 / 暂停 / seek / 音量（带斜坡） | 完成 |
 | 声道布局与布局来源自解码起点进类型 | 完成（`layout.rs`） |
 | 立体声与单声道上混 | 完成（`mix.rs`） |

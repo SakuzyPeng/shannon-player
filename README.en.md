@@ -55,10 +55,10 @@ No official release yet. To try it early, build from source — see the
 - [x] Settings page
 - [x] First-run onboarding (welcome / scanning / done)
 - [x] Local library scanning (stable track IDs, album and compilation grouping, cover art, metadata editing)
-- [x] Real audio playback (ALAC / FLAC / AAC / MP3 / WAV / AIFF / Vorbis and more, stereo path)
+- [x] Real audio playback (ALAC / FLAC / AAC / MP3 / WAV / AIFF / Vorbis / Opus and more, stereo path)
 - [x] Gapless playback, loudness normalization, output device selection
 - [x] Favorites and playlists that survive a restart
-- [ ] More decoders and link-based importing
+- [ ] Link-based importing
 - [ ] Exclusive output mode
 - [ ] Multichannel and spatial audio (downmix and spatialization left to the OS)
 

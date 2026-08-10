@@ -20,8 +20,10 @@
 ## 环境要求
 
 - Node ≥ 20、pnpm ≥ 10
-- Rust stable ≥ 1.88（桌面壳当前锁定的 Tauri 依赖链要求；`shannon-core` / `shannon-audio` 独立构建仍以 1.85 为基线）、`cargo tauri`（`cargo install tauri-cli` 或使用 `pnpm tauri`）
+- Rust stable ≥ 1.89（`shannon-audio` 的 Opus 解码依赖抬上来的；`shannon-core` 独立构建仍以 1.85 为基线）、`cargo tauri`（`cargo install tauri-cli` 或使用 `pnpm tauri`）
+- **CMake 与 C 编译器**：Opus 解码走 `symphonia-adapter-libopus` 的 `bundled`，它会随包编译 libopus 的 C 源码。换来的是不依赖用户机器上装没装 libopus，代价就是这一项。macOS 用 `brew install cmake`
 - macOS：Xcode Command Line Tools
+- 可选：ffmpeg（只用于生成音频测试语料与试听歌单，见「测试」；没有它那批用例会跳过）
 
 ## 常用命令
 

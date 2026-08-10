@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "香农播放器音频引擎：解码、PCM 管线、输出后端。不依赖 Tauri / GUI。"
 license = "AGPL-3.0-only"
 edition = "2021"
-rust-version = "1.85"
+# 1.89 而非其余 crate 的 1.85：`symphonia-adapter-libopus` 的 MSRV 就是 1.89。
+# 写实际值而不是留着 1.85——声明比依赖低，等于给出一个编译不过的承诺。
+rust-version = "1.89"
 
 [[example]]
 name = "bench_decode"
@@ -13,6 +15,11 @@ test = true
 
 [dependencies]
 symphonia = { version = "0.6.0", features = ["mp3", "isomp4", "alac", "aac", "aiff", "caf"] }
+# Opus 解码（`decode::codecs`）。Symphonia 0.6 覆盖 ogg / mkv **容器**却没有 opus
+# **编码**，正是架构约束设想的「以自定义 Decoder 注册进 CodecRegistry」那类缺口。
+# default feature `bundled` 会随包编译 libopus 的 C 源码：换来的是不依赖用户机器上
+# 装没装 libopus，代价是构建需要 C 编译器，且本 crate 的 MSRV 被它抬到 1.89。
+symphonia-adapter-libopus = "0.3.0"
 cpal = "0.18.1"
 rubato = "4.0.0"
 # 前端契约（`contract.rs`）。serde 与 ts-rs 都不是 GUI 依赖，
