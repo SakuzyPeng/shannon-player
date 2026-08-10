@@ -675,15 +675,21 @@ QoS 就是把判断交给它的正规途径。`audio/examples/bench_decode.rs --
   ASBR 与 `ISpatialAudioClient` 各自拥有的实时入口，必须在对应阶段增加同等级的入口测试与
   边界审查，不能凭这一个文件宣称全部后端安全。
 
-### 顺带查出来的一处指标口径问题
+### 欠载的计量单位是回调，不是分块（已修）
 
-**欠载数按 scratch 分块计，不按回调计。** 设备一次要的样本超过 scratch（8192 帧）时回调会被
-拆成多块，每块各记一次欠载，于是同一次掉音在不同缓冲大小的设备上得到不同的数字，调小
-scratch 也会让这个指标凭空变大——而它要回答的是「实时性够不够」。真机上很少触发（8192 帧
-在 48 kHz 上约 170 ms），所以先把行为钉在用例里
-（`a_starved_callback_currently_counts_one_underrun_per_chunk`）而**没有顺手改掉**：改的是一个
-对外暴露的指标口径，该由维护者定。要改的话，`fill_from_ring` 得改成回报而不是自己累加，
-由 `render_output_callback` 每次回调至多记一次。
+原先 `fill_from_ring` 自己往计数器上加，而设备一次要的样本超过 scratch（8192 帧）时回调会被
+拆成多块，于是同一次掉音在不同缓冲大小的设备上得出不同的数字，调小 scratch 也能让这个指标
+凭空变大——而它要回答的是「实时性够不够」，那个问题的单位就是回调。
+
+改法是把**报告**与**记账**分开：`fill_from_ring` 返回 `FillOutcome { frames, starved }`，
+由 `render_output_callback` 汇总后每次回调至多记一次。用例
+`a_starved_callback_counts_one_underrun_regardless_of_chunking` 用 1 / 4 / 9 块三种分法
+各跑一次，都必须得到 1。
+
+同一次改动里 `fill_from_ring` **收回为私有**：唯一该被后端调用的是 `render_output_callback`。
+这不是洁癖——`tests/playback.rs` 里三个测试后端此前各自在它外面包了一圈打点、分块与样本
+转换，那一圈同样跑在实时线程上却不受任何测试保护，而这个指标口径问题正是从那种复制里
+漂出来的。三个后端已一并改走生产回调体（与 `NullOutput`、CPAL 后端同一条路）。
 
 ## Opus 解码接入（阶段 3）
 

@@ -242,25 +242,32 @@ fn underrun_path_allocates_nothing() {
     assert!(cb.out.iter().all(|s| *s == 0.0), "取不到数据时补零");
 }
 
-/// 记录一处**现有行为**：欠载数按分块计，不按回调计。
+/// 欠载数按**回调**计，与它被拆成几块无关。
 ///
-/// 设备缓冲超过 scratch（8192 帧）时一次回调会被拆成多块，每块各记一次欠载，于是同一次
-/// 掉音在不同设备上得到不同的数字，调小 scratch 也会让这个指标凭空变大——而它要回答的是
-/// 「实时性够不够」。真机上很少触发（8192 帧在 48 kHz 上是 170 ms），所以这里先把行为钉住
-/// 而不是顺手改掉：改动的是一个对外暴露的指标口径，该由维护者定。
+/// 这条曾经是反的：`fill_from_ring` 自己往计数器上加，于是设备缓冲超过 scratch 时
+/// 一次回调被拆成几块就记几次。现在填充层只**报告**饿没饿着（`FillOutcome::starved`），
+/// 由回调这一层汇总后至多记一次。
 #[test]
-fn a_starved_callback_currently_counts_one_underrun_per_chunk() {
-    let (_producer, mut consumer, shared) = full_ring();
-    let mut cb = Callback::with_out_frames(SCRATCH_FRAMES * 4);
+fn a_starved_callback_counts_one_underrun_regardless_of_chunking() {
+    // 分块只是拷贝策略。设备一次要多少样本、scratch 有多大，都不该改变「掉了几次音」
+    // 这个数字——否则同一次掉音会在缓冲更大的设备上被报成好几次，调小 scratch 也能
+    // 凭空把指标抬上去。这个数要回答的是「实时性够不够」，单位就是回调。
+    for chunks in [1, 4, 9] {
+        let (_producer, mut consumer, shared) = full_ring();
+        let mut cb = Callback::with_out_frames(SCRATCH_FRAMES * chunks);
 
-    let counts = cb.run(&mut consumer, &shared);
+        let counts = cb.run(&mut consumer, &shared);
 
-    assert!(counts.is_zero(), "分块欠载路径发生了分配：{counts:?}");
-    assert_eq!(
-        shared.underruns(),
-        4,
-        "当前实现按 scratch 分块计数；改成「一次回调至多一次欠载」时这里要一起改"
-    );
+        assert!(
+            counts.is_zero(),
+            "分 {chunks} 块的欠载路径发生了分配：{counts:?}"
+        );
+        assert_eq!(
+            shared.underruns(),
+            1,
+            "一次饿死的回调只算一次欠载，与它被拆成 {chunks} 块无关"
+        );
+    }
 }
 
 #[test]
