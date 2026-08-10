@@ -366,6 +366,90 @@ pub fn ramp_step_for(sample_rate: u32) -> f32 {
     1.0 / (sample_rate as f32 * GAIN_RAMP_MS / 1000.0).max(1.0)
 }
 
+/// 一次输出回调里**我们自己写的那一整段**：打点、设备延迟、分块填充、样本格式转换。
+///
+/// 从 CPAL 的闭包里提出来，是为了让它能被直接调用——[`fill_from_ring`] 只是其中的填充
+/// 核心，把它的边界当成整个回调会漏掉外面这一圈（时间戳换算、分块、`from_sample` 转换），
+/// 而那一圈同样跑在实时线程上。测试测的必须是这个生产函数本身，复制一份近似实现去测，
+/// 测的就是那份复制品。真实 CPAL 闭包因此只剩两件事：把设备缓冲和时间戳递进来。
+///
+/// `scratch` 由调用方在**建流时**预分配（回调内禁止分配）；回调请求超过它时分块处理，
+/// 所以它的大小只影响拷贝次数，不影响正确性。
+///
+/// `delay_frames` 是取设备延迟的闭包，按泛型传入而不是 `Box<dyn Fn>`：装箱要在建流时
+/// 分配一次，更要紧的是它会把「回调里能调什么」这件事藏进一个动态类型背后。它在
+/// `begin_callback` **之后**调用——打点必须先于读时间戳，控制线程据此判断这次回调是否
+/// 已经开始搬运数据。
+///
+/// 样本转换沿用 `cpal::FromSample`，不另立一个 trait：后端支持 f32 / i32 / i16 / u16 / u8
+/// 五种格式，自己实现一遍等于维护一份可能与 cpal 不一致的近似转换，而 `shannon-audio`
+/// 本来就无条件依赖 cpal，换个 trait 省不掉这个依赖。
+#[inline]
+pub fn render_output_callback<T, F>(
+    out: &mut [T],
+    state: &mut CallbackState,
+    consumer: &mut RingConsumer,
+    shared: &OutputShared,
+    delay_frames: F,
+) where
+    T: Copy + cpal::FromSample<f32>,
+    F: FnOnce() -> u64,
+{
+    shared.begin_callback();
+    // 设备延迟：播放时刻与回调时刻之差。播放位置要扣掉它，
+    // 否则歌词逐字高亮会系统性偏早（共享模式延迟普遍数十毫秒）。
+    shared.set_output_delay_frames(delay_frames());
+
+    let chunk_samples = state.scratch.len();
+    let mut written = 0;
+    let mut audio_frames = 0usize;
+    while written < out.len() {
+        let n = (out.len() - written).min(chunk_samples);
+        let block = &mut state.scratch[..n];
+        audio_frames += fill_from_ring(
+            block,
+            state.channels,
+            consumer,
+            shared,
+            &mut state.gain,
+            state.ramp_step,
+        );
+        for (dst, src) in out[written..written + n].iter_mut().zip(block.iter()) {
+            *dst = T::from_sample_(*src);
+        }
+        written += n;
+    }
+    shared.finish_callback(audio_frames);
+}
+
+/// 一条输出流在回调之间保持的状态。
+///
+/// 单独立成一个类型，是因为这几项恰好共享同一条性质：**建流时就得备好，回调里一个都不能
+/// 现造**。散成参数时它只是「函数签名有点长」，聚起来才看得出它就是被验证的那条不变量
+/// （见 `tests/realtime_discipline.rs`）——往回调里加东西时，该问的是「它能不能放进这里」。
+pub struct CallbackState {
+    /// 分块用的中间缓冲。设备一次要的样本可能超过它，那时分块处理，
+    /// 所以它的大小只影响拷贝次数，不影响正确性。
+    scratch: Vec<f32>,
+    channels: usize,
+    ramp_step: f32,
+    /// 当前增益。回调是它唯一的读写者，因此不必是原子量。
+    gain: f32,
+}
+
+impl CallbackState {
+    /// `scratch_frames` 是分块上限，按后端自己的取值给。
+    pub fn new(channels: usize, sample_rate: u32, scratch_frames: usize) -> Self {
+        Self {
+            scratch: vec![0.0; scratch_frames * channels],
+            channels,
+            ramp_step: ramp_step_for(sample_rate),
+            // 从零起步：新流的第一个回调要把音量斜坡上来，直接给目标值会有爆音。
+            gain: 0.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
