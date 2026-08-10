@@ -199,6 +199,7 @@ export interface Messages {
   "menu.newPlaylist": string;
   "playlist.updatedNow": string;
   "playlist.updatedOn": string; // {d}
+  "playlist.updatedRelative": string; // {r}，r 由 Intl.RelativeTimeFormat 生成
   "playlist.updatedUnknown": string;
   "playlist.newDefaultName": string;
   "menu.favorite": string;
@@ -229,9 +230,11 @@ export interface Messages {
   "playlist.noTracksBody": string;
   "playlist.emptyTryGlobal": string;
   "playlist.emptyGlobalSearch": string;
-  "playlist.rename": string;
-  "playlist.renameTitle": string;
+  "playlist.edit": string;
+  "playlist.editTitle": string;
   "playlist.renameLabel": string;
+  "playlist.descriptionLabel": string;
+  "playlist.descriptionPlaceholder": string;
   "playlist.delete": string;
   "playlist.deleteTitle": string;
   "playlist.deleteBody": string; // {title}
@@ -481,6 +484,7 @@ const zhHans: Messages = {
   "menu.newPlaylist": "新建歌单并加入",
   "playlist.updatedNow": "今天更新",
   "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedRelative": "{r}更新",
   "playlist.updatedUnknown": "更新时间未知",
   "playlist.newDefaultName": "新歌单",
   "menu.favorite": "收藏",
@@ -511,9 +515,11 @@ const zhHans: Messages = {
   "playlist.noTracksBody": "在曲库里右键任意歌曲，选择「加入歌单」。",
   "playlist.emptyTryGlobal": "试试 ",
   "playlist.emptyGlobalSearch": "在整个曲库中搜索",
-  "playlist.rename": "重命名…",
-  "playlist.renameTitle": "重命名歌单",
+  "playlist.edit": "编辑…",
+  "playlist.editTitle": "编辑歌单",
   "playlist.renameLabel": "歌单名称",
+  "playlist.descriptionLabel": "简介",
+  "playlist.descriptionPlaceholder": "选填，说说这份歌单是什么",
   "playlist.delete": "删除歌单",
   "playlist.deleteTitle": "删除歌单？",
   "playlist.deleteBody": "「{title}」将被永久删除，此操作无法撤销。歌单内的歌曲不会从曲库中移除。",
@@ -756,6 +762,7 @@ const zhHant: Messages = {
   "menu.newPlaylist": "新增歌單並加入",
   "playlist.updatedNow": "今天更新",
   "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedRelative": "{r}更新",
   "playlist.updatedUnknown": "更新時間未知",
   "playlist.newDefaultName": "新歌單",
   "menu.favorite": "收藏",
@@ -786,9 +793,11 @@ const zhHant: Messages = {
   "playlist.noTracksBody": "在曲庫裡右鍵任一歌曲，選擇「加入歌單」。",
   "playlist.emptyTryGlobal": "試試 ",
   "playlist.emptyGlobalSearch": "在整個曲庫中搜尋",
-  "playlist.rename": "重新命名…",
-  "playlist.renameTitle": "重新命名歌單",
+  "playlist.edit": "編輯…",
+  "playlist.editTitle": "編輯歌單",
   "playlist.renameLabel": "歌單名稱",
+  "playlist.descriptionLabel": "簡介",
+  "playlist.descriptionPlaceholder": "選填，說說這份歌單是什麼",
   "playlist.delete": "刪除歌單",
   "playlist.deleteTitle": "刪除歌單？",
   "playlist.deleteBody": "「{title}」將被永久刪除，此操作無法復原。歌單內的歌曲不會從曲庫中移除。",
@@ -1031,6 +1040,7 @@ const en: Messages = {
   "menu.newPlaylist": "New playlist with this",
   "playlist.updatedNow": "Updated today",
   "playlist.updatedOn": "Updated {d}",
+  "playlist.updatedRelative": "Updated {r}",
   "playlist.updatedUnknown": "Update time unknown",
   "playlist.newDefaultName": "New Playlist",
   "menu.favorite": "Favorite",
@@ -1061,9 +1071,11 @@ const en: Messages = {
   "playlist.noTracksBody": "Right-click any song in your library and choose “Add to Playlist”.",
   "playlist.emptyTryGlobal": "Try ",
   "playlist.emptyGlobalSearch": "searching the whole library",
-  "playlist.rename": "Rename…",
-  "playlist.renameTitle": "Rename playlist",
+  "playlist.edit": "Edit…",
+  "playlist.editTitle": "Edit playlist",
   "playlist.renameLabel": "Playlist name",
+  "playlist.descriptionLabel": "Description",
+  "playlist.descriptionPlaceholder": "Optional — what this playlist is for",
   "playlist.delete": "Delete playlist",
   "playlist.deleteTitle": "Delete playlist?",
   "playlist.deleteBody": "“{title}” will be deleted permanently. This cannot be undone; the songs stay in your library.",
@@ -1306,6 +1318,7 @@ const ja: Messages = {
   "menu.newPlaylist": "新規プレイリストに追加",
   "playlist.updatedNow": "今日更新",
   "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedRelative": "{r}に更新",
   "playlist.updatedUnknown": "更新日時不明",
   "playlist.newDefaultName": "新しいプレイリスト",
   "menu.favorite": "お気に入り",
@@ -1336,9 +1349,11 @@ const ja: Messages = {
   "playlist.noTracksBody": "ライブラリで曲を右クリックし、「プレイリストに追加」を選んでください。",
   "playlist.emptyTryGlobal": "",
   "playlist.emptyGlobalSearch": "ライブラリ全体を検索",
-  "playlist.rename": "名前を変更…",
-  "playlist.renameTitle": "プレイリスト名を変更",
+  "playlist.edit": "編集…",
+  "playlist.editTitle": "プレイリストを編集",
   "playlist.renameLabel": "プレイリスト名",
+  "playlist.descriptionLabel": "説明",
+  "playlist.descriptionPlaceholder": "任意。このプレイリストについて",
   "playlist.delete": "プレイリストを削除",
   "playlist.deleteTitle": "プレイリストを削除しますか？",
   "playlist.deleteBody": "「{title}」を完全に削除します。取り消せません。曲はライブラリに残ります。",

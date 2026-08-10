@@ -492,7 +492,14 @@ interface PlayerState {
   /** 用新顺序替换歌单列表本身（歌单页拖拽重排，即「自定义顺序」）。 */
   reorderPlaylists: (playlists: Playlist[]) => void;
   /** 重命名歌单。 */
-  renamePlaylist: (playlistId: Id, title: string) => void;
+  /**
+   * 改歌单的名称与简介。
+   *
+   * 两者一起提交而不是各来一个动作：它们在同一个对话框里编辑，分开写等于把一次编辑
+   * 拆成两趟落库，中间失败就会留下「名字改了简介没改」这种半截状态。简介**允许为空**
+   * ——那是清空，不是没填。
+   */
+  editPlaylist: (playlistId: Id, edits: { title: string; description: string }) => void;
   /** 删除歌单（同时清掉它的收藏标记）。 */
   deletePlaylist: (playlistId: Id) => void;
   setVolume: (v: number) => void;
@@ -1084,10 +1091,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     );
   },
 
-  renamePlaylist: (playlistId, title) => {
+  editPlaylist: (playlistId, { title, description }) => {
     const target = get().playlists.find((p) => p.id === playlistId);
     if (!target) return;
-    writePlaylist({ ...target, title });
+    writePlaylist({ ...target, title, description });
   },
 
   deletePlaylist: (playlistId) => {

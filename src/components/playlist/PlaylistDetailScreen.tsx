@@ -85,7 +85,7 @@ function PlaylistMoreMenu({
           className="surface-corners animate-menu-pop menu-shadow z-50 w-[222px] origin-top-left rounded-[14px] border border-bd bg-srf p-1.5"
         >
           <DropdownMenu.Item onSelect={onRename} className={cn(MORE_ITEM, "text-tx")}>
-            <span>{t("playlist.rename")}</span>
+            <span>{t("playlist.edit")}</span>
           </DropdownMenu.Item>
           <DropdownMenu.Item
             onSelect={() => [...playlist.tracks].reverse().forEach(enqueueNext)}
@@ -265,7 +265,7 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
   const { dialog: editDialog, editTrack } = useMetadataEditor();
   const reorderPlaylist = usePlayerStore((s) => s.reorderPlaylist);
   const removeFromPlaylist = usePlayerStore((s) => s.removeFromPlaylist);
-  const renamePlaylist = usePlayerStore((s) => s.renamePlaylist);
+  const editPlaylist = usePlayerStore((s) => s.editPlaylist);
   const deletePlaylist = usePlayerStore((s) => s.deletePlaylist);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -594,11 +594,16 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
       <PromptDialog
         open={renameOpen}
         onOpenChange={setRenameOpen}
-        title={t("playlist.renameTitle")}
+        title={t("playlist.editTitle")}
         label={t("playlist.renameLabel")}
         initialValue={playlist.title}
+        note={{
+          label: t("playlist.descriptionLabel"),
+          initialValue: playlist.description,
+          placeholder: t("playlist.descriptionPlaceholder"),
+        }}
         confirmLabel={t("dialog.save")}
-        onConfirm={(title) => renamePlaylist(playlistId, title)}
+        onConfirm={(title, description) => editPlaylist(playlistId, { title, description })}
       />
       <ConfirmDialog
         open={deleteOpen}
