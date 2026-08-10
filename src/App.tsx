@@ -7,6 +7,7 @@ import { NoticeBar } from "@/components/common/NoticeBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { useLoudnessQueue } from "@/hooks/useLoudnessQueue";
+import { useLocalDayRefresh } from "@/hooks/useLocalDayRefresh";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
 import { usePersistSession } from "@/hooks/usePersistSession";
 import { usePersistSettings } from "@/hooks/usePersistSettings";
@@ -152,6 +153,7 @@ export default function App() {
   usePersistSession();
   usePersistSettings();
   useLoudnessQueue();
+  useLocalDayRefresh();
   useSyncNext();
   useSyncDevice();
   useRestoreLibrary();

@@ -448,9 +448,11 @@ export function PlaylistDetailScreen({ playlistId }: { playlistId: Id }) {
                   </span>
                 )}
               </div>
-              <div className="max-w-[520px] text-[13.5px] leading-[1.6] text-tx2">
-                {playlist.description}
-              </div>
+              {playlist.description && (
+                <div className="max-w-[520px] whitespace-pre-line text-[13.5px] leading-[1.6] text-tx2">
+                  {playlist.description}
+                </div>
+              )}
               <div className="text-[13px] text-tx2">{meta}</div>
               <div className="mt-2 flex items-center gap-3">
                 {/* 空歌单是常态（刚建的还没加歌），两个钮一并置灰，
