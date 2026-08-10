@@ -70,6 +70,26 @@ function uniqueTracksById(tracks: Track[], seen = new Set<Id>()): Track[] {
   });
 }
 
+/** 保留首次出现的 ID，并把已有 ID 视为占用。 */
+function uniqueIds(ids: Id[], seen = new Set<Id>()): Id[] {
+  return ids.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/** 按权威 ID 顺序挑出当前能水合到的曲目；暂时查不回的 ID 仍留在调用方的列表里。 */
+function tracksForIds(ids: Id[], tracks: Track[]): Track[] {
+  const byId = new Map(tracks.map((track) => [track.id, track]));
+  return ids.map((id) => byId.get(id)).filter((track): track is Track => track !== undefined);
+}
+
+/** 真引擎不能把没有文件路径的种子演示曲目写进用户歌单。 */
+function containsNativeDemoTrack(tracks: Track[]): boolean {
+  return engine.requiresPath && tracks.some((track) => !track.path);
+}
+
 export const EMPTY_FAVORITES: Favorites = {
   tracks: [],
   albumGroups: [],
@@ -430,15 +450,24 @@ interface PlayerState {
   recomputeFavoriteAlbums: () => void;
   /** 按当前曲库重新水合歌单曲目。与上一条同理，曲库一换就要重来。 */
   rehydratePlaylists: () => void;
-  /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）。 */
-  addToPlaylist: (playlistId: Id, tracks: Track[]) => void;
+  /**
+   * 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）。
+   *
+   * `sourceTrackIds` 用于整单操作：其中可能含当前曲库暂时水合不到的曲目，不能拿
+   * `tracks` 这个可见子集替代。普通单曲/专辑调用可省略。
+   */
+  addToPlaylist: (playlistId: Id, tracks: Track[], sourceTrackIds?: Id[]) => void;
   /**
    * 新建并收藏歌单后加入曲目；名称默认「新歌单」，重名自动加序号。
    *
    * 返回新歌单 ID，后端建不出来时返回 `null`。**要等一次 IPC**：ID 由后端发号，
    * 先摆一个临时 ID 的话，用户在回执到达前点进详情页看到的就是一个马上会消失的歌单。
    */
-  createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Promise<Id | null>;
+  createPlaylistWithTracks: (
+    baseName: string,
+    tracks: Track[],
+    sourceTrackIds?: Id[],
+  ) => Promise<Id | null>;
   /** 从歌单移除曲目。 */
   removeFromPlaylist: (playlistId: Id, trackId: Id) => void;
   /** 用新顺序替换歌单曲目（拖拽重排）。 */
@@ -921,21 +950,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   rehydratePlaylists: () => set((s) => ({ playlists: rehydratePlaylists(s.playlists) })),
 
-  addToPlaylist: (playlistId, tracks) => {
+  addToPlaylist: (playlistId, tracks, sourceTrackIds) => {
+    if (containsNativeDemoTrack(tracks)) {
+      set({ needsLibrary: true, error: null });
+      return;
+    }
     const target = get().playlists.find((p) => p.id === playlistId);
     if (!target) return;
     // 去重按**落盘的全部 ID**判，不只看水合出来的那些：某首歌暂时查不回本体时，
     // 只比对 tracks 会让它被再加一遍，文件回来后歌单里就出现两条。
-    const added = uniqueTracksById(tracks, new Set(target.trackIds));
-    if (added.length === 0) return;
+    const addedIds = uniqueIds(
+      sourceTrackIds ?? tracks.map((track) => track.id),
+      new Set(target.trackIds),
+    );
+    if (addedIds.length === 0) return;
+    const trackIds = [...target.trackIds, ...addedIds];
     writePlaylist({
       ...target,
-      trackIds: [...target.trackIds, ...added.map((track) => track.id)],
-      tracks: [...target.tracks, ...added],
+      trackIds,
+      tracks: tracksForIds(trackIds, [...target.tracks, ...tracks]),
     });
   },
 
-  createPlaylistWithTracks: async (baseName, tracks) => {
+  createPlaylistWithTracks: async (baseName, tracks, sourceTrackIds) => {
+    if (containsNativeDemoTrack(tracks)) {
+      set({ needsLibrary: true, error: null });
+      return null;
+    }
     // 重名自动加序号：新歌单 / 新歌单 2 / 新歌单 3 …
     const names = new Set([
       ...get().playlists.map((p) => p.title),
@@ -944,8 +985,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     let title = baseName;
     for (let n = 2; names.has(title); n++) title = `${baseName} ${n}`;
     pendingPlaylistTitles.add(title);
-    const unique = uniqueTracksById(tracks);
-    const trackIds = unique.map((track) => track.id);
+    const trackIds = uniqueIds(sourceTrackIds ?? tracks.map((track) => track.id));
+    const unique = tracksForIds(trackIds, uniqueTracksById(tracks));
 
     try {
       // 排进同一条 FIFO：紧接着要收藏它，两笔的先后不能靠 IPC 到达顺序碰运气。

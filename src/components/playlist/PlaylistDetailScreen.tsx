@@ -109,7 +109,9 @@ function PlaylistMoreMenu({
                   .map((p) => (
                     <DropdownMenu.Item
                       key={p.id}
-                      onSelect={() => addTracksToPlaylistArg(p.id, playlist.tracks, "")}
+                      onSelect={() =>
+                        addTracksToPlaylistArg(p.id, playlist.tracks, "", playlist.trackIds)
+                      }
                       className={cn(MORE_ITEM, "text-tx")}
                     >
                       <span className="min-w-0 truncate">{p.title}</span>
@@ -125,6 +127,7 @@ function PlaylistMoreMenu({
                       NEW_PLAYLIST,
                       playlist.tracks,
                       t("playlist.newDefaultName"),
+                      playlist.trackIds,
                     )
                   }
                   className={cn(MORE_ITEM, "font-semibold text-ac")}

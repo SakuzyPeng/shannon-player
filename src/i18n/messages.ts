@@ -554,7 +554,7 @@ const zhHans: Messages = {
   "player.error.deviceConfig": "输出设备不支持这首歌的声道配置",
   "player.error.stream": "音频输出中断，设备可能已被拔出或被其它应用占用",
   "player.error.dismiss": "知道了",
-  "player.needsLibrary": "这是演示曲目。添加音乐文件夹后即可播放你自己的音乐。",
+  "player.needsLibrary": "这是演示曲目。添加音乐文件夹后即可使用你自己的音乐。",
 
   "window.close": "关闭",
   "window.minimize": "最小化",
@@ -823,7 +823,7 @@ const zhHant: Messages = {
   "player.error.deviceConfig": "輸出裝置不支援這首歌的聲道配置",
   "player.error.stream": "音訊輸出中斷，裝置可能已被拔除或被其它應用佔用",
   "player.error.dismiss": "知道了",
-  "player.needsLibrary": "這是示範曲目。加入音樂資料夾後即可播放你自己的音樂。",
+  "player.needsLibrary": "這是示範曲目。加入音樂資料夾後即可使用自己的音樂。",
 
   "window.close": "關閉",
   "window.minimize": "最小化",
@@ -1092,7 +1092,7 @@ const en: Messages = {
   "player.error.deviceConfig": "The output device doesn't support this track's channel layout",
   "player.error.stream": "Audio output stopped — the device may have been unplugged or taken by another app",
   "player.error.dismiss": "Got it",
-  "player.needsLibrary": "This is a demo track. Add a music folder to play your own library.",
+  "player.needsLibrary": "This is a demo track. Add a music folder to use your own library.",
 
   "window.close": "Close",
   "window.minimize": "Minimize",
@@ -1361,7 +1361,7 @@ const ja: Messages = {
   "player.error.deviceConfig": "出力デバイスがこの曲のチャンネル構成に対応していません",
   "player.error.stream": "オーディオ出力が中断されました。デバイスが取り外されたか、他のアプリが使用中の可能性があります",
   "player.error.dismiss": "了解",
-  "player.needsLibrary": "これはデモ曲です。音楽フォルダを追加すると自分のライブラリを再生できます。",
+  "player.needsLibrary": "これはデモ曲です。音楽フォルダを追加すると自分のライブラリを利用できます。",
 
   "window.close": "閉じる",
   "window.minimize": "最小化",
