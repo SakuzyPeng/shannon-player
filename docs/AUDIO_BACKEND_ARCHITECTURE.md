@@ -268,10 +268,10 @@ CPAL」的划法只考虑了空间内容需要布局标签，忽略了下混同�
   `alac`、`aac` 均不在 default feature 内，需显式开启。
 - **Opus 解码器选型**：`symphonia-adapter-libopus`，即架构设想的「libopus 绑定包装为
   Symphonia 自定义 Decoder」的现成实现。其 default feature 为 `bundled`（编译 C 源码），
-  三平台构建需实测。**2026-08-10 接入**：macOS（aarch64）实测可构建，`bundled` 经
-  `opusic-sys` 用 CMake 编译 libopus，因此构建机需要 C 编译器与 `cmake`；
-  Windows / Linux 尚未实测。该 crate 的 MSRV 为 1.89，`shannon-audio` 的
-  `rust-version` 随之从 1.85 提至 1.89，依赖它的桌面壳同步提至 1.89。
+  **2026-08-10 接入**：`bundled` 经 `opusic-sys` 用 CMake 编译 libopus，因此构建机
+  需要 C 编译器与 `cmake`。**构建验证范围：macOS aarch64**，其余平台没有结论。
+  该 crate 的 MSRV 为 1.89，`shannon-audio` 的 `rust-version` 随之从 1.85 提至 1.89，
+  依赖它的桌面壳同步提至 1.89。
 - **CPAL 与平台后端边界**：共享模式的**立体声**（含单声道上混）归 CPAL；**一切多声道**
   —— 无论是否带对象元数据 —— 连同独占、直通、空间路由、热插拔归平台实现。
   多声道之所以整体划出去，是因为下混与空间化都依赖布局标签，而 CPAL 表达不了布局

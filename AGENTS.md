@@ -51,7 +51,7 @@ window.__shannon.library.getState().setLibrary(snap);
 
 ## 架构
 
-三层结构：前端 + Tauri 薄壳 + 纯逻辑 Rust core，cargo workspace（`Cargo.toml` 成员 `core`、`src-tauri`）与 pnpm scripts 串联。
+分层结构：前端 + Tauri 薄壳 + 两个纯逻辑 Rust crate，cargo workspace（`Cargo.toml` 成员 `audio`、`core`、`src-tauri`）与 pnpm scripts 串联。
 
 - **`src/`** —— React 19 + TypeScript + Vite 前端，承载全部 UI 与交互逻辑。
 - **`src-tauri/`** —— Tauri 外壳，只做四件事：注册命令（扫描 / 取曲库 / 取音乐文件夹 / 取封面目录 / 元数据改写与还原 / 播放控制）、把 core 与 audio 的回调转成 Tauri event（`library://scan-progress`、`player://event`）、用 `LibraryState` 持有扫描缓存与覆盖层、把状态落到应用数据目录（曲库与元数据覆盖在 SQLite 的 `library.db`，见下文「曲库数据库」；`playback-session.json` / `loudness-analysis.json` / `ui-settings.json` 仍是原子写的 JSON；封面缩略图在同目录的 `covers/`）。封面经 asset 协议加载，因此 `tauri.conf.json` 开了 `assetProtocol`（scope 限定 `$APPDATA/covers/**`）且 `Cargo.toml` 需带 `protocol-asset` feature。此外负责窗口：macOS 用系统标题栏（`titleBarStyle: "Overlay"`），Windows / Linux 无边框（`decorations: false`）＋透明＋自绘交通灯（`src/components/window/TrafficLights.tsx` 经 `@tauri-apps/api/window` 调原生窗口控制，权限声明在 `src-tauri/capabilities/default.json`），详见下文「窗口外观按平台分两套」。**业务逻辑不写在这里。** 几份落盘数据的重要性不同，处理方式也不同：缓存可重建（损坏就重扫）；**覆盖层不可重建**（用户手改的元数据，损坏时保留 `.corrupt` 残骸而非静默覆盖——数据库时代由 `LibraryDb::open` 接着守这条）；播放会话可重建但用户会在意（丢了重新点一次歌，可每次重启都丢很烦），读取失败一律**静默当作没有会话**——为一份能随手重建的数据弹错误框，打扰的成本高于它本身的价值；响度分析结果性质介于两者之间（可重建，但重建代价是全库解码一遍），读不懂时当空但不留 `.corrupt` 残骸——那种残骸只对用户手改过的数据有意义。

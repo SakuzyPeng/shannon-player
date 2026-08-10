@@ -696,8 +696,9 @@ Symphonia。做法是自建一份注册表（`decode::codecs()`）——`symphon
 **构建代价**：`symphonia-adapter-libopus` 的 default feature `bundled` 经 `opusic-sys`
 用 CMake 编译 libopus 的 C 源码，因此构建机需要 C 编译器与 `cmake`。换来的是不依赖
 用户机器上装没装 libopus。该 crate 的 MSRV 是 1.89，`shannon-audio` 的 `rust-version`
-随之从 1.85 提至 1.89，依赖它的桌面壳同步提至 1.89（`shannon-core` 仍是 1.85）。macOS aarch64 实测可构建，
-**Windows / Linux 尚未实测**。
+随之从 1.85 提至 1.89，依赖它的桌面壳同步提至 1.89（`shannon-core` 仍是 1.85）。
+**构建验证范围：macOS aarch64**——引入 C 依赖后「能不能构建」不再是每台机器都一样的事，
+所以这里写的是验证到哪儿为止，不代表其余平台的任何结论。
 
 多声道 Opus 会在建解码器时得到能力错误（适配器只接受 1~2 声道）——这与「多声道整体
 划归平台原生后端」是同一条边界，不是缺陷。
@@ -843,7 +844,7 @@ pre-skip 的 reset 语义，避免只测「刚打开就定位」而漏掉运行�
 | --- | --- |
 | 最低 Rust 版本 | `shannon-core` **1.85**（Symphonia 0.6 与曲库 SQLite 依赖链的共同基线）；`shannon-audio` **1.89**（接入 Opus 后由 `symphonia-adapter-libopus` 抬上去的）；桌面应用整体 **1.89** |
 | Symphonia 版本与 feature 集 | **已定 0.6.0**，实际启用 `mp3` / `isomp4` / `alac` / `aac`（`flac` / `wav` / `pcm` 在 default 内）。与 `shannon-core` 的 0.5.5 **并存**，见下节 |
-| Opus 解码器选型 | **已定并已接入 `symphonia-adapter-libopus` 0.3**，正是本文设想的集成方式的现成实现；`bundled` 经 CMake 编译 libopus，构建机需 C 编译器与 `cmake`，MSRV 1.89。macOS aarch64 实测可构建，**Windows / Linux 待实测** |
+| Opus 解码器选型 | **已定并已接入 `symphonia-adapter-libopus` 0.3**，正是本文设想的集成方式的现成实现；`bundled` 经 CMake 编译 libopus，构建机需 C 编译器与 `cmake`，MSRV 1.89。**构建验证范围：macOS aarch64** |
 | 是否需要 `ffmpeg-next` | 维持架构约束原判：仅当插件式解码仍覆盖不了且格式收益明确时评估 |
 | CPAL 与平台后端边界 | 以 `OutputBackend` trait 为界：共享模式的**立体声**（含单声道上混）归 CPAL；一切多声道、独占、直通、空间路由与热插拔归平台实现 |
 | 导入用 FFmpeg 裁剪与打包 | 维持待定，属 ImportService（阶段 3）前的决策点 |
