@@ -91,7 +91,10 @@ pub struct AudioFormat {
     pub bit_depth: Option<u8>,
     pub bitrate_kbps: Option<u32>,
     pub lossless: Option<bool>,
-    pub channels: u8,
+    /// 声道数。**判不出留空，不拿 0 冒充**——0 声道的音频不存在，填 0 只会让界面
+    /// 有朝一日显示成「0 声道」，与 `Album.year` 当年填 0 显示成「0 年」是同一个错误。
+    /// 实测 core 用的 symphonia 0.5 在 webm/opus 上就读不出声道数。
+    pub channels: Option<u8>,
     /// 扬声器位置位掩码（FFmpeg 口径），布局的权威来源。
     pub channel_mask: Option<u32>,
     pub channel_layout: Option<ChannelLayout>,
@@ -106,7 +109,10 @@ pub struct AudioFormat {
 /// v3：`codec` 认不出时不再回落成容器名，改为留空并记 `codec:unrecognized`。
 /// 版本必须跟着走——v2 扫出来的条目里，凡是 codec 等于容器名的都分不清「真是这个编码」
 /// 还是「当年没认出来」，只有靠版本号才能把它们捞回来重扫。
-pub const PROBE_VERSION: u32 = 3;
+///
+/// v4：时长优先按容器 `time_base` 解释。Symphonia 0.5 的 Matroska reader 把 `n_frames`
+/// 记成时间戳刻度，旧版按采样率相除会把 2 秒文件误报成约 42 ms；已有 MKA 缓存也必须重扫。
+pub const PROBE_VERSION: u32 = 4;
 
 /// 封面：占位渐变（首字母）或真实图片。与前端 `Cover` 对齐。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

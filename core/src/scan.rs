@@ -225,7 +225,11 @@ fn cached_cover_is_ready(track: &RawTrack, cover_dir: Option<&Path>) -> bool {
 fn raw_track(path: PathBuf, p: Probed, stat: FileStat) -> RawTrack {
     let fp = FormatFingerprint {
         codec: &p.format.codec,
-        channels: p.format.channels,
+        // **这里的 0 是刻意保留的哨兵**，与「判不出留空」不冲突：指纹的每个字节都进
+        // 曲目 ID 的哈希，改成别的值 = 全库 ID 变化 = 用户的收藏、歌单与元数据修改
+        // 全部失联（见 `core/src/id.rs` 顶部）。声道数读不出来时此前就是 0，
+        // 保持 0 才能让既有 ID 逐字节不变。
+        channels: p.format.channels.unwrap_or(0),
         sample_rate_hz: p.format.sample_rate_hz,
         channel_mask: p.format.channel_mask,
     };
@@ -770,7 +774,7 @@ fn dedupe_within_album(pending: &[Pending], idxs: &[usize]) -> (Vec<usize>, u32)
         encoding: Encoding,
         sample_rate_hz: u32,
         bit_depth: Option<u8>,
-        channels: u8,
+        channels: Option<u8>,
         channel_mask: Option<u32>,
         spatial: Option<SpatialFormat>,
     }
@@ -1388,7 +1392,7 @@ mod tests {
             bit_depth: Some(16),
             bitrate_kbps: None,
             lossless: Some(true),
-            channels: 2,
+            channels: Some(2),
             channel_mask: Some(3),
             channel_layout: Some(crate::model::ChannelLayout::Stereo),
             spatial: None,
@@ -2081,7 +2085,7 @@ mod tests {
             48000,
             Some(24),
         );
-        five_one.format.channels = 6;
+        five_one.format.channels = Some(6);
         five_one.format.channel_mask = Some(0x3f);
 
         let mut six_zero = five_one.clone();
@@ -2095,7 +2099,7 @@ mod tests {
             48000,
             None,
         );
-        bed.format.channels = 6;
+        bed.format.channels = Some(6);
         bed.format.channel_mask = Some(0x3f);
 
         let mut atmos = bed.clone();

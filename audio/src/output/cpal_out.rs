@@ -20,8 +20,8 @@ use cpal::{Device, DeviceId, FromSample, SampleFormat, SizedSample, Stream, Stre
 
 use crate::error::{EngineError, ErrorKind, Result, Stage};
 use crate::output::{
-    fill_from_ring, ramp_step_for, DeviceEnumerator, DeviceInfo, OutputBackend, OutputConfig,
-    OutputRequest, OutputShared,
+    render_output_callback, CallbackState, DeviceEnumerator, DeviceInfo, OutputBackend,
+    OutputConfig, OutputRequest, OutputShared,
 };
 use crate::ring::RingConsumer;
 
@@ -204,43 +204,23 @@ where
 {
     let channels = config.channels as usize;
     let sample_rate = config.sample_rate;
-    let ramp_step = ramp_step_for(sample_rate);
-    let mut scratch = vec![0.0f32; SCRATCH_FRAMES * channels];
-    let mut gain = 0.0f32;
+    // 回调要用的一切都在这里备齐，之后回调内不再分配。
+    let mut state = CallbackState::new(channels, sample_rate, SCRATCH_FRAMES);
 
     device
         .build_output_stream(
             *config,
+            // 这里只做两件事：把设备缓冲与时间戳递进去。回调体本身是
+            // `render_output_callback`，那是实时纪律的被测对象
+            // （`tests/realtime_discipline.rs` 测的就是它，不是它的一份复制品）。
             move |out: &mut [T], info: &cpal::OutputCallbackInfo| {
-                shared.begin_callback();
-                // 设备延迟：播放时刻与回调时刻之差。播放位置要扣掉它，
-                // 否则歌词逐字高亮会系统性偏早（共享模式延迟普遍数十毫秒）。
-                let ts = info.timestamp();
-                let delay = ts.playback.duration_since(ts.callback);
-                let frames = (delay.as_secs_f64() * sample_rate as f64) as u64;
-                shared.set_output_delay_frames(frames);
-
-                // 回调请求可能超过 scratch，分块处理——分配是绝对禁止的。
-                let chunk_samples = scratch.len();
-                let mut written = 0;
-                let mut audio_frames = 0usize;
-                while written < out.len() {
-                    let n = (out.len() - written).min(chunk_samples);
-                    let block = &mut scratch[..n];
-                    audio_frames += fill_from_ring(
-                        block,
-                        channels,
-                        &mut consumer,
-                        &shared,
-                        &mut gain,
-                        ramp_step,
-                    );
-                    for (dst, src) in out[written..written + n].iter_mut().zip(block.iter()) {
-                        *dst = T::from_sample(*src);
-                    }
-                    written += n;
-                }
-                shared.finish_callback(audio_frames);
+                render_output_callback(out, &mut state, &mut consumer, &shared, || {
+                    // 设备延迟：播放时刻与回调时刻之差。播放位置要扣掉它，
+                    // 否则歌词逐字高亮会系统性偏早（共享模式延迟普遍数十毫秒）。
+                    let ts = info.timestamp();
+                    let delay = ts.playback.duration_since(ts.callback);
+                    (delay.as_secs_f64() * sample_rate as f64) as u64
+                });
             },
             move |err| {
                 // 错误回调不是音频回调，可以投递到通道；处置由控制线程决定。

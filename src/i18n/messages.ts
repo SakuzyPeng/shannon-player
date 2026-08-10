@@ -199,6 +199,7 @@ export interface Messages {
   "menu.newPlaylist": string;
   "playlist.updatedNow": string;
   "playlist.updatedOn": string; // {d}
+  "playlist.updatedRelative": string; // {r}，r 由 Intl.RelativeTimeFormat 生成
   "playlist.updatedUnknown": string;
   "playlist.newDefaultName": string;
   "menu.favorite": string;
@@ -229,9 +230,11 @@ export interface Messages {
   "playlist.noTracksBody": string;
   "playlist.emptyTryGlobal": string;
   "playlist.emptyGlobalSearch": string;
-  "playlist.rename": string;
-  "playlist.renameTitle": string;
+  "playlist.edit": string;
+  "playlist.editTitle": string;
   "playlist.renameLabel": string;
+  "playlist.descriptionLabel": string;
+  "playlist.descriptionPlaceholder": string;
   "playlist.delete": string;
   "playlist.deleteTitle": string;
   "playlist.deleteBody": string; // {title}
@@ -284,6 +287,14 @@ export interface Messages {
   "player.error.dismiss": string;
   /* 演示曲库没有真实文件时的提示。这不是故障，措辞不能像故障。 */
   "player.needsLibrary": string;
+
+  /* 曲库存储出问题时的提示。三种坏法分开措辞——用户要做的事完全不同：
+     存不下要去清磁盘，版本太新要装回新版本，损坏则要去捞那份残骸。 */
+  "storage.unavailable": string;
+  "storage.schemaTooNew": string;
+  "storage.corrupt": string;
+  "storage.corruptPath": string;
+  "collections.writeFailed": string;
 
   "window.close": string;
   "window.minimize": string;
@@ -473,6 +484,7 @@ const zhHans: Messages = {
   "menu.newPlaylist": "新建歌单并加入",
   "playlist.updatedNow": "今天更新",
   "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedRelative": "{r}更新",
   "playlist.updatedUnknown": "更新时间未知",
   "playlist.newDefaultName": "新歌单",
   "menu.favorite": "收藏",
@@ -503,9 +515,11 @@ const zhHans: Messages = {
   "playlist.noTracksBody": "在曲库里右键任意歌曲，选择「加入歌单」。",
   "playlist.emptyTryGlobal": "试试 ",
   "playlist.emptyGlobalSearch": "在整个曲库中搜索",
-  "playlist.rename": "重命名…",
-  "playlist.renameTitle": "重命名歌单",
+  "playlist.edit": "编辑…",
+  "playlist.editTitle": "编辑歌单",
   "playlist.renameLabel": "歌单名称",
+  "playlist.descriptionLabel": "简介",
+  "playlist.descriptionPlaceholder": "选填，说说这份歌单是什么",
   "playlist.delete": "删除歌单",
   "playlist.deleteTitle": "删除歌单？",
   "playlist.deleteBody": "「{title}」将被永久删除，此操作无法撤销。歌单内的歌曲不会从曲库中移除。",
@@ -554,7 +568,13 @@ const zhHans: Messages = {
   "player.error.deviceConfig": "输出设备不支持这首歌的声道配置",
   "player.error.stream": "音频输出中断，设备可能已被拔出或被其它应用占用",
   "player.error.dismiss": "知道了",
-  "player.needsLibrary": "这是演示曲目。添加音乐文件夹后即可播放你自己的音乐。",
+  "player.needsLibrary": "这是演示曲目。添加音乐文件夹后即可使用你自己的音乐。",
+
+  "storage.unavailable": "曲库数据库打不开，本次的扫描结果与元数据修改都不会保留（{message}）",
+  "storage.schemaTooNew": "曲库数据库是更新版本的应用写的（版本 {found}，本程序支持到 {supported}），文件未改动；装回新版本即可继续使用",
+  "storage.corrupt": "曲库数据库已损坏，原文件已改名保留。曲库需要重新扫描，手改过的元数据只能从保留的文件里找回",
+  "storage.corruptPath": "已保留：{path}",
+  "collections.writeFailed": "收藏或歌单没能保存，刚才那次修改已撤回",
 
   "window.close": "关闭",
   "window.minimize": "最小化",
@@ -742,6 +762,7 @@ const zhHant: Messages = {
   "menu.newPlaylist": "新增歌單並加入",
   "playlist.updatedNow": "今天更新",
   "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedRelative": "{r}更新",
   "playlist.updatedUnknown": "更新時間未知",
   "playlist.newDefaultName": "新歌單",
   "menu.favorite": "收藏",
@@ -772,9 +793,11 @@ const zhHant: Messages = {
   "playlist.noTracksBody": "在曲庫裡右鍵任一歌曲，選擇「加入歌單」。",
   "playlist.emptyTryGlobal": "試試 ",
   "playlist.emptyGlobalSearch": "在整個曲庫中搜尋",
-  "playlist.rename": "重新命名…",
-  "playlist.renameTitle": "重新命名歌單",
+  "playlist.edit": "編輯…",
+  "playlist.editTitle": "編輯歌單",
   "playlist.renameLabel": "歌單名稱",
+  "playlist.descriptionLabel": "簡介",
+  "playlist.descriptionPlaceholder": "選填，說說這份歌單是什麼",
   "playlist.delete": "刪除歌單",
   "playlist.deleteTitle": "刪除歌單？",
   "playlist.deleteBody": "「{title}」將被永久刪除，此操作無法復原。歌單內的歌曲不會從曲庫中移除。",
@@ -823,7 +846,13 @@ const zhHant: Messages = {
   "player.error.deviceConfig": "輸出裝置不支援這首歌的聲道配置",
   "player.error.stream": "音訊輸出中斷，裝置可能已被拔除或被其它應用佔用",
   "player.error.dismiss": "知道了",
-  "player.needsLibrary": "這是示範曲目。加入音樂資料夾後即可播放你自己的音樂。",
+  "player.needsLibrary": "這是示範曲目。加入音樂資料夾後即可使用自己的音樂。",
+
+  "storage.unavailable": "曲庫資料庫打不開，本次的掃描結果與中繼資料修改都不會保留（{message}）",
+  "storage.schemaTooNew": "曲庫資料庫是較新版本的應用寫的（版本 {found}，本程式支援到 {supported}），檔案未變動；裝回新版本即可繼續使用",
+  "storage.corrupt": "曲庫資料庫已損毀，原檔案已改名保留。曲庫需要重新掃描，手動修改過的中繼資料只能從保留的檔案裡找回",
+  "storage.corruptPath": "已保留：{path}",
+  "collections.writeFailed": "收藏或播放清單沒能儲存，剛才那次修改已撤回",
 
   "window.close": "關閉",
   "window.minimize": "最小化",
@@ -1011,6 +1040,7 @@ const en: Messages = {
   "menu.newPlaylist": "New playlist with this",
   "playlist.updatedNow": "Updated today",
   "playlist.updatedOn": "Updated {d}",
+  "playlist.updatedRelative": "Updated {r}",
   "playlist.updatedUnknown": "Update time unknown",
   "playlist.newDefaultName": "New Playlist",
   "menu.favorite": "Favorite",
@@ -1041,9 +1071,11 @@ const en: Messages = {
   "playlist.noTracksBody": "Right-click any song in your library and choose “Add to Playlist”.",
   "playlist.emptyTryGlobal": "Try ",
   "playlist.emptyGlobalSearch": "searching the whole library",
-  "playlist.rename": "Rename…",
-  "playlist.renameTitle": "Rename playlist",
+  "playlist.edit": "Edit…",
+  "playlist.editTitle": "Edit playlist",
   "playlist.renameLabel": "Playlist name",
+  "playlist.descriptionLabel": "Description",
+  "playlist.descriptionPlaceholder": "Optional — what this playlist is for",
   "playlist.delete": "Delete playlist",
   "playlist.deleteTitle": "Delete playlist?",
   "playlist.deleteBody": "“{title}” will be deleted permanently. This cannot be undone; the songs stay in your library.",
@@ -1092,7 +1124,13 @@ const en: Messages = {
   "player.error.deviceConfig": "The output device doesn't support this track's channel layout",
   "player.error.stream": "Audio output stopped — the device may have been unplugged or taken by another app",
   "player.error.dismiss": "Got it",
-  "player.needsLibrary": "This is a demo track. Add a music folder to play your own library.",
+  "player.needsLibrary": "This is a demo track. Add a music folder to use your own library.",
+
+  "storage.unavailable": "The library database can't be opened — this session's scan results and metadata edits won't be kept ({message})",
+  "storage.schemaTooNew": "The library database was written by a newer version (version {found}; this build supports up to {supported}). The file is untouched — reinstall the newer version to continue",
+  "storage.corrupt": "The library database was corrupted. The original file has been renamed and kept. The library needs a rescan, and hand-edited metadata can only be recovered from the kept file",
+  "storage.corruptPath": "Kept at: {path}",
+  "collections.writeFailed": "Couldn't save that favorite or playlist change — it has been rolled back",
 
   "window.close": "Close",
   "window.minimize": "Minimize",
@@ -1280,6 +1318,7 @@ const ja: Messages = {
   "menu.newPlaylist": "新規プレイリストに追加",
   "playlist.updatedNow": "今日更新",
   "playlist.updatedOn": "{d} 更新",
+  "playlist.updatedRelative": "{r}に更新",
   "playlist.updatedUnknown": "更新日時不明",
   "playlist.newDefaultName": "新しいプレイリスト",
   "menu.favorite": "お気に入り",
@@ -1310,9 +1349,11 @@ const ja: Messages = {
   "playlist.noTracksBody": "ライブラリで曲を右クリックし、「プレイリストに追加」を選んでください。",
   "playlist.emptyTryGlobal": "",
   "playlist.emptyGlobalSearch": "ライブラリ全体を検索",
-  "playlist.rename": "名前を変更…",
-  "playlist.renameTitle": "プレイリスト名を変更",
+  "playlist.edit": "編集…",
+  "playlist.editTitle": "プレイリストを編集",
   "playlist.renameLabel": "プレイリスト名",
+  "playlist.descriptionLabel": "説明",
+  "playlist.descriptionPlaceholder": "任意。このプレイリストについて",
   "playlist.delete": "プレイリストを削除",
   "playlist.deleteTitle": "プレイリストを削除しますか？",
   "playlist.deleteBody": "「{title}」を完全に削除します。取り消せません。曲はライブラリに残ります。",
@@ -1361,7 +1402,13 @@ const ja: Messages = {
   "player.error.deviceConfig": "出力デバイスがこの曲のチャンネル構成に対応していません",
   "player.error.stream": "オーディオ出力が中断されました。デバイスが取り外されたか、他のアプリが使用中の可能性があります",
   "player.error.dismiss": "了解",
-  "player.needsLibrary": "これはデモ曲です。音楽フォルダを追加すると自分のライブラリを再生できます。",
+  "player.needsLibrary": "これはデモ曲です。音楽フォルダを追加すると自分のライブラリを利用できます。",
+
+  "storage.unavailable": "ライブラリのデータベースを開けません。今回のスキャン結果とメタデータの変更は保存されません（{message}）",
+  "storage.schemaTooNew": "ライブラリのデータベースは新しいバージョンのアプリで作成されています（バージョン {found}、このビルドの対応は {supported} まで）。ファイルは変更していません。新しいバージョンに戻すと続行できます",
+  "storage.corrupt": "ライブラリのデータベースが破損しました。元のファイルは名前を変えて保存してあります。ライブラリの再スキャンが必要で、手動で編集したメタデータはそのファイルからのみ復元できます",
+  "storage.corruptPath": "保存先：{path}",
+  "collections.writeFailed": "お気に入りまたはプレイリストを保存できませんでした。先ほどの変更は取り消されました",
 
   "window.close": "閉じる",
   "window.minimize": "最小化",

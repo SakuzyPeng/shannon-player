@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use shannon_core::cache::ScanCache;
-use shannon_core::db::LibraryDb;
+use shannon_core::db::{LibraryDb, StorageStatus};
 use shannon_core::model::{LibrarySnapshot, ScanProgress};
 use shannon_core::overrides::{Overrides, TrackMetadataPatch, TrackOverride};
 use shannon_core::scan;
@@ -56,6 +56,9 @@ pub struct LibraryState {
     /// 连接长期持有：WAL 与同步级别都是连接级状态，每条命令现开一次会反复配置，
     /// 还会在并发命令之间重复抢文件锁。
     pub(crate) db: Mutex<Option<LibraryDb>>,
+    /// 启动时这份存储处于什么状态。**只写日志是不够的**：用户看不见日志，他看见的是
+    /// 「改完元数据重启就没了」，那看起来完全像软件坏了。前端启动时查一次并如实告知。
+    storage: Mutex<StorageStatus>,
 }
 
 /// 应用数据目录下的文件路径。
@@ -170,6 +173,27 @@ fn get_library(state: State<'_, LibraryState>) -> Result<Option<LibrarySnapshot>
     Ok((!snap.tracks.is_empty()).then_some(snap))
 }
 
+/// 曲库存储的健康状况。前端启动时查一次。
+///
+/// 单独一条命令而不是塞进 `get_library` 的返回：那条命令在没有曲目时返回 `None`，
+/// 而「数据库坏了所以一首歌都没有」恰恰是最需要说明的那种空。
+#[tauri::command]
+fn get_storage_status(state: State<'_, LibraryState>) -> Result<StorageStatus, String> {
+    state
+        .storage
+        .lock()
+        .map(|s| s.clone())
+        .map_err(|e| e.to_string())
+}
+
+/// 记录存储状态。锁毒化时只丢日志——为了报告一个问题而让启动失败是本末倒置。
+fn set_storage(state: &LibraryState, status: StorageStatus) {
+    match state.storage.lock() {
+        Ok(mut slot) => *slot = status,
+        Err(_) => log::error!("存储状态锁已毒化，本次状态无法上报"),
+    }
+}
+
 /// 封面缩略图目录。前端据此拼 asset URL（按显示尺寸挑档位），
 /// 路径拼接放前端是因为档位选择本来就是前端的显示决策。
 #[tauri::command]
@@ -277,15 +301,23 @@ fn restore(app: &tauri::AppHandle) -> LibraryState {
         cache: Mutex::new(ScanCache::default()),
         overrides: Mutex::new(Overrides::default()),
         db: Mutex::new(None),
+        storage: Mutex::new(StorageStatus::Ok),
     };
     let Ok(path) = data_path(app, LIBRARY_DB) else {
         log::error!("取不到应用数据目录，曲库无法持久化");
+        set_storage(
+            &state,
+            StorageStatus::Unavailable {
+                message: "取不到应用数据目录".into(),
+            },
+        );
         return state;
     };
     let (mut db, report) = match LibraryDb::open(&path) {
         Ok(v) => v,
         Err(e) => {
             log::error!("曲库数据库打不开，本次运行的扫描与元数据修改都不会保留: {e}");
+            set_storage(&state, StorageStatus::from_error(&e));
             return state;
         }
     };
@@ -296,6 +328,7 @@ fn restore(app: &tauri::AppHandle) -> LibraryState {
             backup.display()
         );
     }
+    set_storage(&state, StorageStatus::from_report(&report));
 
     // 0.1 的两份 JSON 搬进来。只做一次，做完源文件改名为 `.migrated`。
     if let (Ok(cache_json), Ok(overrides_json)) = (
@@ -387,6 +420,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             scan_library,
             get_library,
+            get_storage_status,
             get_music_folders,
             get_cover_dir,
             count_audio_files,
@@ -429,6 +463,8 @@ mod tests {
 
     fn state_with(db: Option<LibraryDb>, overrides: Overrides) -> LibraryState {
         LibraryState {
+            // 这些用例验的是元数据写入，与存储健康状况无关；给 `Ok` 即可。
+            storage: Mutex::new(StorageStatus::Ok),
             cache: Mutex::new(ScanCache::default()),
             overrides: Mutex::new(overrides),
             db: Mutex::new(db),

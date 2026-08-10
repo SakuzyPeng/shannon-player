@@ -285,21 +285,34 @@ pub trait OutputBackend: Send {
 /// 音量斜坡的时长。变化不做斜坡会产生可闻爆音，斜坡行为纳入验收。
 pub const GAIN_RAMP_MS: f32 = 15.0;
 
-/// 回调内的公共填充逻辑：斜坡增益 + 消费环形缓冲 + 欠载补零与计数。
+/// 一次填充的结果。
 ///
-/// 抽出来是因为每个输出后端都要重复这段，而它是**唯一**允许在实时线程里跑的代码路径，
-/// 分散实现意味着实时纪律要在每处重新审一遍。
+/// `starved` 是**报告**而不是记账：一次回调可能被拆成多块填充，谁都不该在块这一层
+/// 往计数器上加——那样同一次掉音会随设备缓冲大小与 scratch 大小得出不同的数字。
+/// 由 [`render_output_callback`] 汇总后每次回调至多记一次。
+pub struct FillOutcome {
+    /// 本次真正来自缓冲的帧数（补的零不算）。
+    pub frames: usize,
+    /// 这一块没被填满，且当时确实处于「本该有数据」的状态。
+    pub starved: bool,
+}
+
+/// 回调内的公共填充逻辑：斜坡增益 + 消费环形缓冲 + 欠载补零。
+///
+/// **不对外公开**：唯一该被后端调用的是 [`render_output_callback`]。把这一层暴露出去，
+/// 后端就会各自在外面再包一圈打点、分块与样本转换，那一圈同样跑在实时线程上却不受
+/// 任何测试保护——三个测试后端曾经就是这么各写了一遍。
 ///
 /// `current_gain` 由调用方在回调之间保持（回调是唯一的读写者，不需要原子）。
 #[inline]
-pub fn fill_from_ring(
+fn fill_from_ring(
     out: &mut [f32],
     channels: usize,
     consumer: &mut RingConsumer,
     shared: &OutputShared,
     current_gain: &mut f32,
     ramp_step: f32,
-) -> usize {
+) -> FillOutcome {
     // 无条件处理 flush 与截断：暂停期间不消费数据，但那两条协议的回执不能因此卡住。
     consumer.poll_control();
 
@@ -313,18 +326,20 @@ pub fn fill_from_ring(
     if shared.is_paused() && *current_gain <= f32::EPSILON {
         *current_gain = 0.0;
         out.fill(0.0);
-        return 0;
+        return FillOutcome {
+            frames: 0,
+            starved: false,
+        };
     }
 
     let outcome = consumer.read(out);
     let got = outcome.samples;
+    let mut starved = false;
     if got < out.len() {
         out[got..].fill(0.0);
         // 只有正在播放、且不处于重缓冲时的填不满才算欠载；
         // 暂停、播完与 seek 后的重填都是正常状态。
-        if !shared.is_paused() && !shared.is_rebuffering() && !shared.is_source_drained() {
-            shared.underruns.fetch_add(1, Ordering::Relaxed);
-        }
+        starved = !shared.is_paused() && !shared.is_rebuffering() && !shared.is_source_drained();
     }
 
     // 逐帧向目标增益靠拢，避免音量突变与暂停/恢复的爆音。
@@ -357,7 +372,10 @@ pub fn fill_from_ring(
     }
     // 累计量跨曲目单调递增，边界处照加不误：它回答的是「一共送出去多少帧」。
     shared.total_frames.fetch_add(frames, Ordering::Relaxed);
-    frames as usize
+    FillOutcome {
+        frames: frames as usize,
+        starved,
+    }
 }
 
 /// 按采样率算出每帧的增益步进。
@@ -365,12 +383,112 @@ pub fn ramp_step_for(sample_rate: u32) -> f32 {
     1.0 / (sample_rate as f32 * GAIN_RAMP_MS / 1000.0).max(1.0)
 }
 
+/// 一次输出回调里**我们自己写的那一整段**：打点、设备延迟、分块填充、样本格式转换。
+///
+/// 从 CPAL 的闭包里提出来，是为了让它能被直接调用——[`fill_from_ring`] 只是其中的填充
+/// 核心，把它的边界当成整个回调会漏掉外面这一圈（时间戳换算、分块、`from_sample` 转换），
+/// 而那一圈同样跑在实时线程上。测试测的必须是这个生产函数本身，复制一份近似实现去测，
+/// 测的就是那份复制品。真实 CPAL 闭包因此只剩两件事：把设备缓冲和时间戳递进来。
+///
+/// `scratch` 由调用方在**建流时**预分配（回调内禁止分配）；回调请求超过它时分块处理，
+/// 所以它的大小只影响拷贝次数，不影响正确性。
+///
+/// `delay_frames` 是取设备延迟的闭包，按泛型传入而不是 `Box<dyn Fn>`：装箱要在建流时
+/// 分配一次，更要紧的是它会把「回调里能调什么」这件事藏进一个动态类型背后。它在
+/// `begin_callback` **之后**调用——打点必须先于读时间戳，控制线程据此判断这次回调是否
+/// 已经开始搬运数据。
+///
+/// 样本转换沿用 `cpal::FromSample`，不另立一个 trait：后端支持 f32 / i32 / i16 / u16 / u8
+/// 五种格式，自己实现一遍等于维护一份可能与 cpal 不一致的近似转换，而 `shannon-audio`
+/// 本来就无条件依赖 cpal，换个 trait 省不掉这个依赖。
+#[inline]
+pub fn render_output_callback<T, F>(
+    out: &mut [T],
+    state: &mut CallbackState,
+    consumer: &mut RingConsumer,
+    shared: &OutputShared,
+    delay_frames: F,
+) where
+    T: Copy + cpal::FromSample<f32>,
+    F: FnOnce() -> u64,
+{
+    shared.begin_callback();
+    // 设备延迟：播放时刻与回调时刻之差。播放位置要扣掉它，
+    // 否则歌词逐字高亮会系统性偏早（共享模式延迟普遍数十毫秒）。
+    shared.set_output_delay_frames(delay_frames());
+
+    let chunk_samples = state.scratch.len();
+    let mut written = 0;
+    let mut audio_frames = 0usize;
+    let mut starved = false;
+    while written < out.len() {
+        let n = (out.len() - written).min(chunk_samples);
+        let block = &mut state.scratch[..n];
+        let filled = fill_from_ring(
+            block,
+            state.channels,
+            consumer,
+            shared,
+            &mut state.gain,
+            state.ramp_step,
+        );
+        audio_frames += filled.frames;
+        starved |= filled.starved;
+        for (dst, src) in out[written..written + n].iter_mut().zip(block.iter()) {
+            *dst = T::from_sample_(*src);
+        }
+        written += n;
+    }
+
+    // **每次回调至多记一次欠载。** 分块只是拷贝策略，设备一次要多少样本、scratch 有多大
+    // 都不该改变「掉了几次音」这个数字；按块记会让同一次掉音在缓冲更大的设备上被报成
+    // 好几次，也会让调小 scratch 凭空抬高这个指标。它要回答的是「实时性够不够」，
+    // 那个问题的单位就是回调。
+    if starved {
+        shared.underruns.fetch_add(1, Ordering::Relaxed);
+    }
+    shared.finish_callback(audio_frames);
+}
+
+/// 一条输出流在回调之间保持的状态。
+///
+/// 单独立成一个类型，是因为这几项恰好共享同一条性质：**建流时就得备好，回调里一个都不能
+/// 现造**。散成参数时它只是「函数签名有点长」，聚起来才看得出它就是被验证的那条不变量
+/// （见 `tests/realtime_discipline.rs`）——往回调里加东西时，该问的是「它能不能放进这里」。
+pub struct CallbackState {
+    /// 分块用的中间缓冲。设备一次要的样本可能超过它，那时分块处理，
+    /// 所以它的大小只影响拷贝次数，不影响正确性。
+    scratch: Vec<f32>,
+    channels: usize,
+    ramp_step: f32,
+    /// 当前增益。回调是它唯一的读写者，因此不必是原子量。
+    gain: f32,
+}
+
+impl CallbackState {
+    /// `scratch_frames` 是分块上限，按后端自己的取值给。
+    pub fn new(channels: usize, sample_rate: u32, scratch_frames: usize) -> Self {
+        assert!(channels > 0, "输出回调的声道数必须大于 0");
+        assert!(scratch_frames > 0, "输出回调的 scratch 帧数必须大于 0");
+        let scratch_samples = scratch_frames
+            .checked_mul(channels)
+            .expect("输出回调的 scratch 样本容量溢出");
+        Self {
+            scratch: vec![0.0; scratch_samples],
+            channels,
+            ramp_step: ramp_step_for(sample_rate),
+            // 从零起步：新流的第一个回调要把音量斜坡上来，直接给目标值会有爆音。
+            gain: 0.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn partial_callback_is_an_underrun_while_source_is_active() {
+    fn partial_fill_reports_starvation_while_source_is_active() {
         let (mut producer, mut consumer) = crate::ring::ring(8, 2);
         producer.write(&[0.25, 0.25]);
         let shared = OutputShared::default();
@@ -378,13 +496,18 @@ mod tests {
         let mut out = [0.0; 8];
         let mut gain = 1.0;
 
-        fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
+        let filled = fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
 
-        assert_eq!(shared.underruns(), 1, "部分补零同样是一次真实欠载");
+        assert!(filled.starved, "部分补零同样是一次真实欠载");
+        assert_eq!(
+            shared.underruns(),
+            0,
+            "填充层只报告不记账——记账在回调那一层，否则分块会把一次掉音记成多次"
+        );
     }
 
     #[test]
-    fn partial_final_callback_is_not_an_underrun_after_source_drains() {
+    fn partial_final_fill_is_not_starvation_after_source_drains() {
         let (mut producer, mut consumer) = crate::ring::ring(8, 2);
         producer.write(&[0.25, 0.25]);
         let shared = OutputShared::default();
@@ -393,8 +516,20 @@ mod tests {
         let mut out = [0.0; 8];
         let mut gain = 1.0;
 
-        fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
+        let filled = fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
 
-        assert_eq!(shared.underruns(), 0, "自然收尾的不足帧不是实时欠载");
+        assert!(!filled.starved, "自然收尾的不足帧不是实时欠载");
+    }
+
+    #[test]
+    #[should_panic(expected = "声道数必须大于 0")]
+    fn callback_state_rejects_zero_channels() {
+        let _ = CallbackState::new(0, 48_000, 8192);
+    }
+
+    #[test]
+    #[should_panic(expected = "scratch 帧数必须大于 0")]
+    fn callback_state_rejects_an_empty_scratch() {
+        let _ = CallbackState::new(2, 48_000, 0);
     }
 }

@@ -22,7 +22,7 @@ use shannon_audio::mix::ChannelAdapt;
 use shannon_audio::output::null::{NullDevice, NullOutput};
 use shannon_audio::output::DeviceEnumerator;
 use shannon_audio::output::{
-    fill_from_ring, OutputBackend, OutputConfig, OutputRequest, OutputShared,
+    render_output_callback, CallbackState, OutputBackend, OutputConfig, OutputRequest, OutputShared,
 };
 use shannon_audio::ring::RingConsumer;
 use shannon_audio::{EngineError, ErrorKind, Result, Stage};
@@ -302,24 +302,17 @@ impl OutputBackend for CapturingOutput {
         let config = self.negotiate(request)?;
         let channels = config.layout.count() as usize;
         let frames_per_tick = config.sample_rate as usize / 100;
-        let ramp_step = shannon_audio::output::ramp_step_for(config.sample_rate);
+        let config_rate = config.sample_rate;
         let stop = Arc::new(AtomicBool::new(false));
         self.stop = stop.clone();
         let captured = self.captured.clone();
         self.worker = Some(std::thread::spawn(move || {
             let mut buf = vec![0.0f32; frames_per_tick * channels];
-            let mut gain = 0.0f32;
+            let mut state = CallbackState::new(channels, config_rate, frames_per_tick);
             while !stop.load(Ordering::Relaxed) {
-                shared.begin_callback();
-                let got = fill_from_ring(
-                    &mut buf,
-                    channels,
-                    &mut consumer,
-                    &shared,
-                    &mut gain,
-                    ramp_step,
-                );
-                shared.finish_callback(got);
+                // 走生产回调体，不自己拼 begin/fill/finish：这些测试后端要代表真实设备，
+                // 各写一遍就会各自漂移（欠载按块还是按回调计，正是这么漂出来的）。
+                render_output_callback(&mut buf, &mut state, &mut consumer, &shared, || 0);
                 captured.lock().unwrap().extend_from_slice(&buf);
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -472,18 +465,10 @@ impl OutputBackend for EagerOpenOutput {
         shared: Arc<OutputShared>,
     ) -> Result<OutputConfig> {
         let config = self.negotiate(request)?;
-        let mut out = vec![0.0; 64 * request.layout.count() as usize];
-        let mut gain = 0.0;
-        shared.begin_callback();
-        let got = fill_from_ring(
-            &mut out,
-            request.layout.count() as usize,
-            &mut consumer,
-            &shared,
-            &mut gain,
-            1.0,
-        );
-        shared.finish_callback(got);
+        let channels = request.layout.count() as usize;
+        let mut out = vec![0.0; 64 * channels];
+        let mut state = CallbackState::new(channels, config.sample_rate, 64);
+        render_output_callback(&mut out, &mut state, &mut consumer, &shared, || 0);
         self.consumer = Some(consumer);
         self.config = Some(config.clone());
         Ok(config)
@@ -604,25 +589,17 @@ impl OutputBackend for DelayedOutput {
         let config = self.negotiate(request)?;
         let channels = config.layout.count() as usize;
         let frames_per_tick = config.sample_rate as usize / 100;
-        let ramp_step = shannon_audio::output::ramp_step_for(config.sample_rate);
+        let config_rate = config.sample_rate;
         let delay_frames = self.delay_frames;
         let stop = Arc::new(AtomicBool::new(false));
         self.stop = stop.clone();
         self.worker = Some(std::thread::spawn(move || {
             let mut out = vec![0.0; frames_per_tick * channels];
-            let mut gain = 0.0;
+            let mut state = CallbackState::new(channels, config_rate, frames_per_tick);
             while !stop.load(Ordering::Relaxed) {
-                shared.begin_callback();
-                shared.set_output_delay_frames(delay_frames);
-                let got = fill_from_ring(
-                    &mut out,
-                    channels,
-                    &mut consumer,
-                    &shared,
-                    &mut gain,
-                    ramp_step,
-                );
-                shared.finish_callback(got);
+                render_output_callback(&mut out, &mut state, &mut consumer, &shared, || {
+                    delay_frames
+                });
                 std::thread::sleep(Duration::from_millis(10));
             }
         }));

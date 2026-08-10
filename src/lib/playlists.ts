@@ -86,18 +86,54 @@ export function toStored(playlist: Playlist): StoredPlaylist {
   };
 }
 
+/** 自然日之差（按当地零点算，不是按 24 小时算）。 */
+function daysBetween(then: Date, now: Date): number {
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((startOf(now) - startOf(then)) / 86_400_000);
+}
+
 /**
  * 「上次更新」的显示文案。
  *
- * 当天更新单独说「今天更新」：用户刚改完就看到一个日期，会以为改动没生效。
- * 更细的相对时间（「3 天前」）要靠 `Intl.RelativeTimeFormat` 与一套分档规则，
- * 目前的界面只在元信息行里露一次，不值得为它引入那一整套。
+ * 三条：
+ *
+ * ① **当天单独说「今天更新」**：用户刚改完就看到一个日期，会以为改动没生效。
+ *
+ * ② 近期用相对时间，**久远的用具体日期**。「3 天前」比日期好读，而「2 年前」不如
+ * 直接给出日期——越久远，用户想知道的越是「到底哪天」而不是「多久」。分界放在一年。
+ *
+ * ③ 相对时间交给 `Intl.RelativeTimeFormat` 而不是自己拼。`numeric: "auto"` 会把 -1 天
+ * 说成「昨天」、-2 天说成「前天」，这类词各语言的规则不同（英文没有「前天」），
+ * 自己拼必然拼出一套只在中文下自然的说法。这也不违反「界面文案必须进 i18n」——
+ * 那条禁的是**硬编码**，而这里的词由平台按 locale 给出，比词典更完整。
+ *
+ * ④ **按自然日算，不按 24 小时算**：昨晚 23:00 改的，今早 8:00 看应当是「昨天」，
+ * 而按 24 小时算它还不满一天，会说成「今天更新」。
  */
 export function updatedLabelOf(updatedAtMs: number, t: TFunction, locale: Locale): string {
   // 后端在系统时钟早于 1970 时会退化成 0（见 `src-tauri/src/collections.rs`）。
   // 那不是 1970 年 1 月 1 日，别把哨兵值当日期显示出来。
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return t("playlist.updatedUnknown");
   const at = new Date(updatedAtMs);
-  if (at.toDateString() === new Date().toDateString()) return t("playlist.updatedNow");
-  return t("playlist.updatedOn", { d: at.toLocaleDateString(locale) });
+  const now = new Date();
+  const days = daysBetween(at, now);
+
+  // 时钟回拨或后端时间偏快时 days 会是负数。说「1 天后更新」只会让人以为软件坏了，
+  // 按「今天」处理最接近事实。
+  if (days <= 0) return t("playlist.updatedNow");
+  if (days >= 365) return t("playlist.updatedOn", { d: at.toLocaleDateString(locale) });
+
+  // 两种 numeric 各管一档，不是偷懒：`auto` 会把 ±1 说成「昨天 / 上周 / 上个月」，
+  // 而那是**日历词**。日这一档我们算的正是自然日，说「昨天」准确；周月这两档只是
+  // 天数除法，说「上周」等于替用户断言了一个我们没算过的日历边界——10 天前完全可能
+  // 落在上上周。那两档改用 `always`，得到「1 周前 / 1 个月前」，含糊但不会说错。
+  const exact = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const approx = new Intl.RelativeTimeFormat(locale, { numeric: "always" });
+  const relative =
+    days < 7
+      ? exact.format(-days, "day")
+      : days < 30
+        ? approx.format(-Math.round(days / 7), "week")
+        : approx.format(-Math.round(days / 30), "month");
+  return t("playlist.updatedRelative", { r: relative });
 }

@@ -3,10 +3,11 @@ import { PageTransition } from "@/components/common/PageTransition";
 import { IconRail } from "@/components/layout/IconRail";
 import { LibraryScreen } from "@/components/library/LibraryScreen";
 import { PlayBar } from "@/components/player/PlayBar";
-import { PlaybackNotice } from "@/components/player/PlaybackNotice";
+import { NoticeBar } from "@/components/common/NoticeBar";
 import { useApplyTheme } from "@/hooks/useApplyTheme";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import { useLoudnessQueue } from "@/hooks/useLoudnessQueue";
+import { useLocalDayRefresh } from "@/hooks/useLocalDayRefresh";
 import { usePlaybackTicker } from "@/hooks/usePlaybackTicker";
 import { usePersistSession } from "@/hooks/usePersistSession";
 import { usePersistSettings } from "@/hooks/usePersistSettings";
@@ -14,7 +15,7 @@ import { useRestoreCollections } from "@/hooks/useRestoreCollections";
 import { useSyncDevice } from "@/hooks/useSyncDevice";
 import { useSyncNext } from "@/hooks/useSyncNext";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
-import { getCoverDir, getLibrary, getMusicFolders } from "@/lib/backend";
+import { getCoverDir, getLibrary, getMusicFolders, storageStatus } from "@/lib/backend";
 import { useLibraryStore } from "@/store/library";
 import { usePlayerStore } from "@/store/player";
 import { useUiStore } from "@/store/ui";
@@ -101,13 +102,17 @@ function useRestoreLibrary() {
     const playerBaseline = usePlayerStore.getState();
     void (async () => {
       // 封面目录要先拿到：晚于曲库到位的话，首屏封面会先空一拍再补上。
-      const [snapshot, roots, coverDir] = await Promise.all([
+      const [snapshot, roots, coverDir, storage] = await Promise.all([
         getLibrary(),
         getMusicFolders(),
         getCoverDir(),
+        storageStatus(),
       ]);
       if (controller.signal.aborted) return;
       useLibraryStore.getState().setCoverDir(coverDir);
+      // 存储状态要在 `!snapshot` 提前返回**之前**记下来：曲库为空恰恰是数据库刚损坏
+      // 的典型表现，而那正是最该说明的那种空。
+      useLibraryStore.getState().setStorage(storage);
       if (!snapshot) return;
       setLibrary(snapshot);
       // 队列的恢复顺序：先试上次的会话，没有才回落到「整库入队」。
@@ -148,6 +153,7 @@ export default function App() {
   usePersistSession();
   usePersistSettings();
   useLoudnessQueue();
+  useLocalDayRefresh();
   useSyncNext();
   useSyncDevice();
   useRestoreLibrary();
@@ -193,7 +199,7 @@ export default function App() {
           <Suspense fallback={null}>{screen.content}</Suspense>
         </PageTransition>
         {/* 首次启动引导期间隐藏播放条（空曲库无播放） */}
-        {!onboardingOpen && <PlaybackNotice />}
+        {!onboardingOpen && <NoticeBar />}
         {!onboardingOpen && <PlayBar />}
       </main>
       <PageTransition pageKey={lyricsOpen ? "lyrics" : null} className="fixed inset-0 z-40">

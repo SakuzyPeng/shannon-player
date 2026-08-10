@@ -32,9 +32,15 @@ use crate::model::{AudioFormat, ChannelLayout, Encoding, SpatialFormat, PROBE_VE
 ///
 /// `ec3` / `eac3` 是 E-AC-3（含 Atmos 的 JOC 承载体）的裸流扩展名。当前引擎放不了它，
 /// **这不是把它排除在外的理由**——排除等于让用户以为自己没有这些文件。
+///
+/// `webm` 收进来是因为 yt-dlp 抓 YouTube 音频的默认产物就是它（Opus 装在 WebM 里），
+/// 而那条路径正是引擎已经能放的。它同时也是视频容器，因此音乐目录里的视频会被收进
+/// 曲库——`mp4` 早就有同样的性质，取舍与它一致：目录是用户自己指定的，
+/// 收多了他看得见也删得掉，收少了他只会以为文件丢了。`mkv` 仍然不收，
+/// 音频用的是 `mka`，这与 `mp4` / `m4a` 是同一套约定。
 pub const AUDIO_EXTS: &[&str] = &[
     "flac", "mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "wav", "wave", "aiff", "aif", "caf",
-    "alac", "wma", "wv", "ape", "dsf", "dff", "mka", "ec3", "eac3",
+    "alac", "wma", "wv", "ape", "dsf", "dff", "mka", "webm", "ec3", "eac3",
 ];
 
 pub fn is_audio_file(path: &Path) -> bool {
@@ -97,7 +103,8 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
             bit_depth: Some(1),
             bitrate_kbps: None,
             lossless: Some(true),
-            channels: info.channels,
+            // DSF header 里声道数是必填字段，读到了就是读到了。
+            channels: Some(info.channels),
             channel_mask: None,
             // DSF header 只给声道数，没有摆位信息 —— 立体声之外一律不猜。
             channel_layout: (info.channels == 2).then_some(ChannelLayout::Stereo),
@@ -142,7 +149,7 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
     let mut codec = String::new();
     let mut bit_depth = props.and_then(|p| p.bit_depth());
     let mut sample_rate_hz = props.and_then(|p| p.sample_rate()).unwrap_or(0);
-    let mut channels = props.and_then(|p| p.channels()).unwrap_or(0);
+    let mut channels = props.and_then(|p| p.channels());
     let mut duration_sec = props.map(|p| p.duration().as_secs_f64()).unwrap_or(0.0);
 
     // symphonia 补齐 lofty 拿不到的声道掩码（布局的权威来源）。
@@ -163,7 +170,7 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
             bit_depth = Some(bits as u8);
         }
         if let Some(n) = params.channels.map(|c| c.count() as u8) {
-            channels = n;
+            channels = Some(n);
         }
         codec = codec_name(params.codec);
     }
@@ -189,10 +196,15 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
     let channel_layout = channel_mask.map(layout::layout_from_mask).or_else(|| {
         // 无掩码时只认最无争议的两种，其余留空 —— 声道数推不出摆位。
         match channels {
-            1 => Some(ChannelLayout::Mono),
-            2 => Some(ChannelLayout::Stereo),
-            _ => {
-                notes.push(format!("layout:unknown-{channels}ch-no-mask"));
+            Some(1) => Some(ChannelLayout::Mono),
+            Some(2) => Some(ChannelLayout::Stereo),
+            Some(n) => {
+                notes.push(format!("layout:unknown-{n}ch-no-mask"));
+                None
+            }
+            // 声道数本身都没读出来，连「几声道的布局判不出」都说不上。
+            None => {
+                notes.push("layout:unknown-no-channel-count".into());
                 None
             }
         }
@@ -246,12 +258,23 @@ fn symphonia_params(path: &Path) -> Option<(CodecParameters, Option<f64>)> {
         .iter()
         .find(|t| t.codec_params.sample_rate.is_some() || t.codec_params.channels.is_some())?;
     let params = track.codec_params.clone();
-    // 时长 = 帧数 / 采样率。容器没给帧数就留空，不拿 0 冒充。
-    let duration = params
-        .n_frames
-        .zip(params.sample_rate)
-        .map(|(frames, rate)| frames as f64 / rate as f64);
+    let duration = duration_from_params(&params);
     Some((params, duration))
+}
+
+/// 从 Symphonia 的参数换算时长。
+///
+/// 有时基时必须优先按它解释 `n_frames`：Matroska reader 把这里的值记成容器时间戳刻度
+/// （2 秒文件约为 2000），直接除以 48 kHz 会误报成四十多毫秒。没有时基的裸音频才退回
+/// 「PCM 帧数 / 采样率」。容器没给长度就留空，不拿 0 冒充。
+fn duration_from_params(params: &CodecParameters) -> Option<f64> {
+    let frames = params.n_frames?;
+    if let Some(time_base) = params.time_base {
+        let time = time_base.calc_time(frames);
+        Some(time.seconds as f64 + time.frac)
+    } else {
+        params.sample_rate.map(|rate| frames as f64 / rate as f64)
+    }
 }
 
 fn codec_name(codec: symphonia::core::codecs::CodecType) -> String {
@@ -321,6 +344,7 @@ mod tests {
         // CAF 是 Apple 生态里的常规音频容器（Logic 导出、系统录音），
         // 漏掉它等于对着一整类文件装作没看见。
         assert!(is_audio_file(Path::new("/m/a.caf")));
+        assert!(is_audio_file(Path::new("/m/a.webm")));
         assert!(!is_audio_file(Path::new("/m/cover.jpg")));
         assert!(!is_audio_file(Path::new("/m/notes.txt")));
         assert!(!is_audio_file(Path::new("/m/noext")));
@@ -378,6 +402,25 @@ mod tests {
 
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn duration_uses_container_time_base_before_sample_rate() {
+        use symphonia::core::units::TimeBase;
+
+        // Symphonia 0.5 的 Matroska reader 会把 2.008 秒记为 2008 个 1 ms 刻度。
+        // 若误当 PCM 帧除以 48 kHz，只会得到 0.041833 秒。
+        let mut matroska = CodecParameters::new();
+        matroska
+            .with_sample_rate(48_000)
+            .with_time_base(TimeBase::new(1, 1_000))
+            .with_n_frames(2_008);
+        assert!((duration_from_params(&matroska).unwrap() - 2.008).abs() < 1e-9);
+
+        // 没有容器时基的裸 PCM 仍按帧数 / 采样率换算。
+        let mut pcm = CodecParameters::new();
+        pcm.with_sample_rate(48_000).with_n_frames(96_000);
+        assert_eq!(duration_from_params(&pcm), Some(2.0));
     }
 
     #[test]

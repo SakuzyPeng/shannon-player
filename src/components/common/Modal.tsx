@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/cn";
 
@@ -90,6 +90,7 @@ export function PromptDialog({
   title,
   label,
   initialValue,
+  note,
   confirmLabel,
   onConfirm,
 }: {
@@ -98,21 +99,34 @@ export function PromptDialog({
   title: string;
   label?: string;
   initialValue: string;
+  /**
+   * 可选的第二个字段（多行）。给出即渲染，`onConfirm` 会带上它的值。
+   *
+   * 与主输入框的规矩不同：**它允许为空**。主字段空着是「还没填」，附加字段空着
+   * 往往是「就是要清掉」——拿同一条校验去卡它，用户就没法删除已经写过的简介了。
+   */
+  note?: { label: string; initialValue: string; placeholder?: string };
   confirmLabel: string;
-  onConfirm: (value: string) => void;
+  onConfirm: (value: string, note: string) => void;
 }) {
   const [value, setValue] = useState(initialValue);
+  const [noteValue, setNoteValue] = useState(note?.initialValue ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const noteId = useId();
+  const noteInitial = note?.initialValue ?? "";
 
   // 每次打开都以当前值为起点（上次编辑的残留值不应带入）。
   useEffect(() => {
-    if (open) setValue(initialValue);
-  }, [open, initialValue]);
+    if (open) {
+      setValue(initialValue);
+      setNoteValue(noteInitial);
+    }
+  }, [open, initialValue, noteInitial]);
 
   const trimmed = value.trim();
   const submit = () => {
     if (!trimmed) return;
-    onConfirm(trimmed);
+    onConfirm(trimmed, noteValue.trim());
     onOpenChange(false);
   };
 
@@ -130,8 +144,26 @@ export function PromptDialog({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onFocus={(e) => e.currentTarget.select()}
+          aria-label={label}
           className="mt-3.5 w-full rounded-[11px] border border-bd bg-bg px-3 py-2 text-[13.5px] text-tx outline-none focus:border-ac"
         />
+        {note && (
+          <>
+            <label htmlFor={noteId} className="mt-3 block text-[12px] text-tx2">
+              {note.label}
+            </label>
+            {/* 多行输入，且回车换行而不是提交：简介本来就可能分段，
+                在这里沿用「回车即确认」会让用户按下换行时把对话框关掉。 */}
+            <textarea
+              id={noteId}
+              value={noteValue}
+              onChange={(e) => setNoteValue(e.target.value)}
+              placeholder={note.placeholder}
+              rows={3}
+              className="mt-1.5 w-full resize-none rounded-[11px] border border-bd bg-bg px-3 py-2 text-[13.5px] leading-snug text-tx outline-none placeholder:text-tx2/60 focus:border-ac"
+            />
+          </>
+        )}
         <Actions
           onCancel={() => onOpenChange(false)}
           confirmLabel={confirmLabel}

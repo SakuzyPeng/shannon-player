@@ -78,6 +78,21 @@ const TARGETS: &[Target] = &[
         args: &["-c:a", "vorbis", "-strict", "-2", "-b:a", "192k"],
         lossless: false,
     },
+    // Opus 两个容器都要：格式表承诺的是「Opus / WebM / Matroska」，而解复用与解码
+    // 是两回事——ogg 那条走 Symphonia 的 OggReader，webm 走 MkvReader，
+    // 只测一个容器等于只验了一半。用 libopus 编码器，ffmpeg 自带的 `opus` 是实验性的。
+    Target {
+        name: "opus-ogg",
+        file: "stereo_opus.opus",
+        args: &["-c:a", "libopus", "-b:a", "128k"],
+        lossless: false,
+    },
+    Target {
+        name: "opus-webm",
+        file: "stereo_opus.webm",
+        args: &["-c:a", "libopus", "-b:a", "128k", "-f", "webm"],
+        lossless: false,
+    },
     // 单声道与 48 kHz 各留一份：前者验证上混，后者让「设备采样率恰好匹配」
     // 也有真实编码格式可用，不至于只能拿 PCM 试。
     Target {

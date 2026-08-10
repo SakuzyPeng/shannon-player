@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { SEED_ALBUMS, seedTracksOf } from "@/data/library";
 import type { Album, Track } from "@/types/player";
-import type { LibrarySnapshot } from "@/types/generated/library";
+import type { LibrarySnapshot, StorageStatus } from "@/types/generated/library";
 
 /** 曲库来源。 */
 export type LibrarySource = "seed" | "scan";
@@ -27,6 +27,18 @@ interface LibraryState {
    * 逐处异步取一次既啰嗦又会让首屏闪。
    */
   coverDir: string | null;
+  /**
+   * 曲库存储的健康状况，启动时问一次后端。
+   *
+   * 放曲库 store 而不是界面 store：它是曲库这份数据的属性（能不能存下、是不是刚
+   * 损坏过），只是恰好要被界面读。`null` = 还没问到，此时什么都不显示——启动那一瞬
+   * 先弹一句「一切正常」或先弹一句故障，都是在还不知道的时候下结论。
+   */
+  storage: StorageStatus | null;
+  /** 用户读过存储提示后按下的关闭。只影响本次运行，下次启动仍会提醒。 */
+  storageDismissed: boolean;
+  setStorage: (status: StorageStatus) => void;
+  dismissStorage: () => void;
   setCoverDir: (dir: string | null) => void;
   setLibrary: (snapshot: LibrarySnapshot) => void;
   resetToSeed: () => void;
@@ -42,6 +54,10 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   duplicates: 0,
   version: 0,
   coverDir: null,
+  storage: null,
+  storageDismissed: false,
+  setStorage: (storage) => set({ storage }),
+  dismissStorage: () => set({ storageDismissed: true }),
 
   setCoverDir: (coverDir) => set({ coverDir }),
 

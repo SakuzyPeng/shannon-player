@@ -138,7 +138,7 @@ AudioService
 | OGG Vorbis | Symphonia | 验证 chained stream 与 gapless |
 | AAC-LC / M4A | Symphonia | 可解码；不能预先承诺完整 gapless |
 | APAC / M4A | macOS 系统解码 | Apple 私有编码，仅 macOS 可解；不实现自有解码器 |
-| Opus / WebM / Matroska | 专用进程内解码器 | 在纳入发布范围前以样本语料验证 |
+| Opus / WebM / Matroska | 专用进程内解码器 | **已落地**（`symphonia-adapter-libopus` 注册进自建 `CodecRegistry`），Ogg / WebM / Matroska 三种承载都已纳入格式矩阵。两点实测结论：seek 必须做 80 ms pre-roll；**Opus 装在 Matroska / WebM 里上游的 seek 不可信**，该组合改走「重开 + 向前解码」 |
 | E-AC-3 JOC | Windows 原生空间后端 / macOS AVPlayer 路径 | 普通 PCM 解码结果不得标记为 Atmos；macOS 上 `AudioConverter` 路径只出 6 声道声床，必须走 AVPlayer 才能保住对象 |
 | 固定 7.1.4 / 9.1.6 / 22.2 | 进程内解码器 + Windows 空间输出 | 布局来源和推断置信度必须保留 |
 | 其他长尾或专有格式 | 待评估 | 不使用播放子进程兜底 |
@@ -238,7 +238,7 @@ PCM 交给 `AVSampleBufferAudioRenderer` 并附 `AudioChannelLayoutTag`，由系
 2. 不支持格式返回带容器、编码和失败阶段的结构化错误。
 3. 直接可导入的下载结果不会无条件调用 FFmpeg。
 4. 必须调用外部工具的导入任务展示工具、阶段、进度、取消结果和可脱敏的错误信息。
-5. 输出回调在持续播放、seek 和设备切换压力测试中没有阻塞分配，欠载指标可查询。
+5. 输出回调在持续播放、seek 和设备切换压力测试中不发生阻塞等待或动态分配，欠载指标可查询。
 6. gapless、重采样、ReplayGain、设备切换和空间后端分别测试，不能只以“能够发声”作为通过条件。
 7. 普通 PCM 路径不得展示 Atmos、动态对象或 bit-perfect 等未经证实的状态。
 
@@ -268,7 +268,10 @@ CPAL」的划法只考虑了空间内容需要布局标签，忽略了下混同�
   `alac`、`aac` 均不在 default feature 内，需显式开启。
 - **Opus 解码器选型**：`symphonia-adapter-libopus`，即架构设想的「libopus 绑定包装为
   Symphonia 自定义 Decoder」的现成实现。其 default feature 为 `bundled`（编译 C 源码），
-  三平台构建需实测。
+  **2026-08-10 接入**：`bundled` 经 `opusic-sys` 用 CMake 编译 libopus，因此构建机
+  需要 C 编译器与 `cmake`。**构建验证范围：macOS aarch64**，其余平台没有结论。
+  该 crate 的 MSRV 为 1.89，`shannon-audio` 的 `rust-version` 随之从 1.85 提至 1.89，
+  依赖它的桌面壳同步提至 1.89。
 - **CPAL 与平台后端边界**：共享模式的**立体声**（含单声道上混）归 CPAL；**一切多声道**
   —— 无论是否带对象元数据 —— 连同独占、直通、空间路由、热插拔归平台实现。
   多声道之所以整体划出去，是因为下混与空间化都依赖布局标签，而 CPAL 表达不了布局

@@ -38,7 +38,10 @@ fn main() {
         println!(
             "\n· {}\n    id={}\n    容器={} 编码={} {:?} {}Hz {:?}bit {}ch mask={:?}\n    布局={:?}\n    空间={:?} 无损={:?}\n    来源={:?}\n    notes={:?}",
             t.title, t.id, f.container, f.codec, f.encoding, f.sample_rate_hz, f.bit_depth,
-            f.channels, f.channel_mask, f.channel_layout, f.spatial, f.lossless, t.sources,
+            // 判不出的声道数显示成 `·`：印 `None` 会让人以为是个字面值，印 0 就回到了
+            // 哨兵值那个老问题上。
+            f.channels.map_or("·".to_string(), |c| c.to_string()),
+            f.channel_mask, f.channel_layout, f.spatial, f.lossless, t.sources,
             f.probe_notes
         );
     }

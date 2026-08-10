@@ -70,6 +70,26 @@ function uniqueTracksById(tracks: Track[], seen = new Set<Id>()): Track[] {
   });
 }
 
+/** 保留首次出现的 ID，并把已有 ID 视为占用。 */
+function uniqueIds(ids: Id[], seen = new Set<Id>()): Id[] {
+  return ids.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+/** 按权威 ID 顺序挑出当前能水合到的曲目；暂时查不回的 ID 仍留在调用方的列表里。 */
+function tracksForIds(ids: Id[], tracks: Track[]): Track[] {
+  const byId = new Map(tracks.map((track) => [track.id, track]));
+  return ids.map((id) => byId.get(id)).filter((track): track is Track => track !== undefined);
+}
+
+/** 真引擎不能把没有文件路径的种子演示曲目写进用户歌单。 */
+function containsNativeDemoTrack(tracks: Track[]): boolean {
+  return engine.requiresPath && tracks.some((track) => !track.path);
+}
+
 export const EMPTY_FAVORITES: Favorites = {
   tracks: [],
   albumGroups: [],
@@ -164,8 +184,17 @@ function persistCollectionMutation<T>(
   const generation = ++collectionMutationGeneration;
   const run = enqueueCollectionWrite(write);
   void run
+    .then(() => {
+      // 成功就把上一次的失败提示收掉：留着一句已经不成立的警告，比不提示更糟。
+      if (usePlayerStore.getState().collectionsWriteFailed) {
+        usePlayerStore.setState({ collectionsWriteFailed: false });
+      }
+    })
     .catch((error) => {
       console.error("保存收藏或歌单失败", error);
+      // 对账马上会把界面退回去（红心灭掉、歌单不出现）。**只退不说等于装作什么都没
+      // 发生过**——用户看到的是自己刚点的那一下没生效，最合理的推断是软件坏了。
+      usePlayerStore.setState({ collectionsWriteFailed: true });
     })
     .then(async () => {
       // 后面还有动作时由最后一笔统一对账，避免每个回执都把界面来回覆盖。
@@ -361,6 +390,14 @@ interface PlayerState {
   /** ---- 收藏与歌单（用户数据，落在 library.db，见 core/src/collections.rs） ---- */
   /** 用户收藏 / 歌单意图的版本；异步恢复只可覆盖仍未被用户改过的那一版。 */
   collectionsRevision: number;
+  /**
+   * 最近一次收藏 / 歌单写入是否失败了。
+   *
+   * 写失败时对账会把界面退回去（红心灭掉、新歌单不出现），而**只退不说**等于装作
+   * 什么都没发生过——用户看到的只是自己刚点的那一下没生效，最合理的推断是软件坏了。
+   * 下一次写入成功即自动收掉：留着一句已经不成立的警告比不提示更糟。
+   */
+  collectionsWriteFailed: boolean;
   favorites: Record<Id, boolean>;
   /**
    * 专辑收藏的**派生视图**，键是专辑 ID，只供组件读。
@@ -430,15 +467,24 @@ interface PlayerState {
   recomputeFavoriteAlbums: () => void;
   /** 按当前曲库重新水合歌单曲目。与上一条同理，曲库一换就要重来。 */
   rehydratePlaylists: () => void;
-  /** 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）。 */
-  addToPlaylist: (playlistId: Id, tracks: Track[]) => void;
+  /**
+   * 把曲目加入歌单（按曲目 ID 去重，重复加入为 no-op）。
+   *
+   * `sourceTrackIds` 用于整单操作：其中可能含当前曲库暂时水合不到的曲目，不能拿
+   * `tracks` 这个可见子集替代。普通单曲/专辑调用可省略。
+   */
+  addToPlaylist: (playlistId: Id, tracks: Track[], sourceTrackIds?: Id[]) => void;
   /**
    * 新建并收藏歌单后加入曲目；名称默认「新歌单」，重名自动加序号。
    *
    * 返回新歌单 ID，后端建不出来时返回 `null`。**要等一次 IPC**：ID 由后端发号，
    * 先摆一个临时 ID 的话，用户在回执到达前点进详情页看到的就是一个马上会消失的歌单。
    */
-  createPlaylistWithTracks: (baseName: string, tracks: Track[]) => Promise<Id | null>;
+  createPlaylistWithTracks: (
+    baseName: string,
+    tracks: Track[],
+    sourceTrackIds?: Id[],
+  ) => Promise<Id | null>;
   /** 从歌单移除曲目。 */
   removeFromPlaylist: (playlistId: Id, trackId: Id) => void;
   /** 用新顺序替换歌单曲目（拖拽重排）。 */
@@ -446,7 +492,14 @@ interface PlayerState {
   /** 用新顺序替换歌单列表本身（歌单页拖拽重排，即「自定义顺序」）。 */
   reorderPlaylists: (playlists: Playlist[]) => void;
   /** 重命名歌单。 */
-  renamePlaylist: (playlistId: Id, title: string) => void;
+  /**
+   * 改歌单的名称与简介。
+   *
+   * 两者一起提交而不是各来一个动作：它们在同一个对话框里编辑，分开写等于把一次编辑
+   * 拆成两趟落库，中间失败就会留下「名字改了简介没改」这种半截状态。简介**允许为空**
+   * ——那是清空，不是没填。
+   */
+  editPlaylist: (playlistId: Id, edits: { title: string; description: string }) => void;
   /** 删除歌单（同时清掉它的收藏标记）。 */
   deletePlaylist: (playlistId: Id) => void;
   setVolume: (v: number) => void;
@@ -684,6 +737,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   needsLibrary: false,
 
   collectionsRevision: 0,
+  collectionsWriteFailed: false,
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
   favoriteAlbumGroups: SEED_FAVORITE_ALBUM_GROUPS.map((group) => [...group]),
@@ -921,21 +975,33 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   rehydratePlaylists: () => set((s) => ({ playlists: rehydratePlaylists(s.playlists) })),
 
-  addToPlaylist: (playlistId, tracks) => {
+  addToPlaylist: (playlistId, tracks, sourceTrackIds) => {
+    if (containsNativeDemoTrack(tracks)) {
+      set({ needsLibrary: true, error: null });
+      return;
+    }
     const target = get().playlists.find((p) => p.id === playlistId);
     if (!target) return;
     // 去重按**落盘的全部 ID**判，不只看水合出来的那些：某首歌暂时查不回本体时，
     // 只比对 tracks 会让它被再加一遍，文件回来后歌单里就出现两条。
-    const added = uniqueTracksById(tracks, new Set(target.trackIds));
-    if (added.length === 0) return;
+    const addedIds = uniqueIds(
+      sourceTrackIds ?? tracks.map((track) => track.id),
+      new Set(target.trackIds),
+    );
+    if (addedIds.length === 0) return;
+    const trackIds = [...target.trackIds, ...addedIds];
     writePlaylist({
       ...target,
-      trackIds: [...target.trackIds, ...added.map((track) => track.id)],
-      tracks: [...target.tracks, ...added],
+      trackIds,
+      tracks: tracksForIds(trackIds, [...target.tracks, ...tracks]),
     });
   },
 
-  createPlaylistWithTracks: async (baseName, tracks) => {
+  createPlaylistWithTracks: async (baseName, tracks, sourceTrackIds) => {
+    if (containsNativeDemoTrack(tracks)) {
+      set({ needsLibrary: true, error: null });
+      return null;
+    }
     // 重名自动加序号：新歌单 / 新歌单 2 / 新歌单 3 …
     const names = new Set([
       ...get().playlists.map((p) => p.title),
@@ -944,8 +1010,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     let title = baseName;
     for (let n = 2; names.has(title); n++) title = `${baseName} ${n}`;
     pendingPlaylistTitles.add(title);
-    const unique = uniqueTracksById(tracks);
-    const trackIds = unique.map((track) => track.id);
+    const trackIds = uniqueIds(sourceTrackIds ?? tracks.map((track) => track.id));
+    const unique = tracksForIds(trackIds, uniqueTracksById(tracks));
 
     try {
       // 排进同一条 FIFO：紧接着要收藏它，两笔的先后不能靠 IPC 到达顺序碰运气。
@@ -980,7 +1046,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return playlist.id;
     } catch (error) {
       // 建不出来就什么都不显示。摆一张卡片再让它消失，比一开始就没有更难理解。
+      // 但「什么都不显示」不能连一句说明都没有：用户按了新建却毫无反应。
       console.error("新建歌单失败", error);
+      set({ collectionsWriteFailed: true });
       return null;
     } finally {
       // 成功时同名卡片已经同步进了 store；失败时则允许下一次重用这个名字。
@@ -1023,10 +1091,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     );
   },
 
-  renamePlaylist: (playlistId, title) => {
+  editPlaylist: (playlistId, { title, description }) => {
     const target = get().playlists.find((p) => p.id === playlistId);
     if (!target) return;
-    writePlaylist({ ...target, title });
+    writePlaylist({ ...target, title, description });
   },
 
   deletePlaylist: (playlistId) => {

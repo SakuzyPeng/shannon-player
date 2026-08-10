@@ -110,6 +110,23 @@ const ITEMS: &[Item] = &[
         args: &["-c:a", "flac", "-sample_fmt", "s32", "-ar", "44100"],
         note: "24 bit：位深转换错误会表现为底噪或削顶",
     },
+    // Opus 两首：它是唯一一个不经 Symphonia 内建解码器、走 libopus 绑定的编码，
+    // 而且**一律解到 48 kHz**（无论源是多少），所以它同时也是一首重采样试听曲。
+    Item {
+        order: 12,
+        title: "12 Opus 128k in Ogg",
+        ext: "opus",
+        args: &["-c:a", "libopus", "-b:a", "128k"],
+        note: "有损；与 08 同为 Ogg 容器，听 seek 之后开头有无杂音（pre-roll 没做对就会有）",
+    },
+    Item {
+        order: 13,
+        title: "13 Opus 128k in WebM",
+        ext: "webm",
+        args: &["-c:a", "libopus", "-b:a", "128k", "-f", "webm"],
+        note:
+            "yt-dlp 下载 YouTube 音频的默认产物；它的定位走的是重开解码那条路，拖动进度条多试几次",
+    },
 ];
 
 fn main() {
@@ -184,7 +201,7 @@ fn main() {
         // 不排除的话 ffmpeg 会试图把它一起塞进输出容器，m4a 与 ogg 会直接失败。
         cmd.args(["-map", "0:a:0", "-vn", "-ac", "2"]);
         // 丢掉源标签再写自己的。**每首必须有不同的标题与音轨号**：
-        // 这 11 个文件是同一段音乐的不同编码，时长一模一样，沿用源标题的话
+        // 这十几个文件是同一段音乐的不同编码，时长一模一样，沿用源标题的话
         // 会正好命中扫描器的重复判据（相同标题 + 相同时长 / 相同轨位 + 相同时长），
         // 整批被折叠成一两首——实测过，10 个文件扫出来只剩 4 首。
         cmd.args(["-map_metadata", "-1"])

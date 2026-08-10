@@ -36,6 +36,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::cache::{RawTags, RawTrack, ScanCache};
 use crate::collections::{Favorites, Playlist};
@@ -47,7 +49,7 @@ use crate::overrides::{Overrides, TrackOverride};
 /// 改表结构时 +1 并在 [`migrate`] 里补一段升级。用 `user_version` 而不是自建元数据表，
 /// 是因为它由 SQLite 自己维护、读取不需要先假设任何表存在——首次打开一个空文件时，
 /// 「还没有表」与「表读不出来」不该走两条不同的代码路径。
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// 统计量在 `meta` 表里的键。这些是**一次扫描的结论**而不是曲目属性，
 /// 单独建表只会得到一张永远两行的表。
@@ -118,6 +120,68 @@ pub struct OpenReport {
     /// 原文件被 SQLite 判为损坏或未通过完整性检查，已改名保留在这里；当前是新空库。
     /// **必须让用户知道**：里面有他手改的元数据。
     pub corrupt_backup: Option<PathBuf>,
+}
+
+/// 曲库存储当前的健康状况，供界面如实告知用户。
+///
+/// 为什么要有它：这三种坏法此前都只写日志。日志用户看不见，而他看得见的是「收藏点了
+/// 没反应」「改完元数据重启就没了」「整个曲库空了」——全都表现得像软件坏了，而真实
+/// 原因（磁盘满、装过新版本、文件损坏）各不相同，用户要做的事也完全不同。
+///
+/// 分成四种而不是一个布尔，理由与播放失败按 `kind` 分类是同一条：
+/// 「留不下来」要看磁盘，「读不懂」要换回新版本，「损坏」则要去捞那份残骸。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../src/types/generated/library.ts")]
+pub enum StorageStatus {
+    /// 一切正常。
+    Ok,
+    /// 打不开：磁盘满、卷只读、取不到应用数据目录。本次运行照常能扫描能播放，
+    /// 但扫描结果与元数据修改都留不下来。
+    Unavailable { message: String },
+    /// 文件的 schema 版本高于本程序，**文件没有被动过**。装回新版本即可，
+    /// 在此期间的修改同样留不下来。
+    ///
+    /// 版本号用 `i32` 而不是 `i64`：ts-rs 会把 `i64` 映射成 `bigint`，而 serde 出去的
+    /// 是 JSON 数字、前端接到的是 `number`，照默认走会得到一个与线上格式不符的类型。
+    SchemaTooNew { found: i32, supported: i32 },
+    /// 确认损坏，原文件已改名保留。曲库需要重扫，而里面那份**不可重建**的元数据修改
+    /// 只能人工从残骸里捞——所以必须把路径告诉用户，而不只是说一句「损坏」。
+    Corrupt { backup: String },
+}
+
+impl StorageStatus {
+    pub fn is_ok(&self) -> bool {
+        matches!(self, Self::Ok)
+    }
+
+    /// 打开失败时的状态。翻译放在 core 而不是外壳：外壳照抄一遍 `DbError` 的分支，
+    /// 就等于把「哪种失败该怎么说」这件事复制到了一个不受 core 测试保护的地方。
+    pub fn from_error(err: &DbError) -> Self {
+        match err {
+            DbError::SchemaTooNew { found, supported } => Self::SchemaTooNew {
+                found: *found as i32,
+                supported: *supported as i32,
+            },
+            other => Self::Unavailable {
+                message: other.to_string(),
+            },
+        }
+    }
+
+    /// 成功打开时的状态：损坏残骸也算「打开成功」，但用户必须知道。
+    pub fn from_report(report: &OpenReport) -> Self {
+        match &report.corrupt_backup {
+            Some(backup) => Self::Corrupt {
+                backup: backup.display().to_string(),
+            },
+            None => Self::Ok,
+        }
+    }
 }
 
 /// 从旧 JSON 迁移的结果。
@@ -846,6 +910,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             2 => tx.execute_batch(SCHEMA_V3)?,
             3 => tx.execute_batch(SCHEMA_V4)?,
             4 => tx.execute_batch(SCHEMA_V5)?,
+            5 => tx.execute_batch(SCHEMA_V6)?,
             _ => unreachable!("缺少 v{version} 到 v{} 的升级", version + 1),
         }
         version += 1;
@@ -1058,6 +1123,66 @@ ALTER TABLE track ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE track ADD COLUMN mtime_ms INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// v6：声道数可为空。
+///
+/// `AudioFormat.channels` 从 `u8` 改成 `Option<u8>`——0 声道的音频不存在，用 0 表示
+/// 「判不出」是个哨兵值，与 `Album.year` 当年填 0 显示成「0 年」是同一类错误。
+///
+/// SQLite 改不了列的 NOT NULL 约束，只能重建表。旧值 0 精确对应「没读出来」
+/// （此前唯一的来源就是 `unwrap_or(0)`），所以这次转换是无损的，**不需要重扫**：
+/// 迁移完的数据与重新探测一遍会得到同一个结果，而重扫一次真实曲库要几十秒。
+/// 索引在表重建后要跟着重建，否则它们会随旧表一起消失。
+const SCHEMA_V6: &str = r#"
+DROP INDEX track_id_idx;
+DROP INDEX track_probe_version_idx;
+ALTER TABLE track RENAME TO track_v5;
+
+CREATE TABLE track (
+  id             TEXT NOT NULL,
+  path           TEXT NOT NULL PRIMARY KEY,
+  title          TEXT,
+  artist         TEXT,
+  album_artist   TEXT,
+  album          TEXT,
+  year           INTEGER,
+  genre          TEXT,
+  track_no       INTEGER,
+  disc_no        INTEGER,
+  cover_key      TEXT,
+  has_cover      INTEGER NOT NULL,
+  duration_sec   REAL NOT NULL,
+  container      TEXT NOT NULL,
+  codec          TEXT NOT NULL,
+  encoding       TEXT NOT NULL,
+  sample_rate_hz INTEGER NOT NULL,
+  bit_depth      INTEGER,
+  bitrate_kbps   INTEGER,
+  lossless       INTEGER,
+  channels       INTEGER,
+  channel_mask   INTEGER,
+  channel_layout TEXT,
+  spatial        TEXT,
+  probe_notes    TEXT NOT NULL,
+  probe_version  INTEGER NOT NULL,
+  file_size      INTEGER NOT NULL DEFAULT 0,
+  mtime_ms       INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO track SELECT
+  id, path, title, artist, album_artist, album, year, genre, track_no, disc_no,
+  cover_key, has_cover, duration_sec, container, codec, encoding, sample_rate_hz,
+  bit_depth, bitrate_kbps, lossless,
+  CASE WHEN channels = 0 THEN NULL ELSE channels END,
+  channel_mask, channel_layout, spatial, probe_notes, probe_version,
+  file_size, mtime_ms
+FROM track_v5;
+
+DROP TABLE track_v5;
+
+CREATE INDEX track_id_idx ON track(id);
+CREATE INDEX track_probe_version_idx ON track(probe_version);
+"#;
+
 /// 行 → `RawTrack`。JSON 列的解析可能失败，所以返回值再套一层 `Result`：
 /// rusqlite 的闭包只能报它自己的错误类型，把 serde 错误硬塞进去会丢掉原因。
 fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
@@ -1088,7 +1213,7 @@ fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
         r.get::<_, Option<u8>>(17)?,
         r.get::<_, Option<u32>>(18)?,
         r.get::<_, Option<bool>>(19)?,
-        r.get::<_, u8>(20)?,
+        r.get::<_, Option<u8>>(20)?,
         r.get::<_, Option<u32>>(21)?,
         r.get::<_, u32>(25)?,
         r.get::<_, i64>(26)? as u64,
@@ -1208,7 +1333,7 @@ mod tests {
                 bit_depth: Some(16),
                 bitrate_kbps: Some(900),
                 lossless: Some(true),
-                channels: 2,
+                channels: Some(2),
                 channel_mask: Some(0x3),
                 channel_layout: Some(ChannelLayout::Stereo),
                 spatial: None,
@@ -1449,6 +1574,46 @@ mod tests {
         .unwrap();
     }
 
+    /// v6 之前用 0 表示「声道数没读出来」。升级要把它换成真正的空，而**不能**顺手
+    /// 当成一次重扫的借口：0 精确对应「没读出来」，转换是无损的，而重扫一次真实曲库
+    /// 要几十秒。真实值必须原样留下——把 2 声道也一并抹成空才是把信息弄丢了。
+    #[test]
+    fn v6_turns_the_zero_channel_sentinel_into_a_real_absence() {
+        let dir = scratch("v6_channels");
+        let path = dir.join("library.db");
+        let mut unknown = track("t-unknown", "/音乐/来路不明.webm");
+        unknown.format.channels = Some(0);
+        let mut stereo = track("t-stereo", "/音乐/立体声.flac");
+        stereo.format.channels = Some(2);
+        let cache = cache_of(vec![unknown, stereo]);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            for tk in &cache.tracks {
+                insert_v1_track(&conn, tk);
+            }
+        }
+
+        let db = LibraryDb::open(&path).unwrap().0;
+        let loaded = db.load_cache().unwrap();
+        let by_id = |id: &str| {
+            loaded
+                .tracks
+                .iter()
+                .find(|t| t.id == id)
+                .expect("曲目要还在")
+                .format
+                .channels
+        };
+        assert_eq!(
+            by_id("t-unknown"),
+            None,
+            "0 是哨兵值，升级后必须变成真正的空"
+        );
+        assert_eq!(by_id("t-stereo"), Some(2), "真实声道数不能被一并抹掉");
+    }
+
     /// 已经试跑过旧实现的开发库是 v1；修正主键后也要原地升级，不能要求手删数据库。
     #[test]
     fn v1_database_migrates_to_path_key() {
@@ -1533,7 +1698,7 @@ mod tests {
     #[test]
     fn tagged_format_fields_round_trip() {
         let mut t = track("t-1", "/音乐/环绕.flac");
-        t.format.channels = 12;
+        t.format.channels = Some(12);
         t.format.channel_mask = None; // 判不出就留空，不用声道数硬猜
         t.format.channel_layout = Some(ChannelLayout::Surround {
             main: 7,
@@ -1679,6 +1844,36 @@ mod tests {
         let second = second.corrupt_backup.unwrap();
         assert_ne!(second, backup);
         assert!(backup.exists() && second.exists());
+    }
+
+    /// 界面状态必须把三种坏法分开：它们要用户做的事完全不同——磁盘满去清盘，
+    /// 版本太新去装回新版本，损坏则要去捞那份残骸。合成一句「曲库出错了」，
+    /// 等于把唯一有用的那点信息丢掉。
+    #[test]
+    fn the_three_ways_of_being_broken_stay_distinguishable() {
+        assert_eq!(
+            StorageStatus::from_error(&DbError::SchemaTooNew {
+                found: 9,
+                supported: 5
+            }),
+            StorageStatus::SchemaTooNew {
+                found: 9,
+                supported: 5
+            }
+        );
+        assert!(matches!(
+            StorageStatus::from_error(&DbError::Io(std::io::Error::other("磁盘满"))),
+            StorageStatus::Unavailable { .. }
+        ));
+        assert_eq!(
+            StorageStatus::from_report(&OpenReport {
+                corrupt_backup: Some(PathBuf::from("/x/library.corrupt")),
+            }),
+            StorageStatus::Corrupt {
+                backup: "/x/library.corrupt".into()
+            }
+        );
+        assert!(StorageStatus::from_report(&OpenReport::default()).is_ok());
     }
 
     /// 打不开不等于损坏。路径被同名目录占用会报 CannotOpen，但绝不能把整个目录搬走

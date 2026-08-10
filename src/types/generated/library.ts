@@ -82,6 +82,18 @@ total: number, tracks: number, albums: number,
 current: string, };
 
 /**
+ * 曲库存储当前的健康状况，供界面如实告知用户。
+ *
+ * 为什么要有它：这三种坏法此前都只写日志。日志用户看不见，而他看得见的是「收藏点了
+ * 没反应」「改完元数据重启就没了」「整个曲库空了」——全都表现得像软件坏了，而真实
+ * 原因（磁盘满、装过新版本、文件损坏）各不相同，用户要做的事也完全不同。
+ *
+ * 分成四种而不是一个布尔，理由与播放失败按 `kind` 分类是同一条：
+ * 「留不下来」要看磁盘，「读不懂」要换回新版本，「损坏」则要去捞那份残骸。
+ */
+export type StorageStatus = { "kind": "ok" } | { "kind": "unavailable", message: string, } | { "kind": "schemaTooNew", found: number, supported: number, } | { "kind": "corrupt", backup: string, };
+
+/**
  * 曲目。
  */
 export type Track = { id: string, title: string, artist: string, album: string, albumId?: string, cover: Cover, durationSec: number, 

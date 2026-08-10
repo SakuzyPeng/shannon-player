@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 
 use crate::error::{ErrorKind, Result, Stage};
 use crate::output::{
-    fill_from_ring, ramp_step_for, DeviceEnumerator, DeviceInfo, OutputBackend, OutputConfig,
-    OutputRequest, OutputShared,
+    render_output_callback, CallbackState, DeviceEnumerator, DeviceInfo, OutputBackend,
+    OutputConfig, OutputRequest, OutputShared,
 };
 use crate::ring::RingConsumer;
 
@@ -212,25 +212,20 @@ impl OutputBackend for NullOutput {
         let channels = config.layout.count() as usize;
         let sample_rate = config.sample_rate;
         let frames_per_tick = (sample_rate as u64 * TICK.as_millis() as u64 / 1000) as usize;
-        let ramp_step = ramp_step_for(sample_rate);
         let stop = Arc::new(AtomicBool::new(false));
         self.stop = stop.clone();
 
         self.worker = Some(std::thread::spawn(move || {
+            // 输出缓冲与回调状态都在循环外备好：假设备也守回调内不分配这条纪律，
+            // 否则拿它跑的那批集成测试就代表不了真实回调的行为。
             let mut buf = vec![0.0f32; frames_per_tick * channels];
-            let mut gain = 0.0f32;
+            let mut state = CallbackState::new(channels, sample_rate, frames_per_tick);
             let mut next = Instant::now();
             while !stop.load(Ordering::Relaxed) {
-                shared.begin_callback();
-                let audio_frames = fill_from_ring(
-                    &mut buf,
-                    channels,
-                    &mut consumer,
-                    &shared,
-                    &mut gain,
-                    ramp_step,
-                );
-                shared.finish_callback(audio_frames);
+                // 走与 CPAL 同一个回调体，而不是自己再写一遍 begin/fill/finish：
+                // 假设备的价值在于「除了没有声卡，其余都一样」。
+                // 它没有设备延迟可报，延迟恒为 0。
+                render_output_callback(&mut buf, &mut state, &mut consumer, &shared, || 0);
                 next += TICK;
                 let now = Instant::now();
                 if next > now {
