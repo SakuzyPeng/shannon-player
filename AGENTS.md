@@ -18,7 +18,7 @@ pnpm tauri build      # 打包桌面应用
 cargo test -p shannon-core                                # 后端单测；同时把 ts-rs 契约类型重新导出到 src/types/generated/
 cargo test -p shannon-core id_survives_rename             # 跑单个测试（标准 cargo 名字过滤）
 cargo run -p shannon-core --example scan_dump -- <目录>   # 扫描目录并打印每首曲目的完整规格与字段来源
-cargo run -p shannon-core --example warm_cache -- <目录> <数据库路径>  # 预热扫描缓存，用于验证「重启免重扫」
+cargo run -p shannon-core --example warm_cache -- <目录> <数据库路径>  # 预热扫描缓存（走增量路径，打印耗时与复用比例）
 
 cargo test -p shannon-audio                               # 播放引擎测试（无头，语料现生成不入库）
 cargo run -p shannon-audio --example play -- <文件>       # 试放一个文件，打印规格、协商结果、位置与欠载
