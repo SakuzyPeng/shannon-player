@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { LibrarySnapshot, ScanProgress } from "@/types/generated/library";
+import type { LibrarySnapshot, ScanProgress, StorageStatus } from "@/types/generated/library";
 import type { Favorites, Playlist } from "@/types/generated/collections";
 import type { TrackMetadataPatch } from "@/types/generated/overrides";
 import type { AudioDeviceInfo, PlayerEvent } from "@/types/generated/player";
@@ -535,6 +535,15 @@ export async function setLoudnessQueue(items: LoudnessQueueItem[]): Promise<numb
  * 浏览器预览没有后端，返回 `null` 让 store 保留种子演示数据——与曲库同一套路：
  * 界面不该因为在浏览器里跑就变成空的，那样 UI 开发就没法继续了。
  */
+/**
+ * 曲库存储的健康状况。浏览器预览没有数据库，一律当正常——那里本来就不落盘，
+ * 报一句「存不下」只会让预览环境凭空多出一条与它无关的故障。
+ */
+export async function storageStatus(): Promise<StorageStatus> {
+  if (!isTauri()) return { kind: "ok" };
+  return invoke<StorageStatus>("get_storage_status");
+}
+
 export async function loadCollections(): Promise<[Favorites, Playlist[]] | null> {
   if (!isTauri()) return null;
   return invoke<[Favorites, Playlist[]]>("collections_load");

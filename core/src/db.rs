@@ -36,6 +36,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::cache::{RawTags, RawTrack, ScanCache};
 use crate::collections::{Favorites, Playlist};
@@ -118,6 +120,68 @@ pub struct OpenReport {
     /// 原文件被 SQLite 判为损坏或未通过完整性检查，已改名保留在这里；当前是新空库。
     /// **必须让用户知道**：里面有他手改的元数据。
     pub corrupt_backup: Option<PathBuf>,
+}
+
+/// 曲库存储当前的健康状况，供界面如实告知用户。
+///
+/// 为什么要有它：这三种坏法此前都只写日志。日志用户看不见，而他看得见的是「收藏点了
+/// 没反应」「改完元数据重启就没了」「整个曲库空了」——全都表现得像软件坏了，而真实
+/// 原因（磁盘满、装过新版本、文件损坏）各不相同，用户要做的事也完全不同。
+///
+/// 分成四种而不是一个布尔，理由与播放失败按 `kind` 分类是同一条：
+/// 「留不下来」要看磁盘，「读不懂」要换回新版本，「损坏」则要去捞那份残骸。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "../../src/types/generated/library.ts")]
+pub enum StorageStatus {
+    /// 一切正常。
+    Ok,
+    /// 打不开：磁盘满、卷只读、取不到应用数据目录。本次运行照常能扫描能播放，
+    /// 但扫描结果与元数据修改都留不下来。
+    Unavailable { message: String },
+    /// 文件的 schema 版本高于本程序，**文件没有被动过**。装回新版本即可，
+    /// 在此期间的修改同样留不下来。
+    ///
+    /// 版本号用 `i32` 而不是 `i64`：ts-rs 会把 `i64` 映射成 `bigint`，而 serde 出去的
+    /// 是 JSON 数字、前端接到的是 `number`，照默认走会得到一个与线上格式不符的类型。
+    SchemaTooNew { found: i32, supported: i32 },
+    /// 确认损坏，原文件已改名保留。曲库需要重扫，而里面那份**不可重建**的元数据修改
+    /// 只能人工从残骸里捞——所以必须把路径告诉用户，而不只是说一句「损坏」。
+    Corrupt { backup: String },
+}
+
+impl StorageStatus {
+    pub fn is_ok(&self) -> bool {
+        matches!(self, Self::Ok)
+    }
+
+    /// 打开失败时的状态。翻译放在 core 而不是外壳：外壳照抄一遍 `DbError` 的分支，
+    /// 就等于把「哪种失败该怎么说」这件事复制到了一个不受 core 测试保护的地方。
+    pub fn from_error(err: &DbError) -> Self {
+        match err {
+            DbError::SchemaTooNew { found, supported } => Self::SchemaTooNew {
+                found: *found as i32,
+                supported: *supported as i32,
+            },
+            other => Self::Unavailable {
+                message: other.to_string(),
+            },
+        }
+    }
+
+    /// 成功打开时的状态：损坏残骸也算「打开成功」，但用户必须知道。
+    pub fn from_report(report: &OpenReport) -> Self {
+        match &report.corrupt_backup {
+            Some(backup) => Self::Corrupt {
+                backup: backup.display().to_string(),
+            },
+            None => Self::Ok,
+        }
+    }
 }
 
 /// 从旧 JSON 迁移的结果。
@@ -1679,6 +1743,36 @@ mod tests {
         let second = second.corrupt_backup.unwrap();
         assert_ne!(second, backup);
         assert!(backup.exists() && second.exists());
+    }
+
+    /// 界面状态必须把三种坏法分开：它们要用户做的事完全不同——磁盘满去清盘，
+    /// 版本太新去装回新版本，损坏则要去捞那份残骸。合成一句「曲库出错了」，
+    /// 等于把唯一有用的那点信息丢掉。
+    #[test]
+    fn the_three_ways_of_being_broken_stay_distinguishable() {
+        assert_eq!(
+            StorageStatus::from_error(&DbError::SchemaTooNew {
+                found: 9,
+                supported: 5
+            }),
+            StorageStatus::SchemaTooNew {
+                found: 9,
+                supported: 5
+            }
+        );
+        assert!(matches!(
+            StorageStatus::from_error(&DbError::Io(std::io::Error::other("磁盘满"))),
+            StorageStatus::Unavailable { .. }
+        ));
+        assert_eq!(
+            StorageStatus::from_report(&OpenReport {
+                corrupt_backup: Some(PathBuf::from("/x/library.corrupt")),
+            }),
+            StorageStatus::Corrupt {
+                backup: "/x/library.corrupt".into()
+            }
+        );
+        assert!(StorageStatus::from_report(&OpenReport::default()).is_ok());
     }
 
     /// 打不开不等于损坏。路径被同名目录占用会报 CannotOpen，但绝不能把整个目录搬走

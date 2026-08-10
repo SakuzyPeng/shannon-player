@@ -285,6 +285,14 @@ export interface Messages {
   /* 演示曲库没有真实文件时的提示。这不是故障，措辞不能像故障。 */
   "player.needsLibrary": string;
 
+  /* 曲库存储出问题时的提示。三种坏法分开措辞——用户要做的事完全不同：
+     存不下要去清磁盘，版本太新要装回新版本，损坏则要去捞那份残骸。 */
+  "storage.unavailable": string;
+  "storage.schemaTooNew": string;
+  "storage.corrupt": string;
+  "storage.corruptPath": string;
+  "collections.writeFailed": string;
+
   "window.close": string;
   "window.minimize": string;
   "window.maximize": string;
@@ -556,6 +564,12 @@ const zhHans: Messages = {
   "player.error.dismiss": "知道了",
   "player.needsLibrary": "这是演示曲目。添加音乐文件夹后即可使用你自己的音乐。",
 
+  "storage.unavailable": "曲库数据库打不开，本次的扫描结果与元数据修改都不会保留（{message}）",
+  "storage.schemaTooNew": "曲库数据库是更新版本的应用写的（版本 {found}，本程序支持到 {supported}），文件未改动；装回新版本即可继续使用",
+  "storage.corrupt": "曲库数据库已损坏，原文件已改名保留。曲库需要重新扫描，手改过的元数据只能从保留的文件里找回",
+  "storage.corruptPath": "已保留：{path}",
+  "collections.writeFailed": "收藏或歌单没能保存，刚才那次修改已撤回",
+
   "window.close": "关闭",
   "window.minimize": "最小化",
   "window.maximize": "最大化",
@@ -824,6 +838,12 @@ const zhHant: Messages = {
   "player.error.stream": "音訊輸出中斷，裝置可能已被拔除或被其它應用佔用",
   "player.error.dismiss": "知道了",
   "player.needsLibrary": "這是示範曲目。加入音樂資料夾後即可使用自己的音樂。",
+
+  "storage.unavailable": "曲庫資料庫打不開，本次的掃描結果與中繼資料修改都不會保留（{message}）",
+  "storage.schemaTooNew": "曲庫資料庫是較新版本的應用寫的（版本 {found}，本程式支援到 {supported}），檔案未變動；裝回新版本即可繼續使用",
+  "storage.corrupt": "曲庫資料庫已損毀，原檔案已改名保留。曲庫需要重新掃描，手動修改過的中繼資料只能從保留的檔案裡找回",
+  "storage.corruptPath": "已保留：{path}",
+  "collections.writeFailed": "收藏或播放清單沒能儲存，剛才那次修改已撤回",
 
   "window.close": "關閉",
   "window.minimize": "最小化",
@@ -1094,6 +1114,12 @@ const en: Messages = {
   "player.error.dismiss": "Got it",
   "player.needsLibrary": "This is a demo track. Add a music folder to use your own library.",
 
+  "storage.unavailable": "The library database can't be opened — this session's scan results and metadata edits won't be kept ({message})",
+  "storage.schemaTooNew": "The library database was written by a newer version (version {found}; this build supports up to {supported}). The file is untouched — reinstall the newer version to continue",
+  "storage.corrupt": "The library database was corrupted. The original file has been renamed and kept. The library needs a rescan, and hand-edited metadata can only be recovered from the kept file",
+  "storage.corruptPath": "Kept at: {path}",
+  "collections.writeFailed": "Couldn't save that favorite or playlist change — it has been rolled back",
+
   "window.close": "Close",
   "window.minimize": "Minimize",
   "window.maximize": "Maximize",
@@ -1362,6 +1388,12 @@ const ja: Messages = {
   "player.error.stream": "オーディオ出力が中断されました。デバイスが取り外されたか、他のアプリが使用中の可能性があります",
   "player.error.dismiss": "了解",
   "player.needsLibrary": "これはデモ曲です。音楽フォルダを追加すると自分のライブラリを利用できます。",
+
+  "storage.unavailable": "ライブラリのデータベースを開けません。今回のスキャン結果とメタデータの変更は保存されません（{message}）",
+  "storage.schemaTooNew": "ライブラリのデータベースは新しいバージョンのアプリで作成されています（バージョン {found}、このビルドの対応は {supported} まで）。ファイルは変更していません。新しいバージョンに戻すと続行できます",
+  "storage.corrupt": "ライブラリのデータベースが破損しました。元のファイルは名前を変えて保存してあります。ライブラリの再スキャンが必要で、手動で編集したメタデータはそのファイルからのみ復元できます",
+  "storage.corruptPath": "保存先：{path}",
+  "collections.writeFailed": "お気に入りまたはプレイリストを保存できませんでした。先ほどの変更は取り消されました",
 
   "window.close": "閉じる",
   "window.minimize": "最小化",

@@ -184,8 +184,17 @@ function persistCollectionMutation<T>(
   const generation = ++collectionMutationGeneration;
   const run = enqueueCollectionWrite(write);
   void run
+    .then(() => {
+      // 成功就把上一次的失败提示收掉：留着一句已经不成立的警告，比不提示更糟。
+      if (usePlayerStore.getState().collectionsWriteFailed) {
+        usePlayerStore.setState({ collectionsWriteFailed: false });
+      }
+    })
     .catch((error) => {
       console.error("保存收藏或歌单失败", error);
+      // 对账马上会把界面退回去（红心灭掉、歌单不出现）。**只退不说等于装作什么都没
+      // 发生过**——用户看到的是自己刚点的那一下没生效，最合理的推断是软件坏了。
+      usePlayerStore.setState({ collectionsWriteFailed: true });
     })
     .then(async () => {
       // 后面还有动作时由最后一笔统一对账，避免每个回执都把界面来回覆盖。
@@ -381,6 +390,14 @@ interface PlayerState {
   /** ---- 收藏与歌单（用户数据，落在 library.db，见 core/src/collections.rs） ---- */
   /** 用户收藏 / 歌单意图的版本；异步恢复只可覆盖仍未被用户改过的那一版。 */
   collectionsRevision: number;
+  /**
+   * 最近一次收藏 / 歌单写入是否失败了。
+   *
+   * 写失败时对账会把界面退回去（红心灭掉、新歌单不出现），而**只退不说**等于装作
+   * 什么都没发生过——用户看到的只是自己刚点的那一下没生效，最合理的推断是软件坏了。
+   * 下一次写入成功即自动收掉：留着一句已经不成立的警告比不提示更糟。
+   */
+  collectionsWriteFailed: boolean;
   favorites: Record<Id, boolean>;
   /**
    * 专辑收藏的**派生视图**，键是专辑 ID，只供组件读。
@@ -713,6 +730,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   needsLibrary: false,
 
   collectionsRevision: 0,
+  collectionsWriteFailed: false,
   favorites: { ...SEED_FAVORITE_TRACKS },
   favoriteAlbums: { ...SEED_FAVORITE_ALBUMS },
   favoriteAlbumGroups: SEED_FAVORITE_ALBUM_GROUPS.map((group) => [...group]),
@@ -1021,7 +1039,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return playlist.id;
     } catch (error) {
       // 建不出来就什么都不显示。摆一张卡片再让它消失，比一开始就没有更难理解。
+      // 但「什么都不显示」不能连一句说明都没有：用户按了新建却毫无反应。
       console.error("新建歌单失败", error);
+      set({ collectionsWriteFailed: true });
       return null;
     } finally {
       // 成功时同名卡片已经同步进了 store；失败时则允许下一次重用这个名字。
