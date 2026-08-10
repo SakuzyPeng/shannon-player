@@ -21,7 +21,13 @@ codec: string, encoding: Encoding, sampleRateHz: number,
 /**
  * PCM 位深；DSD 恒为 1。
  */
-bitDepth: number | null, bitrateKbps: number | null, lossless: boolean | null, channels: number, 
+bitDepth: number | null, bitrateKbps: number | null, lossless: boolean | null, 
+/**
+ * 声道数。**判不出留空，不拿 0 冒充**——0 声道的音频不存在，填 0 只会让界面
+ * 有朝一日显示成「0 声道」，与 `Album.year` 当年填 0 显示成「0 年」是同一个错误。
+ * 实测 core 用的 symphonia 0.5 在 webm/opus 上就读不出声道数。
+ */
+channels: number | null, 
 /**
  * 扬声器位置位掩码（FFmpeg 口径），布局的权威来源。
  */

@@ -91,7 +91,10 @@ pub struct AudioFormat {
     pub bit_depth: Option<u8>,
     pub bitrate_kbps: Option<u32>,
     pub lossless: Option<bool>,
-    pub channels: u8,
+    /// 声道数。**判不出留空，不拿 0 冒充**——0 声道的音频不存在，填 0 只会让界面
+    /// 有朝一日显示成「0 声道」，与 `Album.year` 当年填 0 显示成「0 年」是同一个错误。
+    /// 实测 core 用的 symphonia 0.5 在 webm/opus 上就读不出声道数。
+    pub channels: Option<u8>,
     /// 扬声器位置位掩码（FFmpeg 口径），布局的权威来源。
     pub channel_mask: Option<u32>,
     pub channel_layout: Option<ChannelLayout>,

@@ -777,10 +777,15 @@ pre-skip 的 reset 语义，避免只测「刚打开就定位」而漏掉运行�
 帧数 / 采样率；`PROBE_VERSION` 因此升到 4，让已有 MKA 的错误时长缓存也会重扫纠正。
 
 另记一处：`core` 用的是 symphonia 0.5.5（与 `audio` 的 0.6.0 并存），它在 webm/opus 上
-读不出声道数，扫描结果是 `channels: 0` 并记 `layout:unknown-0ch-no-mask`。布局留空符合
-「判不出一律留空」，但 `AudioFormat.channels` 是 `u8` 而非 `Option<u8>`，0 在这里是个哨兵值
-——与 `Album.year` 当年的问题同类。界面目前不显示声道数，所以尚未暴露；等到要显示时
-必须先改成 `Option`，否则会出现「0 声道」。
+读不出声道数。这暴露了一个既有的哨兵值——`AudioFormat.channels` 原本是 `u8`，判不出时填 0，
+与 `Album.year` 当年填 0 显示成「0 年」是同一个错误。**已改为 `Option<u8>`**（schema v6），
+迁移把 0 换成 NULL：0 精确对应「没读出来」，转换无损，因此**不需要重扫**，也没有动
+`PROBE_VERSION`。
+
+改动里有一处必须留住旧行为：`FormatFingerprint.channels` 仍是 `u8` 且仍传
+`unwrap_or(0)`。那个字节直接进曲目 ID 的哈希，换个值就是全库 ID 变化 = 用户的收藏、
+歌单与元数据修改全部失联（见 `core/src/id.rs`）。「判不出留空」是**表达**层面的戒律，
+而指纹是**标识**，两者的约束方向相反。
 
 ## 曲库数据库
 

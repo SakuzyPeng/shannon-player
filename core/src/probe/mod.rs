@@ -103,7 +103,8 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
             bit_depth: Some(1),
             bitrate_kbps: None,
             lossless: Some(true),
-            channels: info.channels,
+            // DSF header 里声道数是必填字段，读到了就是读到了。
+            channels: Some(info.channels),
             channel_mask: None,
             // DSF header 只给声道数，没有摆位信息 —— 立体声之外一律不猜。
             channel_layout: (info.channels == 2).then_some(ChannelLayout::Stereo),
@@ -148,7 +149,7 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
     let mut codec = String::new();
     let mut bit_depth = props.and_then(|p| p.bit_depth());
     let mut sample_rate_hz = props.and_then(|p| p.sample_rate()).unwrap_or(0);
-    let mut channels = props.and_then(|p| p.channels()).unwrap_or(0);
+    let mut channels = props.and_then(|p| p.channels());
     let mut duration_sec = props.map(|p| p.duration().as_secs_f64()).unwrap_or(0.0);
 
     // symphonia 补齐 lofty 拿不到的声道掩码（布局的权威来源）。
@@ -169,7 +170,7 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
             bit_depth = Some(bits as u8);
         }
         if let Some(n) = params.channels.map(|c| c.count() as u8) {
-            channels = n;
+            channels = Some(n);
         }
         codec = codec_name(params.codec);
     }
@@ -195,10 +196,15 @@ pub fn probe(path: &Path) -> Result<Probed, String> {
     let channel_layout = channel_mask.map(layout::layout_from_mask).or_else(|| {
         // 无掩码时只认最无争议的两种，其余留空 —— 声道数推不出摆位。
         match channels {
-            1 => Some(ChannelLayout::Mono),
-            2 => Some(ChannelLayout::Stereo),
-            _ => {
-                notes.push(format!("layout:unknown-{channels}ch-no-mask"));
+            Some(1) => Some(ChannelLayout::Mono),
+            Some(2) => Some(ChannelLayout::Stereo),
+            Some(n) => {
+                notes.push(format!("layout:unknown-{n}ch-no-mask"));
+                None
+            }
+            // 声道数本身都没读出来，连「几声道的布局判不出」都说不上。
+            None => {
+                notes.push("layout:unknown-no-channel-count".into());
                 None
             }
         }

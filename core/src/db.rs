@@ -49,7 +49,7 @@ use crate::overrides::{Overrides, TrackOverride};
 /// 改表结构时 +1 并在 [`migrate`] 里补一段升级。用 `user_version` 而不是自建元数据表，
 /// 是因为它由 SQLite 自己维护、读取不需要先假设任何表存在——首次打开一个空文件时，
 /// 「还没有表」与「表读不出来」不该走两条不同的代码路径。
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// 统计量在 `meta` 表里的键。这些是**一次扫描的结论**而不是曲目属性，
 /// 单独建表只会得到一张永远两行的表。
@@ -910,6 +910,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             2 => tx.execute_batch(SCHEMA_V3)?,
             3 => tx.execute_batch(SCHEMA_V4)?,
             4 => tx.execute_batch(SCHEMA_V5)?,
+            5 => tx.execute_batch(SCHEMA_V6)?,
             _ => unreachable!("缺少 v{version} 到 v{} 的升级", version + 1),
         }
         version += 1;
@@ -1122,6 +1123,66 @@ ALTER TABLE track ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE track ADD COLUMN mtime_ms INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// v6：声道数可为空。
+///
+/// `AudioFormat.channels` 从 `u8` 改成 `Option<u8>`——0 声道的音频不存在，用 0 表示
+/// 「判不出」是个哨兵值，与 `Album.year` 当年填 0 显示成「0 年」是同一类错误。
+///
+/// SQLite 改不了列的 NOT NULL 约束，只能重建表。旧值 0 精确对应「没读出来」
+/// （此前唯一的来源就是 `unwrap_or(0)`），所以这次转换是无损的，**不需要重扫**：
+/// 迁移完的数据与重新探测一遍会得到同一个结果，而重扫一次真实曲库要几十秒。
+/// 索引在表重建后要跟着重建，否则它们会随旧表一起消失。
+const SCHEMA_V6: &str = r#"
+DROP INDEX track_id_idx;
+DROP INDEX track_probe_version_idx;
+ALTER TABLE track RENAME TO track_v5;
+
+CREATE TABLE track (
+  id             TEXT NOT NULL,
+  path           TEXT NOT NULL PRIMARY KEY,
+  title          TEXT,
+  artist         TEXT,
+  album_artist   TEXT,
+  album          TEXT,
+  year           INTEGER,
+  genre          TEXT,
+  track_no       INTEGER,
+  disc_no        INTEGER,
+  cover_key      TEXT,
+  has_cover      INTEGER NOT NULL,
+  duration_sec   REAL NOT NULL,
+  container      TEXT NOT NULL,
+  codec          TEXT NOT NULL,
+  encoding       TEXT NOT NULL,
+  sample_rate_hz INTEGER NOT NULL,
+  bit_depth      INTEGER,
+  bitrate_kbps   INTEGER,
+  lossless       INTEGER,
+  channels       INTEGER,
+  channel_mask   INTEGER,
+  channel_layout TEXT,
+  spatial        TEXT,
+  probe_notes    TEXT NOT NULL,
+  probe_version  INTEGER NOT NULL,
+  file_size      INTEGER NOT NULL DEFAULT 0,
+  mtime_ms       INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO track SELECT
+  id, path, title, artist, album_artist, album, year, genre, track_no, disc_no,
+  cover_key, has_cover, duration_sec, container, codec, encoding, sample_rate_hz,
+  bit_depth, bitrate_kbps, lossless,
+  CASE WHEN channels = 0 THEN NULL ELSE channels END,
+  channel_mask, channel_layout, spatial, probe_notes, probe_version,
+  file_size, mtime_ms
+FROM track_v5;
+
+DROP TABLE track_v5;
+
+CREATE INDEX track_id_idx ON track(id);
+CREATE INDEX track_probe_version_idx ON track(probe_version);
+"#;
+
 /// 行 → `RawTrack`。JSON 列的解析可能失败，所以返回值再套一层 `Result`：
 /// rusqlite 的闭包只能报它自己的错误类型，把 serde 错误硬塞进去会丢掉原因。
 fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
@@ -1152,7 +1213,7 @@ fn row_to_track(r: &rusqlite::Row<'_>) -> rusqlite::Result<Result<RawTrack>> {
         r.get::<_, Option<u8>>(17)?,
         r.get::<_, Option<u32>>(18)?,
         r.get::<_, Option<bool>>(19)?,
-        r.get::<_, u8>(20)?,
+        r.get::<_, Option<u8>>(20)?,
         r.get::<_, Option<u32>>(21)?,
         r.get::<_, u32>(25)?,
         r.get::<_, i64>(26)? as u64,
@@ -1272,7 +1333,7 @@ mod tests {
                 bit_depth: Some(16),
                 bitrate_kbps: Some(900),
                 lossless: Some(true),
-                channels: 2,
+                channels: Some(2),
                 channel_mask: Some(0x3),
                 channel_layout: Some(ChannelLayout::Stereo),
                 spatial: None,
@@ -1513,6 +1574,46 @@ mod tests {
         .unwrap();
     }
 
+    /// v6 之前用 0 表示「声道数没读出来」。升级要把它换成真正的空，而**不能**顺手
+    /// 当成一次重扫的借口：0 精确对应「没读出来」，转换是无损的，而重扫一次真实曲库
+    /// 要几十秒。真实值必须原样留下——把 2 声道也一并抹成空才是把信息弄丢了。
+    #[test]
+    fn v6_turns_the_zero_channel_sentinel_into_a_real_absence() {
+        let dir = scratch("v6_channels");
+        let path = dir.join("library.db");
+        let mut unknown = track("t-unknown", "/音乐/来路不明.webm");
+        unknown.format.channels = Some(0);
+        let mut stereo = track("t-stereo", "/音乐/立体声.flac");
+        stereo.format.channels = Some(2);
+        let cache = cache_of(vec![unknown, stereo]);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+            for tk in &cache.tracks {
+                insert_v1_track(&conn, tk);
+            }
+        }
+
+        let db = LibraryDb::open(&path).unwrap().0;
+        let loaded = db.load_cache().unwrap();
+        let by_id = |id: &str| {
+            loaded
+                .tracks
+                .iter()
+                .find(|t| t.id == id)
+                .expect("曲目要还在")
+                .format
+                .channels
+        };
+        assert_eq!(
+            by_id("t-unknown"),
+            None,
+            "0 是哨兵值，升级后必须变成真正的空"
+        );
+        assert_eq!(by_id("t-stereo"), Some(2), "真实声道数不能被一并抹掉");
+    }
+
     /// 已经试跑过旧实现的开发库是 v1；修正主键后也要原地升级，不能要求手删数据库。
     #[test]
     fn v1_database_migrates_to_path_key() {
@@ -1597,7 +1698,7 @@ mod tests {
     #[test]
     fn tagged_format_fields_round_trip() {
         let mut t = track("t-1", "/音乐/环绕.flac");
-        t.format.channels = 12;
+        t.format.channels = Some(12);
         t.format.channel_mask = None; // 判不出就留空，不用声道数硬猜
         t.format.channel_layout = Some(ChannelLayout::Surround {
             main: 7,
