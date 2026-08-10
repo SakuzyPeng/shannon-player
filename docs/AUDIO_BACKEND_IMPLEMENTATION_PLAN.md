@@ -636,7 +636,7 @@ QoS 就是把判断交给它的正规途径。`audio/examples/bench_decode.rs --
 | --- | --- |
 | 持续播放 | 生产者跟得上时的常规填充、增益斜坡逐帧收敛 |
 | seek | flush 协议（`poll_control` 的请求与回执） |
-| 设备切换 | 旧 ring 的常规回调 → paused / rebuffering 下的尾回调 → 控制线程停掉旧流；随后用新 ring 跑首次回调。换端点**不走 flush**，`close/open` 状态机的功能正确性仍由 `tests/playback.rs` 验证 |
+| 设备切换 | 旧 ring 的常规回调 → paused / rebuffering 下的尾回调 → 控制线程停掉旧流；随后复用同一个 `OutputShared`，以新 ring 跑打开时的静音回调与恢复后的首个有声回调。换端点**不走 flush**，`close/open` 状态机的功能正确性仍由 `tests/playback.rs` 验证 |
 | 换曲 | 越过边界帧（`outcome.crossed`，位置改写而非累加） |
 | 撤销下一首 | 截断协议（生产端回退写下标前的上限回执） |
 | 欠载 | 饿死生产者，走补零与计数分支 |

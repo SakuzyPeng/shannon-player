@@ -440,8 +440,13 @@ pub struct CallbackState {
 impl CallbackState {
     /// `scratch_frames` 是分块上限，按后端自己的取值给。
     pub fn new(channels: usize, sample_rate: u32, scratch_frames: usize) -> Self {
+        assert!(channels > 0, "输出回调的声道数必须大于 0");
+        assert!(scratch_frames > 0, "输出回调的 scratch 帧数必须大于 0");
+        let scratch_samples = scratch_frames
+            .checked_mul(channels)
+            .expect("输出回调的 scratch 样本容量溢出");
         Self {
-            scratch: vec![0.0; scratch_frames * channels],
+            scratch: vec![0.0; scratch_samples],
             channels,
             ramp_step: ramp_step_for(sample_rate),
             // 从零起步：新流的第一个回调要把音量斜坡上来，直接给目标值会有爆音。
@@ -481,5 +486,17 @@ mod tests {
         fill_from_ring(&mut out, 2, &mut consumer, &shared, &mut gain, 1.0);
 
         assert_eq!(shared.underruns(), 0, "自然收尾的不足帧不是实时欠载");
+    }
+
+    #[test]
+    #[should_panic(expected = "声道数必须大于 0")]
+    fn callback_state_rejects_zero_channels() {
+        let _ = CallbackState::new(0, 48_000, 8192);
+    }
+
+    #[test]
+    #[should_panic(expected = "scratch 帧数必须大于 0")]
+    fn callback_state_rejects_an_empty_scratch() {
+        let _ = CallbackState::new(2, 48_000, 0);
     }
 }

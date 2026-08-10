@@ -399,13 +399,19 @@ fn switching_endpoints_allocates_nothing() {
     // 协商、关流、重开与位置接续不在实时线程，由 `tests/playback.rs` 的设备切换用例负责。
     let (mut producer, mut consumer, shared) = full_ring();
     let mut cb = Callback::new();
-    feed(&mut producer, OUT_FRAMES * 2, 0.5);
+    feed(&mut producer, OUT_FRAMES * 5, 0.5);
 
-    let running = cb.run(&mut consumer, &shared);
-    assert!(
-        running.is_zero(),
-        "换端点前的常规回调发生了分配：{running:?}"
-    );
+    // 多跑几轮，让人工设置的 480 帧设备延迟之后确实已有样本发声；否则保存位置恒为 0，
+    // 「接着走」的断言只是碰巧通过。
+    for round in 0..4 {
+        let running = cb.run(&mut consumer, &shared);
+        assert!(
+            running.is_zero(),
+            "换端点前第 {round} 次常规回调发生了分配：{running:?}"
+        );
+    }
+    let saved_position = shared.played_frames();
+    assert!(saved_position > 0, "测试前置条件：旧端点必须已有样本发声");
 
     shared.set_paused(true);
     shared.set_rebuffering(true);
@@ -415,40 +421,90 @@ fn switching_endpoints_allocates_nothing() {
     drop(consumer);
     drop(producer);
 
-    // 新端点：新 ring、新 shared，位置基准按新时基重建。
-    let (mut next_producer, mut next_consumer, next_shared) = full_ring();
-    next_shared.reset_position(shared.played_frames());
-    feed(&mut next_producer, OUT_FRAMES, 0.5);
-    // 新流的首次回调走的是「gain 从 0 起步」那条，与稳态不同。
+    // 新端点只重建 ring，OutputShared 与真实 switch_device 一样原样复用。open 会立即触发
+    // 首次回调，那时仍是 paused + rebuffering，ring 也尚未预填，必须安静且不记欠载。
+    let (mut next_producer, mut next_consumer) = ring(RING_FRAMES, CHANNELS);
+    shared.reset_position(saved_position);
+    shared.set_gain(1.0);
+    shared.set_source_drained(false);
+    shared.set_rebuffering(true);
+    shared.set_paused(true);
+    shared.reset_callback_timing();
     let mut next_cb = Callback::new();
-    let first = next_cb.run(&mut next_consumer, &next_shared);
+    let opening = next_cb.run(&mut next_consumer, &shared);
 
-    assert!(first.is_zero(), "新端点的首次回调发生了分配：{first:?}");
-    assert_eq!(
-        next_shared.underruns(),
-        0,
-        "新流首次回调有数据可读，不该记欠载"
-    );
     assert!(
-        next_shared.position_frames() > shared.played_frames(),
-        "换端点后位置要从已发声的位置接着走"
+        opening.is_zero(),
+        "新端点打开时的静音回调发生了分配：{opening:?}"
+    );
+    assert_eq!(
+        shared.position_frames(),
+        saved_position,
+        "新流尚未预填且仍暂停时，首次回调不得推进位置"
+    );
+    assert_eq!(shared.underruns(), 0, "重缓冲中的空读不是欠载");
+
+    // 预填完成后，SetDevice 的命令处理会按原传输意图解除暂停；下一次才是首个有声回调。
+    feed(&mut next_producer, OUT_FRAMES, 0.5);
+    shared.set_rebuffering(false);
+    shared.set_paused(false);
+    let first = next_cb.run(&mut next_consumer, &shared);
+
+    assert!(first.is_zero(), "新端点的首个有声回调发生了分配：{first:?}");
+    assert_eq!(
+        shared.underruns(),
+        0,
+        "新流首个有声回调有数据可读，不该记欠载"
+    );
+    assert_eq!(
+        shared.position_frames(),
+        saved_position + OUT_FRAMES as u64,
+        "换端点后位置要从旧端点已发声的位置接着走"
     );
 }
 
 #[test]
-fn integer_sample_conversion_allocates_nothing() {
-    // 真机上多数设备给的不是 f32。样本格式转换那圈也在回调体里，必须一并验。
-    let (mut producer, mut consumer, shared) = full_ring();
-    feed(&mut producer, OUT_FRAMES, 1.0);
+fn every_supported_sample_conversion_allocates_nothing() {
+    // `build_stream` 会为这五种格式分别单态化回调。一种 T 通过不能替其它 T 作证，
+    // 所以每条生产分支都必须实际执行一次。
+    macro_rules! check_format {
+        ($ty:ty) => {{
+            let (mut producer, mut consumer, shared) = full_ring();
+            feed(&mut producer, OUT_FRAMES, 1.0);
+            let mut out = vec![<$ty>::default(); OUT_FRAMES * CHANNELS];
+            let mut state = CallbackState::new(CHANNELS, 1_000, SCRATCH_FRAMES);
 
-    let mut out = vec![0i16; OUT_FRAMES * CHANNELS];
-    let mut state = CallbackState::new(CHANNELS, 1_000, SCRATCH_FRAMES);
+            let (_, counts) = armed(|| {
+                render_output_callback(&mut out, &mut state, &mut consumer, &shared, || 0);
+            });
 
-    let (_, counts) = armed(|| {
-        render_output_callback(&mut out, &mut state, &mut consumer, &shared, || 0);
-    });
+            assert!(
+                counts.is_zero(),
+                "{} 转换路径发生了分配：{counts:?}",
+                stringify!($ty)
+            );
+            assert_eq!(
+                shared.position_frames(),
+                OUT_FRAMES as u64,
+                "{} 转换路径仍须真正消费完整个设备缓冲",
+                stringify!($ty)
+            );
+            assert_eq!(
+                shared.underruns(),
+                0,
+                "{} 转换路径供给充足时不该欠载",
+                stringify!($ty)
+            );
+            out
+        }};
+    }
 
-    assert!(counts.is_zero(), "i16 转换路径发生了分配：{counts:?}");
+    let _ = check_format!(f32);
+    let _ = check_format!(i32);
+    let out = check_format!(i16);
+    let _ = check_format!(u16);
+    let _ = check_format!(u8);
+
     // 新流的增益从 0 起步，头几帧还在斜坡上——断言整段满量程会把斜坡当成故障。
     assert!(
         out[0] < i16::MAX / 2,
